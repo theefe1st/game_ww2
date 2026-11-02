@@ -51,16 +51,16 @@ export const T_END = turnOf(1945, 12, 16);
 // ——— войска ———
 export const UT = {
   inf: { n: `Пехотная армия`, sh: `пехота`, atk: 1.0, def: 1.3, mv: 1, max: 12, oil: 0, s0: 6, time: 2, cost: { pp: 26, mp: 10, st: 2, oil: 0 }, re: { pp: 3, mp: 1.6, st: 0.3, oil: 0 } },
-  mot: { n: `Моторизованный корпус`, sh: `мотопехота`, atk: 1.35, def: 1.15, mv: 2, max: 6, oil: 0.12, s0: 4, time: 3, cost: { pp: 34, mp: 6, st: 6, oil: 3 }, re: { pp: 6, mp: 1, st: 1, oil: 0.5 } },
-  arm: { n: `Танковая армия`, sh: `танки`, atk: 2.4, def: 1.6, mv: 2, max: 8, oil: 0.22, s0: 4, time: 3, cost: { pp: 50, mp: 6, st: 12, oil: 5 }, re: { pp: 8, mp: 1, st: 2, oil: 0.6 } },
-  air: { n: `Воздушный флот`, sh: `авиация`, atk: 0.9, def: 0.6, mv: 4, max: 10, oil: 0.2, s0: 4, time: 3, cost: { pp: 44, mp: 2, st: 8, oil: 4 }, re: { pp: 7, mp: 0.3, st: 1.5, oil: 0.5 } },
+  mot: { n: `Моторизованный корпус`, sh: `мотопехота`, atk: 1.35, def: 1.15, mv: 2, max: 6, oil: 0.08, s0: 4, time: 3, cost: { pp: 34, mp: 6, st: 6, oil: 3 }, re: { pp: 6, mp: 1, st: 1, oil: 0.5 } },
+  arm: { n: `Танковая армия`, sh: `танки`, atk: 2.4, def: 1.6, mv: 2, max: 8, oil: 0.15, s0: 4, time: 3, cost: { pp: 50, mp: 6, st: 12, oil: 5 }, re: { pp: 8, mp: 1, st: 2, oil: 0.6 } },
+  air: { n: `Воздушный флот`, sh: `авиация`, atk: 0.9, def: 0.6, mv: 4, max: 10, oil: 0.14, s0: 4, time: 3, cost: { pp: 44, mp: 2, st: 8, oil: 4 }, re: { pp: 7, mp: 0.3, st: 1.5, oil: 0.5 } },
 };
 export const LAND = (u) => u.t !== `air`;
 export const MOBILE = (u) => u.t === `arm` || u.t === `mot`;
 export const STACK = 8;
 // качество войск по годам 1939…1945 (выучка, доктрина, командование)
 const QUAL = {
-  GER: [1.32, 1.32, 1.27, 1.17, 1.1, 1.02, 0.96], SOV: [0.78, 0.76, 0.72, 0.86, 1.0, 1.1, 1.14], UK: [0.95, 0.95, 1.0, 1.05, 1.1, 1.1, 1.1],
+  GER: [1.32, 1.3, 1.22, 1.15, 1.08, 1.0, 0.94], SOV: [0.78, 0.76, 0.76, 0.88, 1.0, 1.1, 1.14], UK: [0.95, 0.95, 1.0, 1.05, 1.1, 1.1, 1.1],
   USA: [1, 1, 1, 0.96, 1.05, 1.1, 1.14], FRA: [0.92, 0.86, 0.85, 0.85, 0.9, 0.95, 0.95], POL: [0.78], ITA: [0.72, 0.7, 0.7, 0.74, 0.74, 0.74, 0.74],
   FIN: [1.15, 1.15, 1.1, 1.08, 1.05, 1.0, 1.0], ROM: [0.66, 0.66, 0.7, 0.7, 0.7, 0.75, 0.75], HUN: [0.7, 0.7, 0.7, 0.7, 0.72, 0.75, 0.75],
   BUL: [0.7], SVK: [0.66], YUG: [0.62], GRE: [0.86], NOR: [0.74], BEL: [0.76], NED: [0.66], DEN: [0.5], TUR: [0.7], ESP: [0.7],
@@ -81,14 +81,16 @@ export const blocOf = (S, n) => side(S, n) || n;
 export const alive = (S, n) => !!S.nat[n] && !S.nat[n].dead;
 export function ally(S, a, b) {
   if (a === b) return true;
-  const sa = side(S, a), sb = side(S, b);
-  return (!!sa && sa === sb) || S.coop.includes(pairKey(a, b));
+  const sa = side(S, a);
+  return !!sa && sa === side(S, b);
 }
+// «попутчики» (СССР и западные союзники): не воюют друг с другом, но армии и снабжение раздельны
+export const coop = (S, a, b) => S.coop.includes(pairKey(a, b));
 export const atWar = (S, a, b) => a !== b && S.wars.includes(pairKey(a, b));
 export const members = (S, s) => Object.keys(S.nat).filter((n) => alive(S, n) && side(S, n) === s);
 export function addWar(S, a, b) {
   const k = pairKey(a, b);
-  if (a === b || S.wars.includes(k) || ally(S, a, b) || (S.noWar || []).includes(k)) return false;
+  if (a === b || S.wars.includes(k) || ally(S, a, b) || (S.noWar || []).includes(k) || S.coop.includes(k)) return false;
   S.wars.push(k);
   return true;
 }
@@ -165,7 +167,7 @@ export function weather(S, R, n) {
     if (m === 11 || m === 0 || m === 1) {
       const cold = COLD_OK.has(n);
       const first = !cold && ((y === 1941 && m === 11) || (y === 1942 && m <= 1)) && !(S.nat[n]?.winter);
-      return W(`snow`, cold ? 0.92 : first ? 0.5 : 0.7, 2, 0.5, first ? `сильные морозы` : `зима`);
+      return { ...W(`snow`, cold ? 0.92 : first ? 0.5 : 0.7, 2, 0.5, first ? `сильные морозы` : `зима`), def: cold ? 1 : first ? 0.8 : 0.92 };
     }
     if ((m === 9 && h === 1) || (m === 10 && h === 0) || (m === 2 && h === 1) || (m === 3 && h === 0)) return W(`mud`, 0.7, 1, 0.6, `распутица`);
   }
@@ -193,7 +195,7 @@ export function supply(S, n) {
   const mem = side(S, n) ? members(S, side(S, n)) : [n];
   const friend = (i) => {
     const c = S.ctrl[i];
-    return c && (c === n || mem.includes(c) || S.coop.includes(pairKey(c, n)));
+    return c && (c === n || mem.includes(c));
   };
   // первичные узлы: столицы, отмеченные узлы, порты морских держав; вторичные — промышленные центры
   const prim = [], sec = [];
@@ -201,12 +203,14 @@ export function supply(S, n) {
     const i = R.i, c = S.ctrl[i];
     if (!friend(i)) continue;
     const coreMine = S.core[i] === c;
+    const held = S.t - (S.held[i] ?? -99);
     if ((R.cap && coreMine) || (R.hub && coreMine) || (R.hub && MARITIME.has(c))) prim.push([i, 0]);
     else if (R.sea.length && navZones(S, c).some((z) => R.sea.includes(z))) {
-      let off = MARITIME.has(c) ? 0 : 2;
+      // порт: свой — сразу, захваченный — после восстановления (4 хода), с потерями
+      let off = MARITIME.has(c) ? 0 : coreMine ? 2 : held >= 4 ? 3 : 5;
       if (AFR.has(R.k) && !MARITIME.has(c) && c !== `VIC` && c !== `FRA`) off = S.ctrl[G.byKey.malta.i] && ally(S, S.ctrl[G.byKey.malta.i], c) ? 3 : 5;
       prim.push([i, off]);
-    } else if (R.ic >= 3 && (coreMine || S.t - (S.held[i] ?? 99) >= 4)) sec.push([i, coreMine ? 0 : 2]);
+    } else if (R.ic >= 3 && (coreMine || held >= 6)) sec.push([i, coreMine ? 0 : 3]);
   }
   // связность: вторичные узлы работают, если связаны по суше с первичными
   const conn = new Uint8Array(NR + 1);
@@ -223,6 +227,7 @@ export function supply(S, n) {
   for (const [i] of sec) if (!conn[i] && d[i] < 0) d[i] = 6; // осаждённый город — сам себя
   pq.sort((x, y) => x[0] - y[0]);
   const axisSide = side(S, n) === `axis`;
+  const c0 = (j) => S.ctrl[j];
   while (pq.length) {
     let bi = 0;
     for (let k = 1; k < pq.length; k++) pq[k][0] < pq[bi][0] && (bi = k);
@@ -231,7 +236,10 @@ export function supply(S, n) {
     if (dv > d[i] && d[i] >= 0) continue;
     for (const j of G.R[i - 1].nb) {
       if (!friend(j)) continue;
-      const w = axisSide && S.core[j] === `SOV` ? 3 : 2, nd = dv + w;
+      // по захваченной земле: свежий захват — 5 (дороги и мосты разрушены), колея СССР — 3
+      // свежий захват (2 хода) — 5; Ось на советской земле и СССР за своими границами — 3 (перешивка колеи)
+      const fresh = S.core[j] !== c0(j) && S.t - (S.held[j] ?? -99) < 2;
+      const w = fresh ? 5 : axisSide && S.core[j] === `SOV` ? 3 : n === `SOV` && S.core[j] !== `SOV` ? 3 : 2, nd = dv + w;
       if (d[j] < 0 || nd < d[j]) ((d[j] = nd), pq.push([nd, j]));
     }
   }
@@ -242,7 +250,7 @@ export function supEff(S, n, i) {
   const v = supply(S, n)[i];
   if (v < 0) return 0;
   const h = v / 2;
-  return h <= 3 ? 1 : h <= 6 ? 0.9 : h <= 9 ? 0.8 : h <= 12 ? 0.7 : 0.6;
+  return h <= 2 ? 1 : h <= 4 ? 0.9 : h <= 6 ? 0.8 : h <= 8 ? 0.7 : h <= 10 ? 0.6 : 0.5;
 }
 // ——— боевая мощь ———
 const techM = (S, n, t) => {
@@ -267,7 +275,7 @@ export function defPow(S, u, T) {
   if (!LAND(u)) return 0;
   const U = UT[u.t];
   let p = U.def * u.s * orgM(u) * xpM(u) * quality(S, u.n) * techM(S, u.n, u.t) * Math.max(0.4, supEff(S, u.n, u.r)) * fuelM(S, u);
-  p *= TERR[T.t] * (T.city ? 1.2 : 1) * fortMul(S, T, u.n) * (1 + 0.1 * Math.min(2, u.ent || 0));
+  p *= TERR[T.t] * (T.city ? 1.2 : 1) * fortMul(S, T, u.n) * (1 + 0.1 * Math.min(2, u.ent || 0)) * (weather(S, T, u.n).def || 1);
   return p;
 }
 export function airPow(S, u, T) {
@@ -277,7 +285,7 @@ export function airPow(S, u, T) {
 export function airNear(S, T, pred) {
   const out = [];
   for (const [i, k] of T.near) if (k <= 2) for (const u of ix(S)[i]) u.t === `air` && u.ap > 0 && u.o > 15 && pred(u) && out.push(u);
-  return out;
+  return out.length > 3 ? out.sort((a, b) => b.s * b.o - a.s * a.o).slice(0, 3) : out;
 }
 // Оценка боя: атакующие — [{u, src, amph}]
 export function estimate(S, att, Ti) {
@@ -291,8 +299,8 @@ export function estimate(S, att, Ti) {
   const airA = an ? airNear(S, T, (u) => u.n === an) : [], airD = dn ? airNear(S, T, (u) => ally(S, u.n, dn) && atWar(S, u.n, an)) : [];
   const pa = airA.reduce((s, u) => s + airPow(S, u, T), 0), pd = airD.reduce((s, u) => s + airPow(S, u, T), 0);
   const sup = (pa + 0.5) / (pa + pd + 1);
-  A += pa * 0.55 * (0.4 + sup);
-  D += pd * 0.35 * (1.4 - sup);
+  A += pa * 0.38 * (0.4 + sup);
+  D += pd * 0.3 * (1.4 - sup);
   return { A, D: Math.max(0.3, D), r: A / Math.max(0.3, D), airA, airD, pa, pd, defs };
 }
 // Пути отхода для отряда обороняющегося
@@ -330,7 +338,7 @@ export function battle(S, att, Ti, o = {}) {
   for (const a of att) {
     const l = a.u.s * fa;
     a.u.s -= l, (rep.lostA += l);
-    a.u.o = Math.max(5, a.u.o - (10 + 9 / Math.max(0.4, r)) * (mod.oa || 1));
+    a.u.o = Math.max(5, a.u.o - (12 + 10 / Math.max(0.4, r)) * (mod.oa || 1));
     a.u.x = Math.min(100, a.u.x + (win ? 4 : 2));
     a.u.at = 1;
     a.u.mv = Math.max(0, a.u.mv - (a.amph ? 9 : 1));
@@ -504,7 +512,7 @@ export const TECH = {
   air: { n: `Авиация`, d: `сила авиации +10 % за уровень` },
   ind: { n: `Промышленность`, d: `производство +6 %, синтетическое топливо` },
 };
-export const techCost = (lv) => 60 + lv * 45;
+export const techCost = (lv) => 25 + lv * 20;
 export const techYear = (lv) => 1938 + lv;
 // Доход державы за ход
 export function income(S, n) {
@@ -512,7 +520,8 @@ export function income(S, n) {
   if (!alive(S, n)) return o;
   for (const R of G.R) {
     if (S.ctrl[R.i] !== n) continue;
-    const k = S.core[R.i] === n ? 1 : 0.4, ks = supply(S, n)[R.i] >= 0 ? 1 : 0.3;
+    // оккупированное: 40%, советская земля — 25% (выжженная земля, партизаны)
+    const k = S.core[R.i] === n ? 1 : S.core[R.i] === `SOV` ? 0.25 : 0.4, ks = supply(S, n)[R.i] >= 0 ? 1 : 0.3;
     o.pp += (R.ic + (S.icAdd[R.i] || 0)) * k * ks;
     o.oil += R.oil * k * ks;
     o.st += R.st * k * ks;
@@ -544,7 +553,7 @@ export function economy(S, n) {
   nat.pp += inc.pp, (nat.oil += inc.oil - upkeep(S, n)), (nat.st += inc.st), (nat.mp += inc.mp);
   nat.oil = Math.max(-5, nat.oil);
   // наука — фиксированная доля
-  const rp = inc.pp * 0.1;
+  const rp = inc.pp * 0.15;
   nat.pp -= rp;
   if (nat.res) {
     nat.rp = (nat.rp || 0) + rp;
@@ -561,7 +570,7 @@ export function economy(S, n) {
   const sup = supply(S, n);
   const list = S.units.filter((u) => u.n === n && u.s < UT[u.t].max && sup[u.r] >= 0).sort((a, b) => a.s / UT[a.t].max - b.s / UT[b.t].max);
   for (const u of list) {
-    const R = UT[u.t].re, want = Math.min(UT[u.t].max - u.s, u.t === `inf` ? 2.2 : 1.6);
+    const R = UT[u.t].re, want = Math.min(UT[u.t].max - u.s, u.t === `inf` ? 2.2 : 1.6) * supEff(S, n, u.r);
     let k = want;
     k = Math.min(k, budget / R.pp, nat.mp / Math.max(0.01, R.mp), R.st ? Math.max(0, nat.st) / R.st : 99, R.oil ? Math.max(0, nat.oil) / R.oil : 99);
     if (k <= 0.05) continue;
@@ -596,7 +605,7 @@ export const itemCost = (k) => ITEMS[k].u ? UT[ITEMS[k].u].cost : ITEMS[k].cost;
 export const itemTime = (k) => ITEMS[k].u ? UT[ITEMS[k].u].time : ITEMS[k].time;
 export function canBuy(S, n, k) {
   const c = itemCost(k), nat = S.nat[n];
-  return nat.mp >= c.mp && nat.st >= c.st && nat.oil >= c.oil;
+  return (!c.mp || nat.mp >= c.mp) && (!c.st || nat.st >= c.st) && (!c.oil || nat.oil >= c.oil);
 }
 export function buy(S, n, k, r) {
   const c = itemCost(k), nat = S.nat[n];
@@ -607,12 +616,19 @@ export function buy(S, n, k, r) {
 }
 // Куда ставить новые войска: выбранный регион или столица / ближайший свой узел
 export function deployRegion(S, n, want) {
-  const ok = (i) => i && S.ctrl[i] === n && supply(S, n)[i] >= 0 && room(S, i) && !enemyIn(S, i, n);
+  const ok = (i, any) => i && (S.ctrl[i] === n || (any && S.ctrl[i] && ally(S, S.ctrl[i], n))) && supply(S, n)[i] >= 0 && room(S, i) && !enemyIn(S, i, n);
   if (ok(want)) return want;
   const nat = S.nat[n];
-  for (const k of nat.arrive || []) if (ok(G.byKey[k]?.i)) return G.byKey[k].i;
+  for (const k of nat.arrive || []) if (ok(G.byKey[k]?.i, true)) return G.byKey[k].i;
   const cap = G.R.find((R) => R.cap && S.core[R.i] === n && S.ctrl[R.i] === n);
   if (cap && ok(cap.i)) return cap.i;
+  // ближайший к столице свой регион (а не глубокий тыл)
+  if (cap) {
+    const d = new Map([[cap.i, 0]]), q = [cap.i];
+    for (let k = 0; k < q.length; k++) for (const b of reg(q[k]).nb) !d.has(b) && S.ctrl[b] === n && (d.set(b, d.get(q[k]) + 1), q.push(b));
+    const c = [...d.keys()].filter((i) => ok(i)).sort((a, b) => d.get(a) - d.get(b) || reg(b).ic - reg(a).ic)[0];
+    if (c) return c;
+  }
   const sup = supply(S, n);
   const cand = G.R.filter((R) => ok(R.i)).sort((a, b) => sup[a.i] - sup[b.i] || b.ic - a.ic);
   return cand[0]?.i || 0;
@@ -625,7 +641,7 @@ function finishItem(S, n, q) {
     S.log.push({ t: S.t, n, k: `new`, txt: `${NATIONS[n].n}: сформирована ${u.nm} (${reg(r).n})` });
   } else if (q.k === `fort`) {
     const r = q.r || deployRegion(S, n, 0);
-    r && ((S.fort[r] = Math.min(3, (S.fort[r] || 0) + 1)), (S.fortN[r] = n));
+    r && S.ctrl[r] === n && ((S.fort[r] = Math.min(3, (S.fort[r] || 0) + 1)), (S.fortN[r] = n));
   } else if (q.k === `ic`) {
     const r = q.r || deployRegion(S, n, 0);
     r && (S.icAdd[r] = (S.icAdd[r] || 0) + 1);
@@ -646,11 +662,11 @@ export function refresh(S, n) {
     const s = sup[u.r];
     if (s < 0) {
       u.o = Math.max(5, u.o - 22);
-      u.s = Math.max(0.4, u.s - 0.6 - u.s * 0.06);
+      u.s = Math.max(0.4, u.s - 0.8 - u.s * 0.08);
       u.oos = (u.oos || 0) + 1;
     } else {
       u.oos = 0;
-      u.o = Math.min(nat.orgMax || 100, u.o + (fought ? 18 : 30) * supEff(S, n, u.r));
+      u.o = Math.min(nat.orgMax || 100, u.o + (fought ? 12 : 28) * supEff(S, n, u.r));
       LAND(u) && (u.ent = Math.min(2, (u.ent || 0) + (fought ? 0 : 1)));
     }
   }
@@ -667,7 +683,8 @@ export function vpState(S, n) {
   }
   return { core, lost, k: core ? lost / core : 0 };
 }
-export const capitalOf = (S, n) => G.R.find((R) => R.cap && S.core[R.i] === n);
+// столица — исконная (own), а не присоединённая (Таллин для СССР — не столица)
+export const capitalOf = (S, n) => G.R.find((R) => R.cap && R.own === n && S.core[R.i] === n) || (n === `VIC` ? G.byKey.vichy || null : null);
 export function capitalLost(S, n) {
   const c = capitalOf(S, n);
   return !!c && S.ctrl[c.i] !== n && !ally(S, S.ctrl[c.i], n);
