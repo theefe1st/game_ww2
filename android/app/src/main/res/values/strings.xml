@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Мировой фронт</string>
+    <string name="title_activity_main">Мировой фронт</string>
+    <string name="package_name">com.worldfront.game</string>
+    <string name="custom_url_scheme">com.worldfront.game</string>
+</resources>
