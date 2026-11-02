@@ -1,0 +1,29 @@
+# зависимости и сборки
+node_modules/
+dist/
+dist-single/
+release/
+backup/
+*.log
+
+# тесты и данные для генерации карт (данные: tools/get-ne-data.sh)
+tools/shots/
+tools/data/*.geojson
+tools/data/dl.done
+
+# Android: сборки и локальные настройки
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+
+# ключ подписи — НЕ выкладывать в публичный репозиторий
+android/keystore/*.jks
+android/keystore/*.keystore
+android/keystore.properties
+
+# бинарные файлы Android хранятся в tools/android-binaries.b64 (распаковка: tools/unpack-binaries.sh)
+android/app/src/main/res/**/*.png
+android/gradle/wrapper/gradle-wrapper.jar

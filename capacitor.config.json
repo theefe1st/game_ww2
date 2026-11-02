@@ -1,0 +1,17 @@
+{
+	"appId": "com.worldfront.game",
+	"appName": "Мировой фронт",
+	"webDir": "dist",
+	"backgroundColor": "#14171a",
+	"android": {
+		"backgroundColor": "#14171a",
+		"allowMixedContent": false
+	},
+	"plugins": {
+		"SystemBars": {
+			"hidden": true,
+			"style": "DARK",
+			"insetsHandling": "css"
+		}
+	}
+}
