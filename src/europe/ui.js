@@ -1,20 +1,22 @@
-// «Европа 1939–1945»: интерфейс стратегического режима — выбор кампании, карта, панель региона, приказы войскам,
-// бой с прогнозом, производство, наука, державы и дипломатия, события, сводка хода, итог, автосохранение.
-// Хост (game.js) даёт: icon(name, k) → <img>, sfx {click, select, move, boom, capture, turn, error, win, lose},
+// «Европа 1939–1945» (v0.6.1): интерфейс стратегического режима — дивизии на карте, как в «Мировом фронте».
+// Нажмите на свою дивизию — подсветятся цели: зелёный — марш, жёлтый — занять, красный — атака, оранжевый — обстрел,
+// фиолетовый — десант. Атака — с прогнозом и подтверждением. Своя пустая провинция — формирование дивизий.
+// Хост (game.js) даёт: icon(name, k) → <img>, sfx {click, select, move, boom, capture, turn, error, win, lose, tele},
 // exit() — в главное меню, deep(op, nat, diff, cb) — тактическая битва из «Мирового фронта» (cb({win, stars}) | cb(null)).
 import EJ from '../data/europe.json';
 import './europe.css';
 import { initMap, newGame, turnSteps, save, load } from './engine.js';
 import {
-  G, reg, UT, LAND, MOBILE, STACK, TERR_N, TECH, ITEMS, dateLabel, shortDate, tDate, T_END, weather, supply, estimate, battle, targets, moveUnit, occupy,
-  railTargets, railMove, seaTargets, seaMove, techCost, techYear, income, upkeep, itemCost, itemTime, canBuy, buy, deployRegion, vpState, totalStr,
-  alive, ally, atWar, side, coop, pairKey, unitsIn, landIn, touch,
+  G, reg, UT, TYPES, AIR, MAXS, MECH, TERR_N, TECH, xpL, orgMax, dateLabel, shortDate, tDate, weather, supply, combat, attack, moves,
+  attackTargets, amphTargets, moveTo, railTargets, railMove, seaTargets, seaMove, canAir, airEst, airStrike, techCost, techYear, income,
+  upkeep, buildCost, buildSite, canBuild, build, canBuyAir, buyAir, reCost, canReinforce, reinforce, mvOf, fortLvl, vpState, totalStr,
+  alive, ally, atWar, side, coop, pairKey, unitAt,
 } from './rules.js';
 import { NATIONS } from './regions.js';
 import { EV, resolveEvent, playerWar } from './events.js';
-import { EuropeMap, natRGB } from './map.js';
+import { EuropeMap, natRGB, sprite } from './map.js';
 
-const KEY = `wf_eu_v1`, KEY_OPT = `wf_eu_opt`;
+const KEY = `wf_eu_v2`, KEY_OPT = `wf_eu_opt`;
 const DIFF = [`Лёгкая`, `Нормальная`, `Сложная`];
 const esc = (s) => String(s ?? ``).replace(/[&<>"]/g, (c) => ({ '&': `&amp;`, '<': `&lt;`, '>': `&gt;`, '"': `&quot;` })[c]);
 const f0 = (v) => Math.round(v).toLocaleString(`ru-RU`);
@@ -27,6 +29,7 @@ const plural = (n, a, b, c) => {
   const m = Math.abs(n) % 100, k = m % 10;
   return m > 10 && m < 20 ? c : k === 1 ? a : k >= 2 && k <= 4 ? b : c;
 };
+const divs = (n) => `${n} ${plural(n, `дивизия`, `дивизии`, `дивизий`)}`;
 export const NAT_INFO = {
   SOV: {
     t: `СССР`, s: `Пакт с Германией, Польша, Зимняя война — и 22 июня. Выстоять в 1941-м, перемолоть вермахт и взять Берлин.`,
@@ -37,13 +40,13 @@ export const NAT_INFO = {
     goal: `Победа — устоять до конца 1945 года или разгромить СССР и Великобританию. Поражение — капитуляция Германии.`, hint: `Сложность: сильная армия, но время работает против вас.`,
   },
   UK: {
-    t: `Великобритания`, s: `Одна против рейха в 1940-м: Битва за Британию, пустыня Африки, Средиземное море, «Факел», «Оверлорд».`,
+    t: `Великобритания`, s: `Одна против рейха в 1940-м: пустыня Африки, Средиземное море, «Факел», «Оверлорд».`,
     goal: `Победа — капитуляция Германии. Поражение — капитуляция Великобритании.`, hint: `Сложность: империя на морях, армия собирается годами.`,
   },
 };
 const VIEW = {
-  1939: { SOV: `minsk kiev leningrad warsaw lwow`, GER: `berlin warsaw krakow konigsberg poznan`, UK: `london paris lille brussels` },
-  1941: { SOV: `minsk kiev leningrad smolensk lwow`, GER: `minsk warsaw kiev konigsberg lwow`, UK: `tobruk alexandria benghazi matruh cairo` },
+  1939: { SOV: `minsk kiev wilno lwow bialystok`, GER: `warsaw poznan pomorze lodz krakow`, UK: `lille paris brussels reims metz` },
+  1941: { SOV: `minsk lwow bialystok kiev wilno`, GER: `warsaw lwow bialystok minsk krakow`, UK: `tobruk alexandria benghazi matruh sollum` },
 };
 // тактические битвы «Мирового фронта», доступные из стратегической карты
 export const DEEP = [
@@ -58,16 +61,27 @@ export const DEEP = [
   { op: `berlin45`, nat: `SOV`, n: `Берлинская операция · 1945`, keys: `berlin stettin dresden leipzig breslau`, t0: 124, t1: 152 },
 ];
 const WX_ICON = { fair: `sun`, heat: `sun`, rain: `rain`, mud: `mud`, snow: `snow`, cold: `frost` };
-const KIND_N = { move: `марш`, capture: `занять`, attack: `атака`, amph: `десант`, air: `перебазирование`, rail: `по железной дороге`, sea: `морем` };
-const KPRI = { attack: 5, amph: 4, capture: 3, move: 2, air: 1 };
 const SIDE_N = { axis: `Ось`, allies: `Союзники`, comintern: `СССР и союзники` };
-const SYM = (t, c, w = 20, h = 13) =>
-  `<svg class="eu-sym" viewBox="0 0 20 13" width="${w}" height="${h}"><rect x=".5" y=".5" width="19" height="12" fill="${c}" stroke="#0b0d0f"/>` +
-  (t === `inf` || t === `mot` ? `<path d="M1 1L19 12M19 1L1 12" stroke="#15130e" stroke-width="1.3"/>` : ``) +
-  (t === `arm` || t === `mot` ? `<rect x="4.5" y="3.5" width="11" height="6" rx="3" fill="none" stroke="#15130e" stroke-width="1.3"/>` : ``) +
-  (t === `air` ? `<path d="M3 6.5h14M10 2.5v8M7 10.5h6" stroke="#15130e" stroke-width="1.4"/>` : ``) +
-  `</svg>`;
+const TYPE_N = { inf: `Пехота`, art: `Артиллерия`, cav: `Кавалерия`, mot: `Мотопехота`, arm: `Танки` };
+const OUT_N = { destroyed: `уничтожена`, surrender: `сдалась`, retreat: `отступила`, hold: `удержалась` };
 const FLAG = (n, s = 14) => `<span class="eu-flag" style="width:${s}px;height:${Math.round(s * 0.72)}px;background:${rgb(natRGB(n))}"></span>`;
+const SPRU = new Map();
+// пиксельный спрайт дивизии для HTML (×3)
+const SPI = (t, n, cls = ``) => {
+  const k = `${t}|${n}`;
+  let s = SPRU.get(k);
+  if (!s) {
+    try {
+      s = sprite(t, n, 3).toDataURL();
+    } catch {
+      s = ``;
+    }
+    SPRU.set(k, s);
+  }
+  return `<img class="eu-spr ${cls}" src="${s}" alt="" width="48" height="30">`;
+};
+const cost = (c) => [`${f0(c.pp)} ПП`, c.mp ? `${f0(c.mp)} чел.` : ``, c.oil ? `${f0(c.oil)} нефти` : ``].filter(Boolean).join(` · `);
+const bar = (k, cls = ``) => `<span class="eu-bar ${cls}"><i style="width:${Math.round(Math.max(0, Math.min(1, k)) * 100)}%"></i></span>`;
 
 export class EuropeUI {
   constructor(root, host = {}) {
@@ -75,24 +89,26 @@ export class EuropeUI {
     this.host = host;
     this.S = null;
     this.sel = 0;
-    this.pick = new Set();
     this.mode = null;
+    this.pv = null;
     this.undo = [];
+    this.skip = new Set();
+    this.readyS = new Set();
+    this.tg = new Map();
     this.busy = false;
-    this.opt = { start: 1939, nat: `SOV`, diff: host.diff ?? 1, hist: true, ...this.loadOpt() };
+    this.opt = { start: 1939, nat: `SOV`, diff: host.diff ?? 1, hist: true, anim: true, ...this.loadOpt() };
     initMap(EJ);
     root.innerHTML = `<canvas class="eu-cv"></canvas>
 <div class="eu-top"></div>
 <div class="eu-rail"></div>
-<div class="eu-zoom"><button class="btn icon" data-a="zin" aria-label="Приблизить">+</button><button class="btn icon" data-a="zout" aria-label="Отдалить">−</button></div>
-<div class="eu-sheet panel"></div>
+<div class="eu-sheet"></div>
 <div class="eu-rep hidden"></div>
 <div class="eu-toasts"></div>
 <div class="eu-wait panel hidden"></div>
 <div class="eu-hub hidden"></div>
 <div class="eu-modal hidden"></div>`;
     this.$ = {};
-    for (const k of [`top`, `rail`, `zoom`, `sheet`, `rep`, `toasts`, `wait`, `hub`, `modal`]) this.$[k] = root.querySelector(`.eu-${k}`);
+    for (const k of [`top`, `rail`, `sheet`, `rep`, `toasts`, `wait`, `hub`, `modal`]) this.$[k] = root.querySelector(`.eu-${k}`);
     this.cv = root.querySelector(`.eu-cv`);
     root.addEventListener(`click`, (e) => {
       const b = e.target.closest(`[data-a]`);
@@ -129,7 +145,7 @@ export class EuropeUI {
   static hasSave() {
     try {
       const m = JSON.parse(localStorage.getItem(`${KEY}_meta`) || `null`);
-      return m && m.v === 1 && localStorage.getItem(KEY) ? m : null;
+      return m && m.v === 2 && localStorage.getItem(KEY) ? m : null;
     } catch {
       return null;
     }
@@ -139,27 +155,22 @@ export class EuropeUI {
     if (!S || !S.player) return;
     try {
       localStorage.setItem(KEY, save(S));
-      localStorage.setItem(`${KEY}_meta`, JSON.stringify({ v: 1, p: S.player, t: S.t, d: S.diff, over: !!S.over, at: Date.now() }));
+      localStorage.setItem(`${KEY}_meta`, JSON.stringify({ v: 2, p: S.player, t: S.t, d: S.diff, over: !!S.over, at: Date.now() }));
     } catch {}
   }
   saveSoon() {
     clearTimeout(this.svT);
-    this.svT = setTimeout(() => this.save(), 500);
+    this.svT = setTimeout(() => this.save(), 400);
   }
   loadGame() {
     try {
       const s = localStorage.getItem(KEY);
       if (!s) return null;
       const S = load(s);
-      return S && S.nat && S.player ? S : null;
+      return S && S.nat && S.player && S.v === 2 ? S : null;
     } catch {
       return null;
     }
-  }
-  wipe() {
-    try {
-      localStorage.removeItem(KEY), localStorage.removeItem(`${KEY}_meta`);
-    } catch {}
   }
   // ——— открытие и закрытие ———
   open() {
@@ -194,10 +205,11 @@ export class EuropeUI {
     }
     if (!this.$.hub.classList.contains(`hidden`)) {
       this.sfx(`click`);
-      this.hubBack ? this.hubBack() : this.exit();
+      this.exit();
       return true;
     }
     if (this.busy) return true;
+    if (this.pv) return this.closePv(), this.render(), true;
     if (this.mode) return (this.mode = null), this.render(), true;
     if (this.sel) return this.select(0), true;
     this.showMenu();
@@ -211,24 +223,24 @@ export class EuropeUI {
       const bg = newGame({ seed: 1, player: null, start: 1939 });
       bg.player = o.nat;
       this.S = null;
+      this.map.setReady(new Set());
       this.map.setState(bg);
       this.map.fit([90, 40, 800, 640], 2);
     }
     this.root.classList.add(`hubmode`);
     this.$.hub.classList.remove(`hidden`);
     this.closeModal(true);
-    this.hubBack = null;
     const cont = m && !m.over
       ? `<button class="btn gold eu-cont" data-a="cont">Продолжить<small>${esc(NAT_INFO[m.p]?.t || m.p)} · ${esc(shortDate(m.t))} · ход ${m.t + 1} · ${esc(DIFF[m.d] || ``).toLowerCase()}</small></button>`
       : ``;
     this.$.hub.innerHTML = `<div class="eu-hubin">
-<div class="logo sm">ЕВРОПА <br>1939–1945</div>
-<div class="tagline">Стратегическая кампания · вся война в Европе · ход — полмесяца</div>
+<div class="logo sm">ЕВРОПА<br>1939–1945</div>
+<div class="tagline">Вся война в Европе · дивизии на карте · ход — полмесяца</div>
 ${cont}
 <div class="eu-h3">Начало</div>
 <div class="seg eu-seg"><button class="btn ${o.start === 1939 ? `on` : ``}" data-a="opt" data-k="start" data-v="1939">1 сентября 1939</button><button class="btn ${o.start === 1941 ? `on` : ``}" data-a="opt" data-k="start" data-v="1941">22 июня 1941</button></div>
 <div class="eu-h3">Держава</div>
-<div class="eu-nats">${[`SOV`, `GER`, `UK`].map((n) => `<div class="eu-nat panel ${o.nat === n ? `sel` : ``}" data-a="opt" data-k="nat" data-v="${n}"><div class="eu-nh">${FLAG(n, 22)}<b>${NAT_INFO[n].t}</b></div><p>${esc(NAT_INFO[n].s)}</p><small>${esc(NAT_INFO[n].hint)}</small></div>`).join(``)}</div>
+<div class="eu-nats">${[`SOV`, `GER`, `UK`].map((n) => `<div class="eu-nat panel ${o.nat === n ? `sel` : ``}" data-a="opt" data-k="nat" data-v="${n}"><div class="eu-nh">${SPI(n === `GER` ? `arm` : `inf`, n)}<b>${NAT_INFO[n].t}</b></div><p>${esc(NAT_INFO[n].s)}</p><small>${esc(NAT_INFO[n].hint)}</small></div>`).join(``)}</div>
 <div class="eu-h3">Сложность</div>
 <div class="seg eu-seg">${DIFF.map((d, i) => `<button class="btn ${o.diff === i ? `on` : ``}" data-a="opt" data-k="diff" data-v="${i}">${d}</button>`).join(``)}</div>
 <div class="eu-tog panel ${o.hist ? `on` : ``}" data-a="opt" data-k="hist" data-v="${o.hist ? 0 : 1}"><span class="eu-box">${o.hist ? `✓` : ``}</span><span><b>Исторический ход ИИ</b><small>ИИ держится реальных сроков: «Барбаросса», «Тайфун», «Уран», «Багратион», «Оверлорд». Выключите — и война пойдёт своим путём.</small></span></div>
@@ -276,26 +288,23 @@ ${cont}
   enter(fresh) {
     const S = this.S;
     this.undo = [];
+    this.skip.clear();
     this.sel = 0;
-    this.pick.clear();
     this.mode = null;
+    this.pv = null;
     this.marks = [];
     this.root.classList.remove(`hubmode`);
     this.$.hub.classList.add(`hidden`);
     this.ensureMap();
     this.map.setState(S);
     this.map.setMarks([]);
+    this.map.setArrow(null);
     this.map.flash(null);
     this.render();
     const keys = (VIEW[S.start === 1941 && S.t < 56 ? 1941 : 1939][S.player] || `berlin`).split(` `).map((k) => G.byKey[k]?.i).filter(Boolean);
-    this.map.fitRegions(keys, 2.6);
+    this.map.fitRegions(keys, 2.5);
     this.save();
-    if (S.deepPend) {
-      // приложение закрывали во время тактической битвы — удар решается обычным боем
-      const p = S.deepPend;
-      this.deepDone(null, p);
-      return;
-    }
+    if (S.deepPend) return this.deepDone(null, S.deepPend);
     if (fresh) this.intro();
     else this.flow();
   }
@@ -303,15 +312,15 @@ ${cont}
     const S = this.S, P = S.player, I = NAT_INFO[P];
     const t41 = S.start === 1941;
     const txt = {
-      SOV: t41 ? `Разведка доносит: у границы сосредоточены десятки немецких дивизий. До удара — считанные дни. Укрепите приграничные округа, держите резервы у Смоленска и Киева.` : `1 сентября 1939 года Германия напала на Польшу. Пакт о ненападении развязал вам руки на западе — но вермахт уже у ворот.`,
-      GER: t41 ? `Польша, Франция и Балканы разгромлены. На востоке ждут 150 дивизий — и решение о «Барбароссе» за вами.` : `1 сентября 1939 года. Группы армий «Север» и «Юг» перешли польскую границу. Англия и Франция объявят войну через два дня.`,
-      UK: t41 ? `Британия держится. В пустыне Роммель рвётся к Египту, на востоке Германия готовит удар по СССР — у вас появится союзник.` : `Германия напала на Польшу. 3 сентября Британия объявляет войну. Экспедиционный корпус отправляется во Францию.`,
+      SOV: t41 ? `Разведка доносит: у границы сосредоточены десятки немецких дивизий. До удара — считанные дни. Окопайтесь, держите резервы у Смоленска и Киева.` : `1 сентября 1939 года Германия напала на Польшу. Пакт о ненападении развязал вам руки на западе — но вермахт уже у ворот.`,
+      GER: t41 ? `Польша, Франция и Балканы разгромлены. На востоке ждут советские дивизии — и решение о «Барбароссе» за вами.` : `1 сентября 1939 года. Танковые дивизии перешли польскую границу. Англия и Франция объявят войну через два дня.`,
+      UK: t41 ? `Британия держится. В пустыне Роммель рвётся к Египту, на востоке Германия готовит удар по СССР — у вас появится союзник.` : `Германия напала на Польшу. 3 сентября Британия объявляет войну. Экспедиционный корпус уже во Франции.`,
     }[P];
     this.modal(`<h2>${esc(dateLabel(S.t))}</h2><div class="eu-sub">${FLAG(P, 18)} ${esc(I.t)} · ${esc(DIFF[S.diff])} · ${S.histOn ? `исторический ИИ` : `свободная война`}</div>
 <p>${esc(txt)}</p><p class="eu-goal">${esc(I.goal)}</p>
-<div class="eu-tips"><div>${this.ic(`dot`, 2)} Нажмите на регион со своими армиями — на карте подсветятся цели: <b class="c-move">зелёный</b> — марш, <b class="c-cap">жёлтый</b> — занять, <b class="c-att">красный</b> — атака.</div>
-<div>${this.ic(`dot`, 2)} Без снабжения армии тают. Погода, реки, горы и укрепления усиливают оборону.</div>
-<div>${this.ic(`dot`, 2)} Промышленность строит армии и пополняет потери, наука улучшает войска.</div></div>
+<div class="eu-tips"><div>${this.ic(`dot`, 2)} Нажмите на свою дивизию — подсветятся цели: <b class="c-move">зелёный</b> — марш, <b class="c-cap">жёлтый</b> — занять, <b class="c-att">красный</b> — атака. Перед атакой покажем шанс и потери.</div>
+<div>${this.ic(`dot`, 2)} В провинции — одна дивизия. Фланги усиливают атаку, окопы и местность — оборону. Без снабжения дивизии слабеют.</div>
+<div>${this.ic(`dot`, 2)} Нажмите на свою пустую провинцию, чтобы сформировать дивизию. «Следующая» — к дивизии без приказа.</div></div>
 <div class="eu-row"><button class="btn gold" data-a="mflow">К карте</button></div>`);
   }
   // ——— раскладка ———
@@ -321,170 +330,292 @@ ${cont}
     this.root.classList.toggle(`land`, land);
     this.root.classList.toggle(`port`, !land);
     if (this.root.classList.contains(`hubmode`)) return this.map.setInset(0, 0, 0, 0);
-    const top = this.$.top.getBoundingClientRect(), sh = this.$.sheet.getBoundingClientRect();
-    const t = Math.max(0, top.bottom - rr.top) + 4;
-    if (land) this.map.setInset(0, t, Math.max(0, rr.right - sh.left) + 4, 0);
-    else this.map.setInset(0, t, 0, Math.max(0, rr.bottom - sh.top) + 4);
+    const top = this.$.top.getBoundingClientRect(), sh = this.$.sheet.getBoundingClientRect(), card = this.$.sheet.querySelector(`.eu-card`);
+    const t = Math.max(0, top.bottom - rr.top) + 2;
+    if (land) this.map.setInset(0, t, card ? Math.max(0, rr.right - sh.left) + 2 : 0, 0);
+    else this.map.setInset(0, t, 0, Math.max(0, rr.bottom - sh.top) + 2);
   }
   render() {
     const S = this.S;
     if (!S) return;
-    this.uix = new Map(S.units.map((u) => [u.id, u]));
+    this.computeReady();
+    this.updateHL();
     this.renderTop();
     this.renderRail();
     this.renderSheet();
-    this.updateHL();
     this.layout();
   }
   unit(id) {
-    return (this.uix && this.uix.get(id)) || this.S.units.find((u) => u.id === id) || null;
+    return this.S.units.find((u) => u.id === id) || null;
+  }
+  selU() {
+    const u = this.sel ? unitAt(this.S, this.sel) : null;
+    return u && u.n === this.S.player ? u : null;
+  }
+  canAct(u) {
+    const S = this.S;
+    if (u.fr || u.s < 1) return false;
+    if (u.mv > 0 && moves(S, u).size) return true;
+    return attackTargets(S, u).size > 0 || amphTargets(S, u).length > 0;
+  }
+  computeReady() {
+    const S = this.S, P = S.player, set = new Set();
+    if (!S.over) for (const u of S.units) u.n === P && !this.skip.has(u.id) && this.canAct(u) && set.add(u.id);
+    this.readyS = set;
+    this.map?.setReady(set);
   }
   inc() {
-    const S = this.S, P = S.player, k = `${S.t}|${S._ver}`;
+    const S = this.S, P = S.player, k = `${S.t}|${S._ver}|${S._uv}`;
     if (this.incK !== k) (this.incK = k), (this.incV = income(S, P)), (this.upV = upkeep(S, P));
     return this.incV;
   }
   renderTop() {
     const S = this.S, P = S.player, nat = S.nat[P], inc = this.inc(), cap = G.R.find((R) => R.cap && R.own === P) || G.R[0];
-    const wx = weather(S, cap, P);
+    const wx = weather(S, cap, P), net = inc.oil - this.upV;
     const res = [
-      [`pp`, `Промышленность (ПП)`, nat.pp, inc.pp],
-      [`oil`, `Нефть`, nat.oil, inc.oil - this.upV],
-      [`st`, `Сталь`, nat.st, inc.st],
-      [`mp`, `Людские резервы`, nat.mp, inc.mp],
+      [`pp`, `ПП`, nat.pp, inc.pp],
+      [`oil`, `Нефть`, nat.oil, net],
+      [`mp`, `Люди`, nat.mp, inc.mp],
     ];
-    this.$.top.innerHTML = `<div class="eu-chip panel eu-who">${FLAG(P, 18)}<span><b>${esc(NAT_INFO[P]?.t || NATIONS[P].n)}</b><small>${esc(DIFF[S.diff])}</small></span></div>
-<button class="eu-chip panel eu-date" data-a="log">${FLAG(P, 16)}<span><b>${esc(dateLabel(S.t))}</b><small>ход ${S.t + 1} · ${this.ic(WX_ICON[wx.k] || `sun`, 1)} ${esc(wx.n)}</small></span></button>
-<button class="eu-res panel" data-a="prod">${res.map(([k, n, v, d]) => `<span class="eu-r" title="${n}"><i class="r-${k}"></i><b class="${v < 0 ? `warn` : ``}">${f0(v)}</b><small class="${d < 0 ? `warn` : ``}">${sgn(d)}</small></span>`).join(``)}</button>
-<div class="grow"></div>
-<button class="btn icon" data-a="menu" aria-label="Меню">${this.ic(`menu`, 2)}</button>`;
-  }
-  ready() {
-    const S = this.S, P = S.player;
-    return S.units.filter((u) => u.n === P && u.mv > 0 && LAND(u) && !(u.at && !MOBILE(u)));
+    this.$.top.innerHTML = `<button class="eu-chip panel eu-date" data-a="log">${FLAG(P, 18)}<span><b>${esc(shortDate(S.t))}</b><small>ход ${S.t + 1} · ${this.ic(WX_ICON[wx.k] || `sun`, 1)} ${esc(wx.n)}</small></span></button>
+<button class="eu-chip panel eu-air" data-a="air" aria-label="Авиация">${this.ic(`plane`, 2)}<span><b>${nat.air || 0}/${nat.airMax || 0}</b><small>вылеты</small></span></button>
+<button class="btn icon eu-menu" data-a="menu" aria-label="Меню">${this.ic(`menu`, 2)}</button>
+<button class="eu-res panel" data-a="eco">${res.map(([k, n, v, d]) => `<span class="eu-r"><i class="r-${k}"></i><span><b class="${v < 0 ? `warn` : ``}">${f0(v)}</b><small class="${d < 0 ? `warn` : ``}">${n} ${sgn(d)}</small></span></span>`).join(``)}</button>`;
   }
   renderRail() {
-    const S = this.S, nat = S.nat[S.player], rd = this.ready().length;
-    this.$.rail.innerHTML = `<button class="btn icon" data-a="prod" aria-label="Производство">${this.ic(`crate`, 2)}${nat.q.length ? `<span class="eu-badge">${nat.q.length}</span>` : ``}</button>
-<button class="btn icon" data-a="tech" aria-label="Наука">${this.ic(`gear`, 2)}${!nat.res ? `<span class="eu-badge warn">!</span>` : ``}</button>
+    const S = this.S, nat = S.nat[S.player], air = this.mode?.k === `air`;
+    this.$.rail.innerHTML = `<button class="btn icon" data-a="tech" aria-label="Наука">${this.ic(`gear`, 2)}${!nat.res ? `<span class="eu-badge warn">!</span>` : ``}</button>
 <button class="btn icon" data-a="pow" aria-label="Державы">${this.ic(`order`, 2)}</button>
-<button class="btn icon" data-a="log" aria-label="Журнал">${this.ic(`book`, 2)}</button>
 <button class="btn icon ${this.map.mode ? `on` : ``}" data-a="mapmode" aria-label="Режим карты">${this.ic(this.map.mode === 2 ? `truck` : `fmap`, 2)}</button>
-<button class="btn icon" data-a="next" aria-label="Следующая армия">${this.ic(`next`, 2)}${rd ? `<span class="eu-badge">${rd}</span>` : ``}</button>
-<button class="btn icon" data-a="undo" aria-label="Отменить" ${this.undo.length ? `` : `disabled`}>${this.ic(`undo`, 2)}</button>`;
+<button class="btn icon ${air ? `on` : ``}" data-a="airmode" aria-label="Авиаудар">${this.ic(`plane`, 2)}${nat.air ? `<span class="eu-badge">${nat.air}</span>` : ``}</button>
+<button class="btn icon eu-zb" data-a="zin" aria-label="Приблизить">+</button><button class="btn icon eu-zb" data-a="zout" aria-label="Отдалить">−</button>`;
   }
-  // ——— панель региона ———
-  unitRow(u, o = {}) {
-    const S = this.S, P = S.player, U = UT[u.t], mine = u.n === P, on = this.pick.has(u.id), col = rgb(natRGB(u.n), 1.12);
-    const mvMax = Math.max(1, LAND(u) ? U.mv : 1), mv = Math.max(0, Math.min(mvMax, u.mv)), spent = mine && u.mv <= 0;
-    const tags = [];
-    !mine && tags.push(NATIONS[u.n].n);
-    tags.push(U.sh);
-    u.oos > 0 && tags.push(`<span class="warn">нет снабжения</span>`);
-    u.ent > 0 && LAND(u) && tags.push(`окоп ${u.ent}`);
-    u.x >= 30 && tags.push(`опыт ${Math.round(u.x)}`);
-    const rail = o.acts && mine && railTargets(S, u).length, sea = o.acts && mine && seaTargets(S, u).length;
-    return `<div class="eu-u ${mine ? `mine` : ``} ${on ? `on` : ``} ${spent ? `spent` : ``}" ${mine && o.acts ? `data-a="pick" data-id="${u.id}"` : ``}>
-<span class="eu-ck">${mine && o.acts ? (on ? `✓` : ``) : ``}</span>${SYM(u.t, col)}
-<span class="eu-un"><b>${esc(u.nm)}</b><small>${tags.join(` · `)}</small></span>
-<span class="eu-st"><span class="eu-bar"><i style="width:${Math.min(100, (u.s / U.max) * 100)}%"></i></span><small>${f1(u.s)}/${U.max}</small></span>
-<span class="eu-st org"><span class="eu-bar o"><i style="width:${Math.max(0, Math.min(100, u.o))}%"></i></span><small>орг. ${Math.round(u.o)}</small></span>
-${mine ? `<span class="eu-mv" title="Ходы">${LAND(u) ? `●`.repeat(mv) + `○`.repeat(mvMax - mv) : u.mv > 0 ? `●` : `○`}</span>` : ``}
-${rail || sea ? `<span class="eu-ubs">${rail ? `<button class="btn sm eu-ub" data-a="rail" data-id="${u.id}">Ж/Д</button>` : ``}${sea ? `<button class="btn sm eu-ub" data-a="sea" data-id="${u.id}">Море</button>` : ``}</span>` : ``}
-</div>`;
-  }
-  regionInfo(i) {
-    const S = this.S, P = S.player, R = reg(i), c = S.ctrl[i], core = S.core[i], wx = weather(S, R, P);
-    const items = [[`Местность`, TERR_N[R.t] + (R.city ? `, город` : ``)], [`Погода`, `${this.ic(WX_ICON[wx.k] || `sun`, 1)} ${esc(wx.n)}`]];
-    R.vp && items.push([`Очки победы`, `${R.vp}`]);
-    const ic = R.ic + (S.icAdd[i] || 0);
-    const rs = [ic ? `пром. ${f1(ic)}` : ``, R.oil ? `нефть ${R.oil}` : ``, R.st ? `сталь ${R.st}` : ``, R.co ? `уголь ${R.co}` : ``].filter(Boolean);
-    rs.length && items.push([`Ресурсы`, rs.join(`, `)]);
-    S.fort[i] && items.push([`Укрепления`, `уровень ${S.fort[i]}${S.fortN[i] && S.fortN[i] !== c ? ` (${NATIONS[S.fortN[i]].a})` : ``}`]);
-    if (c && ally(S, c, P)) {
-      const s = supply(S, P)[i];
-      items.push([`Снабжение`, s < 0 ? `<span class="warn">нет — войска слабеют</span>` : s <= 4 ? `хорошее` : s <= 8 ? `среднее` : s <= 12 ? `слабое` : `очень слабое`]);
-    }
-    return `<div class="eu-info">${items.map(([a, b]) => `<span><small>${a}</small><b>${b}</b></span>`).join(``)}</div>`;
-  }
+  // ——— нижняя панель: карточка и подвал ———
   renderSheet() {
-    const S = this.S, P = S.player, i = this.sel, el = this.$.sheet;
-    const over = !!S.over;
-    let head = ``, body = ``, hint = ``;
-    if (this.mode) {
-      const u = this.mode.u, k = this.mode.k, n = this.tg?.size || 0;
-      head = `<div class="eu-sh-h"><span class="eu-ttl">${k === `rail` ? `${this.ic(`truck`, 2)} Переброска по железной дороге` : `Переброска морем`}</span></div>`;
-      body = `<div class="eu-ul">${this.unitRow(u)}</div><p class="eu-hint">${n ? `Выберите регион на карте — подсвечено ${n}.` : `Нет доступных регионов.`} ${k === `rail` ? `Осталось эшелонов: ${S.nat[P].rail}.` : `Осталось конвоев: ${S.nat[P].navl}.`} Армия потратит весь ход.</p><div class="eu-acts"><button class="btn sm" data-a="mcancel">Отмена</button></div>`;
-    } else if (!i) {
-      const rd = this.ready(), wars = Object.keys(S.nat).filter((n) => alive(S, n) && atWar(S, n, P) && S.units.some((u) => u.n === n));
-      head = `<div class="eu-sh-h"><span class="eu-ttl">${over ? `Кампания окончена` : `Ход ${S.t + 1}: ${esc(shortDate(S.t))}`}</span></div>`;
-      body = over
-        ? `<p class="eu-hint">${esc(this.overText().t)}</p><div class="eu-acts"><button class="btn sm gold" data-a="overview">Итоги</button><button class="btn sm" data-a="hub">Новая кампания</button></div>`
-        : `<p class="eu-hint">${rd.length ? `Готовы к приказу: ${rd.length} ${plural(rd.length, `армия`, `армии`, `армий`)} — <a data-a="next">к следующей</a>.` : `Все армии получили приказы.`} ${wars.length ? `Война: ${wars.map((n) => NATIONS[n].n).join(`, `)}.` : `Вы пока не воюете.`}</p>`;
-      hint = over ? `` : `Нажмите на регион`;
-    } else {
-      const R = reg(i), c = S.ctrl[i], us = unitsIn(S, i), mine = us.filter((u) => u.n === P), others = us.filter((u) => u.n !== P);
-      const enemy = c && atWar(S, c, P);
-      const att = enemy && landIn(S, i).length ? this.attackers(i).length : 0;
-      head = `<div class="eu-sh-h"><span class="eu-ttl">${R.cap ? this.ic(`star`, 1) : ``}${esc(R.n)}</span><span class="eu-own">${c ? `${FLAG(c)} ${esc(NATIONS[c].n)}` : ``}${S.core[i] && S.core[i] !== c ? ` <small>· земля ${esc(NATIONS[S.core[i]].a)}</small>` : ``}${enemy ? ` <b class="warn">враг</b>` : ``}</span><button class="btn sm eu-x" data-a="desel" aria-label="Закрыть">${this.ic(`cross`, 2)}</button></div>`;
-      body = this.regionInfo(i);
-      if (mine.length) {
-        const ready = mine.filter((u) => u.mv > 0);
-        body += `<div class="eu-h3">Ваши войска · ${mine.length}${ready.length ? ` · готовы ${ready.length}` : ``}</div><div class="eu-ul">${mine.map((u) => this.unitRow(u, { acts: !over })).join(``)}</div>`;
-        !over && ready.length && (body += `<div class="eu-acts"><button class="btn sm" data-a="pickall">Выбрать всех</button><button class="btn sm" data-a="picknone">Снять выбор</button></div>`);
-      }
-      others.length && (body += `<div class="eu-h3">${enemy ? `Противник` : `Войска`} · ${others.length}</div><div class="eu-ul">${others.map((u) => this.unitRow(u)).join(``)}</div>`);
-      !us.length && (body += `<p class="eu-hint">${enemy ? `Войск нет — регион можно занять маршем.` : `Войск нет.`}</p>`);
-      if (!over && enemy && att) body += `<div class="eu-acts"><button class="btn sm gold" data-a="attack" data-r="${i}">${this.ic(`sword`, 1)} Атаковать · ${att} ${plural(att, `армия`, `армии`, `армий`)} рядом</button></div>`;
-      const n = this.tg?.size || 0;
-      hint = over ? `` : this.pick.size ? (n ? `Выберите цель на карте` : `Нет доступных целей`) : mine.length ? `Отметьте армии` : ``;
+    const S = this.S, el = this.$.sheet;
+    let card = ``;
+    if (S.over) card = this.overCard();
+    else if (this.pv) card = this.pv.k === `air` ? this.airCard() : this.atkCard();
+    else if (this.mode?.k === `air`) card = this.airModeCard();
+    else if (this.mode) card = this.modeCard();
+    else if (this.sel) {
+      const u = unitAt(S, this.sel);
+      card = u ? (u.n === S.player ? this.unitCard(u) : this.foeCard(u)) : this.provCard(this.sel);
     }
-    const foot = over
-      ? `<div class="eu-foot"><span class="eu-fh">${esc(hint)}</span><button class="btn gold eu-end" data-a="overview">Итоги войны</button></div>`
-      : `<div class="eu-foot"><span class="eu-fh">${esc(hint)}</span><button class="btn gold eu-end" data-a="end" ${this.busy ? `disabled` : ``}>${S.pending.length ? `Решение ждёт` : `Конец хода`}</button></div>`;
-    el.innerHTML = `${head}<div class="eu-sh-b">${body}</div>${foot}`;
-    el.classList.toggle(`empty`, !i && !this.mode);
+    el.innerHTML = `${card ? `<div class="eu-card panel">${card}</div>` : ``}${this.footHTML()}`;
+    el.classList.toggle(`open`, !!card);
   }
-  // ——— цели и подсветка ———
+  footHTML() {
+    const S = this.S, rd = this.readyS.size;
+    if (S.over) return `<div class="eu-foot panel"><button class="btn gold eu-end" data-a="overview">Итоги войны</button></div>`;
+    return `<div class="eu-foot panel"><button class="btn icon" data-a="undo" aria-label="Отменить" ${this.undo.length && !this.busy ? `` : `disabled`}>${this.ic(`undo`, 2)}</button>
+<button class="btn eu-next" data-a="next" ${rd && !this.busy ? `` : `disabled`}>${this.ic(`next`, 2)}<span>Следующая</span>${rd ? `<b class="eu-cnt">${rd}</b>` : ``}</button>
+<button class="btn gold eu-end ${this.endArm ? `arm` : ``}" data-a="end" ${this.busy ? `disabled` : ``}>${S.pending.length ? `Решение ждёт` : this.endArm ? `Точно конец?` : `Конец хода`}</button></div>`;
+  }
+  renderFoot() {
+    const f = this.$.sheet.querySelector(`.eu-foot`);
+    f && (f.outerHTML = this.footHTML());
+  }
+  head(u, sub, x = true) {
+    return `<div class="eu-ch">${SPI(u.t, u.n)}<span class="eu-cn"><b>${esc(u.nm)}</b><small>${sub}</small></span>${x ? `<button class="btn icon sm eu-x" data-a="desel" aria-label="Закрыть">${this.ic(`cross`, 2)}</button>` : ``}</div>`;
+  }
+  stats(u, full = true) {
+    const S = this.S, om = orgMax(S, u.n), xl = xpL(u.x || 0), sup = supply(S, u.n)[u.r] >= 0;
+    const it = [
+      [`Сила`, `${f0(u.s)}/${MAXS}`, bar(u.s / MAXS, `s`)],
+      [`Организация`, `${f0(u.o)}/${om}`, bar(u.o / om, u.o / om > 0.66 ? `o` : u.o / om > 0.33 ? `y` : `r`)],
+    ];
+    const tags = [];
+    xl && tags.push(`<span class="eu-tag gold">${`★`.repeat(xl)} опыт</span>`);
+    u.e > 0 && tags.push(`<span class="eu-tag">окопы ${u.e}</span>`);
+    !sup && tags.push(`<span class="eu-tag warn">нет снабжения</span>`);
+    if (full && u.n === S.player) {
+      const m = mvOf(S, u);
+      tags.push(`<span class="eu-tag">${u.fr ? `новая — ходит со следующего хода` : `ходы ${`●`.repeat(Math.max(0, Math.min(m, u.mv)))}${`○`.repeat(Math.max(0, m - Math.max(0, u.mv)))}`}</span>`);
+      u.at && !u.fr && tags.push(`<span class="eu-tag">атаковала</span>`);
+    }
+    return `<div class="eu-stats">${it.map(([a, v, b]) => `<span class="eu-stat"><small>${a}<b>${v}</b></small>${b}</span>`).join(``)}</div>${tags.length ? `<div class="eu-tags">${tags.join(``)}</div>` : ``}`;
+  }
+  where(i) {
+    const S = this.S, R = reg(i), c = S.ctrl[i];
+    return `${esc(R.n)} · ${TERR_N[R.t]}${R.cap ? `, столица` : R.city ? `, город` : ``}${c && S.core[i] && S.core[i] !== c ? ` · земля ${esc(NATIONS[S.core[i]].a)}` : ``}`;
+  }
+  unitCard(u) {
+    const S = this.S, nat = S.nat[S.player], U = UT[u.t];
+    const k = canReinforce(S, u), rail = railTargets(S, u).length, sea = seaTargets(S, u).length;
+    const n = this.tg.size, ready = this.readyS.has(u.id);
+    const acts = [];
+    u.s < MAXS && acts.push(`<button class="btn sm" data-a="reinf" ${k ? `` : `disabled`}>Пополнить<small>${k ? `+${k}: ${cost(reCost(u, k))}` : u.mv < mvOf(S, u) || u.at || u.mvd ? `только до марша и боя` : `не хватает ресурсов`}</small></button>`);
+    rail && acts.push(`<button class="btn sm" data-a="rail">${this.ic(`truck`, 1)} Ж/д<small>эшелонов ${nat.rail}</small></button>`);
+    sea && acts.push(`<button class="btn sm" data-a="sea">Морем<small>конвоев ${nat.navl}</small></button>`);
+    ready && acts.push(`<button class="btn sm" data-a="skip">Ждать<small>до след. хода</small></button>`);
+    const hint = u.fr ? `Дивизия сформирована в этом ходу.` : n ? `<b class="c-move">Зелёный</b> — марш, <b class="c-cap">жёлтый</b> — занять, <b class="c-att">красный</b> — атака${u.t === `art` ? `, <b class="c-bomb">оранжевый</b> — обстрел на 2 провинции` : ``}${[...this.tg.values()].some((k) => k === `amph` || k === `amphcap`) ? `, <b class="c-amph">фиолетовый</b> — десант` : ``}.` : `Приказов больше нет.`;
+    return `${this.head(u, `${FLAG(u.n)} ${esc(U.sh)} · ${this.where(u.r)}`)}${this.stats(u)}<p class="eu-hint ${n && !u.fr ? `leg` : ``}">${hint}</p>${acts.length ? `<div class="eu-acts">${acts.join(``)}</div>` : ``}`;
+  }
   attackers(j) {
     const S = this.S, P = S.player, out = [];
     for (const u of S.units) {
-      if (u.n !== P || !LAND(u) || u.mv <= 0) continue;
-      const t = targets(S, u).find((x) => x.r === j && (x.k === `attack` || x.k === `amph`));
-      t && out.push({ u, src: u.r, amph: t.k === `amph` });
+      if (u.n !== P) continue;
+      const t = attackTargets(S, u).get(j);
+      t && out.push({ u, k: t.k, e: this.estimate(u, j, t.k) });
     }
-    return out;
+    return out.sort((a, b) => b.e.win - a.e.win || b.e.ld - a.e.ld);
   }
+  foeCard(u) {
+    const S = this.S, P = S.player, war = atWar(S, u.n, P), rel = war ? `<b class="warn">враг</b>` : ally(S, u.n, P) ? `союзник` : coop(S, u.n, P) ? `попутчик` : `нейтрал`;
+    let body = `${this.head(u, `${FLAG(u.n)} ${esc(NATIONS[u.n].n)} · ${esc(UT[u.t].sh)} · ${rel}`)}${this.stats(u, false)}`;
+    body += `<p class="eu-hint">${this.where(u.r)}${this.defNote(u.r, u.n)}</p>`;
+    if (war) {
+      const at = this.attackers(u.r).slice(0, 4);
+      body += at.length
+        ? `<div class="eu-h3">Атаковать</div><div class="eu-al">${at.map((x) => `<button class="btn sm eu-ab" data-a="atkby" data-id="${x.u.id}">${SPI(x.u.t, x.u.n, `sm`)}<span><b>${esc(x.u.nm)}</b><small>${x.k === `bomb` ? `обстрел` : x.k === `amph` ? `десант` : `атака`} · сила ${f0(x.u.s)}</small></span><em class="${x.e.win >= 0.6 ? `good` : x.e.win >= 0.3 ? `` : `warn`}">${x.k === `bomb` ? `−${f1(x.e.ld)}` : `${Math.round(x.e.win * 100)}%`}</em></button>`).join(``)}</div>`
+        : `<p class="eu-hint">Рядом нет ваших дивизий, готовых к атаке.</p>`;
+    }
+    return body;
+  }
+  defNote(i, n) {
+    const S = this.S, R = reg(i), f = fortLvl(S, i, n), out = [];
+    f && out.push(`укрепления ${f}`);
+    R.riv?.size && out.push(`реки`);
+    return out.length ? ` · ${out.join(`, `)}` : ``;
+  }
+  provCard(i) {
+    const S = this.S, P = S.player, R = reg(i), c = S.ctrl[i], wx = weather(S, R, P);
+    const enemy = c && atWar(S, c, P);
+    const tags = [`${TERR_N[R.t]}${R.cap ? `, столица` : R.city ? `, город` : ``}`, `${this.ic(WX_ICON[wx.k] || `sun`, 1)} ${esc(wx.n)}`];
+    R.vp && tags.push(`очки победы ${R.vp}`);
+    const ic = R.ic + (S.icAdd[i] || 0);
+    ic && tags.push(`пром. ${f1(ic)}`);
+    R.oil && tags.push(`нефть ${R.oil}`);
+    R.mp && tags.push(`люди ${f1(R.mp)}`);
+    S.fort[i] && tags.push(`укрепления ${S.fort[i]}`);
+    let sup = ``;
+    if (c && ally(S, c, P)) {
+      const v = supply(S, P)[i];
+      sup = v < 0 ? `<span class="eu-tag warn">нет снабжения</span>` : `<span class="eu-tag">снабжение ${v <= 4 ? `хорошее` : v <= 8 ? `среднее` : `слабое`}</span>`;
+    }
+    let body = `<div class="eu-ch"><span class="eu-cn"><b>${R.cap ? this.ic(`star`, 1) : ``} ${esc(R.n)}</b><small>${c ? `${FLAG(c)} ${esc(NATIONS[c].n)}` : `нейтральная земля`}${S.core[i] && S.core[i] !== c ? ` · земля ${esc(NATIONS[S.core[i]].a)}` : ``}${enemy ? ` · <b class="warn">враг</b>` : ``}</small></span><button class="btn icon sm eu-x" data-a="desel" aria-label="Закрыть">${this.ic(`cross`, 2)}</button></div>
+<div class="eu-tags">${tags.map((x) => `<span class="eu-tag">${x}</span>`).join(``)}${sup}</div>`;
+    if (buildSite(S, P, i)) {
+      body += `<div class="eu-h3">Сформировать дивизию</div><div class="eu-bld">${TYPES.map((t) => {
+        const cc = buildCost(S, P, t), site = buildSite(S, P, i, t), ok = canBuild(S, P, t, i);
+        const why = !site ? `нужна промышленность` : ok ? cost(cc) : `${cost(cc)} — не хватает`;
+        return `<button class="btn sm eu-bt ${ok ? `` : `no`}" data-a="build" data-t="${t}" ${ok ? `` : `disabled`}>${SPI(t, P, `sm`)}<span><b>${TYPE_N[t]}</b><small>${esc(why)}</small></span></button>`;
+      }).join(``)}</div><p class="eu-hint">Дивизия начнёт действовать со следующего хода. Танки и мотопехота — только в промышленных провинциях.</p>`;
+    } else if (enemy && !unitAt(S, i)) body += `<p class="eu-hint">Войск нет — провинцию можно занять маршем соседней дивизии.</p>`;
+    return body;
+  }
+  modeCard() {
+    const u = this.unit(this.mode.id), S = this.S, nat = S.nat[S.player], k = this.mode.k, n = this.tg.size;
+    if (!u) return ``;
+    return `${this.head(u, k === `rail` ? `${this.ic(`truck`, 1)} переброска по железной дороге` : `переброска морем`, false)}
+<p class="eu-hint">${n ? `Выберите провинцию на карте — подсвечено ${n}.` : `Нет доступных провинций.`} ${k === `rail` ? `Осталось эшелонов: ${nat.rail}.` : `Осталось конвоев: ${nat.navl}.`} Дивизия потратит весь ход.</p>
+<div class="eu-acts"><button class="btn sm" data-a="mcancel">Отмена</button></div>`;
+  }
+  airModeCard() {
+    const S = this.S, nat = S.nat[S.player], n = this.tg.size;
+    return `<div class="eu-ch"><span class="eu-cn"><b>${this.ic(`plane`, 1)} Авиаудар</b><small>вылетов ${nat.air || 0} из ${nat.airMax || 0}</small></span><button class="btn icon sm eu-x" data-a="mcancel" aria-label="Закрыть">${this.ic(`cross`, 2)}</button></div>
+<p class="eu-hint">${!nat.air ? `Вылеты на этот ход израсходованы.` : n ? `Выберите цель — подсвечено <b class="c-bomb">${n}</b>. Удар снижает организацию и может выбить силу.` : `Нет целей в радиусе авиации.`}</p>
+<div class="eu-acts"><button class="btn sm" data-a="air">Авиация…</button><button class="btn sm" data-a="mcancel">Готово</button></div>`;
+  }
+  overCard() {
+    const x = this.overText();
+    return `<div class="eu-ch"><span class="eu-cn"><b class="${x.win ? `good` : `warn`}">${x.win ? `Победа` : `Поражение`}</b><small>${esc(x.t)}</small></span></div><div class="eu-acts"><button class="btn sm" data-a="hub">Новая кампания</button></div>`;
+  }
+  // ——— прогноз боя (без расхода случайных чисел кампании) ———
+  estimate(u, j, k = `attack`, mod = null) {
+    const S = this.S, d = unitAt(S, j);
+    if (!d) return null;
+    const amph = k === `amph`, art = u.t === `art` && !amph, c = combat(S, u, d, { src: u.r, amph, art }), m = mod || {}, kk = Math.pow(m.r || 1, 0.75);
+    let seed = (u.id * 7919 + j * 104729 + S.t * 31 + 17) >>> 0;
+    const R = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const sr = (v) => Math.floor(v) + (R() < v - Math.floor(v) ? 1 : 0);
+    const N = 300;
+    let win = 0, kill = 0, la = 0, ld = 0, lo = 0;
+    for (let q = 0; q < N; q++) {
+      const ds = Math.min(d.s, sr(c.dStr * (0.75 + 0.5 * R()) * kk * (m.d || 1))), dO = Math.round(c.dOrg * (0.8 + 0.4 * R()) * kk * (m.d || 1));
+      const as = Math.min(u.s, sr((c.aStr * (0.75 + 0.5 * R())) / kk * (m.a || 1)));
+      (la += as), (ld += ds), (lo += Math.min(d.o, dO));
+      const dead = d.s - ds <= 0, broke = !art && d.o - dO <= 0;
+      (dead || broke) && win++;
+      (dead || (broke && !c.canRet)) && kill++;
+    }
+    return { c, d, win: win / N, kill: kill / N, la: la / N, ld: ld / N, org: Math.max(0, d.o - lo / N), art, amph };
+  }
+  atkCard() {
+    const S = this.S, p = this.pv, u = this.unit(p.id), d = unitAt(S, p.j);
+    if (!u || !d) return ``;
+    const e = p.e || (p.e = this.estimate(u, p.j, p.k)), T = reg(p.j), w = Math.round(e.win * 100);
+    const title = p.k === `bomb` ? `Обстрел` : p.k === `amph` ? `Десант` : `Атака`;
+    const side1 = (v, foe) => `<div class="eu-vsu ${foe ? `foe` : ``}">${SPI(v.t, v.n, `sm ${foe ? `flip` : ``}`)}<span><b>${esc(v.nm)}</b><small>${FLAG(v.n, 12)} сила <em>${f0(v.s)}</em> · орг. <em>${f0(v.o)}</em></small></span></div>`;
+    const mods = e.c.mods.map((m) => `<span class="eu-mod ${m.good ? `good` : `bad`}">${esc(m.l)} <b>${esc(m.v)}</b></span>`).join(``);
+    const deep = this.deepFor(p.j);
+    const weak = !e.art && e.win < 0.5 && e.org <= orgMax(S, d.n) * 0.35;
+    const res = e.art
+      ? `<div class="eu-odds"><span>Без ответного огня · провинцию не займёт</span><span>Потери противника ≈ <b>${f1(e.ld)}</b> силы${e.win > 0.01 ? ` · уничтожить: ${Math.round(e.win * 100)}%` : ``}</span></div>`
+      : `<div class="eu-odds"><span class="eu-ow"><span>Шанс прорыва</span>${bar(e.win, w >= 60 ? `o` : w >= 30 ? `y` : `r`)}<b class="${w >= 60 ? `good` : w >= 30 ? `` : `warn`}">${w}%</b></span><span>Потери: ваши ≈ <b>${f1(e.la)}</b> · врага ≈ <b>${f1(e.ld)}</b> · орг. врага ${f0(d.o)} → <b>${f0(e.org)}</b>${e.kill > 0.05 ? ` · разгром ${Math.round(e.kill * 100)}%` : ``}</span>${weak ? `<span class="c-cap">Оборона ослабнет — добейте второй дивизией.</span>` : ``}</div>`;
+    return `<div class="eu-ch"><span class="eu-cn"><b>${this.ic(`sword`, 1)} ${title}: ${esc(T.n)}</b><small>${TERR_N[T.t]}${T.cap || T.city ? `, город` : ``} · перевес ×${f1(e.c.R)}</small></span><button class="btn icon sm eu-x" data-a="pvno" aria-label="Закрыть">${this.ic(`cross`, 2)}</button></div>
+<div class="eu-vs">${side1(u)}<span class="eu-vsx">→</span>${side1(d, true)}</div>${res}${mods ? `<div class="eu-mods">${mods}</div>` : ``}
+<div class="eu-acts eu-pva"><button class="btn sm" data-a="pvno">Отмена</button>${deep ? `<button class="btn sm eu-deepb" data-a="deep">${this.ic(`star`, 1)} Лично</button>` : ``}<button class="btn gold" data-a="fire">${title === `Атака` ? `Атаковать` : title === `Десант` ? `Высадка` : `Огонь`}</button></div>`;
+  }
+  airCard() {
+    const S = this.S, P = S.player, p = this.pv, d = unitAt(S, p.j);
+    if (!d) return ``;
+    const e = airEst(S, P, p.j), T = reg(p.j);
+    return `<div class="eu-ch"><span class="eu-cn"><b>${this.ic(`plane`, 1)} Авиаудар: ${esc(T.n)}</b><small>вылетов ${S.nat[P].air} из ${S.nat[P].airMax}${e.W.air < 1 ? ` · ${esc(e.W.n)} мешает` : ``}</small></span><button class="btn icon sm eu-x" data-a="pvno" aria-label="Закрыть">${this.ic(`cross`, 2)}</button></div>
+<div class="eu-vs"><div class="eu-vsu foe">${SPI(d.t, d.n, `flip`)}<span><b>${esc(d.nm)}</b><small>${FLAG(d.n)} сила ${f0(d.s)} · орг. ${f0(d.o)}</small></span></div></div>
+<div class="eu-odds"><span>Организация противника ≈ <b>−${f0(e.org)}</b></span><span>Шанс выбить 1 силы: <b>${Math.round(e.p * 100)}%</b>${T.t === `fo` || T.t === `mo` || T.city || T.cap ? ` (укрытие: ${T.t === `fo` ? `леса` : T.t === `mo` ? `горы` : `город`})` : ``}</span></div>
+<div class="eu-acts eu-pva"><button class="btn sm" data-a="pvno">Отмена</button><button class="btn gold" data-a="fire">Ударить</button></div>`;
+  }
+  // ——— цели и подсветка ———
   computeTargets() {
-    const S = this.S, m = new Map();
+    const S = this.S, m = new Map(), P = S.player;
+    this.mvI = new Map();
     if (!S || S.over) return m;
-    if (this.mode) {
-      const list = this.mode.k === `rail` ? railTargets(S, this.mode.u) : seaTargets(S, this.mode.u);
-      for (const j of list) m.set(j, this.mode.k);
+    if (this.mode?.k === `air`) {
+      if ((S.nat[P].air || 0) > 0) for (const v of S.units) atWar(S, v.n, P) && canAir(S, P, v.r) && m.set(v.r, `air`);
       return m;
     }
-    for (const id of this.pick) {
-      const u = this.unit(id);
-      if (!u || u.r !== this.sel) continue;
-      for (const t of targets(S, u)) {
-        const k0 = m.get(t.r);
-        (!k0 || KPRI[t.k] > KPRI[k0]) && m.set(t.r, t.k);
-      }
+    const u = this.mode ? this.unit(this.mode.id) : this.selU();
+    if (!u) return m;
+    if (this.mode?.k === `rail`) {
+      for (const j of railTargets(S, u)) m.set(j, `rail`);
+      return m;
     }
+    if (this.mode?.k === `sea`) {
+      for (const j of seaTargets(S, u)) m.set(j, `sea`);
+      return m;
+    }
+    for (const [j, mv] of moves(S, u)) m.set(j, mv.k), this.mvI.set(j, mv);
+    for (const j of amphTargets(S, u)) !m.has(j) && (m.set(j, `amphcap`), this.mvI.set(j, { r: j, k: `amphcap`, cost: u.mv, path: [u.r, j] }));
+    for (const [j, t] of attackTargets(S, u)) m.set(j, t.k);
     return m;
   }
   updateHL() {
     this.tg = this.computeTargets();
-    this.map?.setHL(this.tg, this.sel);
-    // подсказка в подвале зависит от целей
-    const fh = this.$.sheet.querySelector(`.eu-fh`);
-    if (fh && this.sel && !this.mode && !this.S.over) fh.textContent = this.pick.size ? (this.tg.size ? `Выберите цель на карте` : `Нет доступных целей`) : unitsIn(this.S, this.sel).some((u) => u.n === this.S.player) ? `Отметьте армии` : ``;
+    this.map?.setHL(this.tg, this.mode?.k === `air` ? 0 : this.sel);
   }
   // ——— ввод на карте ———
   tap(r) {
-    if (this.busy || !this.S || !this.$.modal.classList.contains(`hidden`)) return;
-    const k = this.tg?.get(r);
-    if (r && k && !this.S.over) return this.order(r, k);
+    const S = this.S;
+    if (this.busy || !S || !this.$.modal.classList.contains(`hidden`) || this.root.classList.contains(`hubmode`)) return;
+    const k = this.tg.get(r);
+    if (this.pv) {
+      if (r === this.pv.j) return this.fire();
+      this.closePv();
+      if (this.mode?.k === `air` && k === `air`) return this.openAir(r);
+    }
+    if (S.over) return this.select(r === this.sel ? 0 : r);
+    if (this.mode?.k === `air`) {
+      if (k === `air`) return this.openAir(r);
+      this.mode = null;
+    }
+    const u = this.mode ? this.unit(this.mode.id) : this.selU();
+    if (u && k) {
+      if (k === `move` || k === `capture` || k === `amphcap`) return this.doMove(u, r);
+      if (k === `rail` || k === `sea`) return this.doShip(u, r, k);
+      if (k === `attack` || k === `bomb` || k === `amph`) return this.openAtk(u, r, k);
+    }
     if (this.mode) {
       this.mode = null;
       this.sfx(`click`);
@@ -493,155 +624,187 @@ ${rail || sea ? `<span class="eu-ubs">${rail ? `<button class="btn sm eu-ub" dat
     if (!r || r === this.sel) return this.select(0);
     this.select(r);
   }
-  select(r, ids) {
+  select(r) {
     const S = this.S;
     this.sel = r || 0;
-    this.pick.clear();
-    if (r) for (const u of unitsIn(S, r)) u.n === S.player && u.mv > 0 && (!ids || ids.includes(u.id)) && this.pick.add(u.id);
-    this.sfx(`click`);
+    this.pv = null;
+    this.map.setArrow(null);
+    const u = r ? unitAt(S, r) : null;
+    r && this.sfx(u && u.n === S.player ? `select` : `click`);
     this.render();
+    if (u && u.n === S.player && this.tg.size) {
+      const list = [r, ...this.tg.keys()];
+      this.revealAll(list);
+    } else r && this.map.reveal(r);
+  }
+  // показать выбранную дивизию и её цели, не меняя масштаб без нужды
+  revealAll(list) {
+    const m = this.map, { l, t, r, b } = m.inset, pad = 30;
+    const out = list.some((i) => {
+      const R = reg(i), [x, y] = m.toScr(R.ax, R.ay);
+      return x < l + pad || x > m.W - r - pad || y < t + pad || y > m.H - b - pad;
+    });
+    out && m.fitRegions(list, Math.max(m.z, 1.8), 380, 14);
+  }
+  // если ни одна цель не видна — показать ближайшие
+  revealAny(list) {
+    const m = this.map, { l, t, r, b } = m.inset;
+    const seen = list.some((i) => {
+      const R = reg(i), [x, y] = m.toScr(R.ax, R.ay);
+      return x > l + 10 && x < m.W - r - 10 && y > t + 10 && y < m.H - b - 10;
+    });
+    if (seen) return;
+    const near = list.map((i) => [i, (reg(i).ax - m.cx) ** 2 + (reg(i).ay - m.cy) ** 2]).sort((a, b) => a[1] - b[1]).slice(0, 5).map((x) => x[0]);
+    m.fitRegions(near, Math.max(m.z, 1.8), 420, 14);
   }
   pushUndo() {
-    this.undo.push(save(this.S));
+    this.undo.push({ s: save(this.S), sel: this.sel, skip: [...this.skip] });
     this.undo.length > 12 && this.undo.shift();
   }
   doUndo() {
-    const s = this.undo.pop();
-    if (!s) return;
-    const sel = this.sel;
-    this.S = load(s);
-    this.S.deep = this.S.deep || {};
+    const x = this.undo.pop();
+    if (!x || this.busy) return;
+    const S = load(x.s);
+    S.deep = S.deep || {};
+    this.S = S;
+    this.skip = new Set(x.skip);
     this.mode = null;
-    this.map.setState(this.S);
-    this.map.setMarks(this.marks);
+    this.pv = null;
+    this.map.setState(S);
+    this.map.setArrow(null);
     this.sfx(`click`);
-    this.sel = sel;
-    this.select(sel);
+    this.sel = x.sel;
+    this.render();
     this.saveSoon();
   }
-  order(j, k) {
+  // после приказа: дивизия ещё может действовать — остаётся выбранной
+  afterAct(u) {
     const S = this.S;
-    if (k === `rail` || k === `sea`) {
-      const u = this.mode.u;
-      this.pushUndo();
-      k === `rail` ? railMove(S, u, j) : seaMove(S, u, j);
-      this.mode = null;
-      this.sfx(`move`);
-      return this.after(j, []);
-    }
-    if (k === `attack` || k === `amph`) return this.openBattle(j);
-    const us = [...this.pick].map((id) => this.unit(id)).filter((u) => u && u.r === this.sel && u.mv > 0);
-    if (!us.length) return;
-    this.pushUndo();
-    const moved = [];
-    const step = (u) => {
-      const t = targets(S, u).find((x) => x.r === j && (x.k === `move` || x.k === `air`));
-      if (!t || (LAND(u) && landIn(S, j).length >= STACK)) return;
-      moveUnit(S, u, j, t.cost);
-      moved.push(u);
-    };
-    if (k === `capture`) {
-      const cap = us.map((u) => ({ u, t: targets(S, u).find((x) => x.r === j && x.k === `capture`) })).filter((x) => x.t).sort((a, b) => (MOBILE(b.u) ? 1 : 0) - (MOBILE(a.u) ? 1 : 0) || a.t.cost - b.t.cost);
-      if (!cap.length) return this.undo.pop();
-      occupy(S, cap[0].u, j, cap[0].t.cost);
-      moved.push(cap[0].u);
-      for (const u of us) u !== cap[0].u && step(u);
-      this.sfx(`capture`);
-      this.map.refresh();
-      this.toast(`${reg(j).n} — занят`);
-    } else {
-      for (const u of us) step(u);
-      if (!moved.length) {
-        this.undo.pop();
-        this.sfx(`error`);
-        return this.toast(`Нет места: в регионе не больше ${STACK} армий`);
-      }
-      this.sfx(`move`);
-    }
-    this.after(j, moved.filter((u) => u.mv > 0).map((u) => u.id));
+    this.mode = null;
+    this.pv = null;
+    this.map.setArrow(null);
+    this.sel = u && S.units.includes(u) && this.canAct(u) ? u.r : 0;
+    this.render();
+    this.saveSoon();
   }
-  after(j, ids) {
+  doMove(u, j) {
+    const S = this.S, mv = this.mvI.get(j) || moves(S, u).get(j);
+    if (!mv) return;
+    this.pushUndo();
+    const from = u.r, cap = mv.k !== `move`;
+    moveTo(S, u, j, mv);
+    this.map.animMove(u.id, mv.path?.length > 1 ? mv.path : [from, j]);
+    cap && this.map.refresh();
+    this.sfx(cap ? `capture` : `move`);
+    cap && this.map.floatText(j, `+${reg(j).n}`, `#ffe27a`, 260);
+    this.afterAct(u);
+  }
+  doShip(u, j, k) {
     const S = this.S;
-    this.sel = j;
-    this.pick = new Set(ids.filter((id) => this.unit(id)?.r === j));
-    touch(S);
-    this.map.invalidate();
+    this.pushUndo();
+    const from = u.r;
+    k === `rail` ? railMove(S, u, j) : seaMove(S, u, j);
+    this.map.animMove(u.id, [from, j], k === `rail` ? 520 : 700);
+    this.sfx(`move`);
+    this.afterAct(u);
+  }
+  openAtk(u, j, k) {
+    this.pv = { k, id: u.id, j };
+    this.pv.e = this.estimate(u, j, k);
+    this.map.setArrow(u.r, j, k === `bomb` ? `#ffa040` : k === `amph` ? `#d68cff` : `#ff6a50`);
+    this.sfx(`click`);
+    this.renderSheet();
+    this.layout();
+    this.revealAll([u.r, j]);
+  }
+  openAir(j) {
+    this.pv = { k: `air`, j };
+    this.sel = 0;
+    this.sfx(`click`);
+    this.map.setHL(this.tg, j);
+    this.renderSheet();
+    this.layout();
+  }
+  closePv() {
+    this.pv = null;
+    this.map.setArrow(null);
+  }
+  fire(mod = null, note = ``) {
+    const S = this.S, p = this.pv;
+    if (!p || this.busy) return;
+    if (p.k === `air`) return this.doAir(p.j);
+    const u = this.unit(p.id), d = unitAt(S, p.j);
+    if (!u || !d || !attackTargets(S, u).get(p.j)) return this.closePv(), this.render();
+    this.undo = [];
+    const from = u.r, j = p.j, T = reg(j);
+    const rep = attack(S, u, j, { amph: p.k === `amph`, mod });
+    this.closePv();
+    if (!rep) return this.render();
+    const m = this.map;
+    m.boomAt(j, 0, rep.win);
+    rep.dS ? m.floatText(j, `−${rep.dS}`, `#ff7a6a`, 80) : rep.dO && m.floatText(j, `орг −${rep.dO}`, `#ffd27a`, 80);
+    rep.aS && m.floatText(from, `−${rep.aS}`, `#ffb0a0`, 200);
+    rep.out === `retreat` && rep.to && m.animMove(rep.du, [j, rep.to], 320, 120);
+    rep.adv && m.animMove(u.id, [from, j], 300, 260);
+    rep.adv && m.refresh();
+    this.sfx(`boom`);
+    rep.win && setTimeout(() => this.sfx(`capture`), 320);
+    const ttl = rep.art
+      ? rep.out === `destroyed` ? `Обстрел: дивизия противника уничтожена` : `Обстрел: ${T.n}`
+      : rep.out === `hold` ? `Атака на ${T.n} отбита` : rep.adv ? `${T.n} взят: противник ${OUT_N[rep.out]}` : `Противник ${OUT_N[rep.out]}`;
+    const ls = (s, o) => [s ? `сила −${s}` : ``, o ? `орг. −${o}` : ``].filter(Boolean).join(`, `) || `нет`;
+    const loss = `${note ? note + ` ` : ``}Потери: ваши — ${ls(rep.aS, rep.aO)}; противника — ${ls(rep.dS, rep.dO)}${rep.aDead ? `. Ваша дивизия погибла.` : ``}`;
+    this.report(ttl, loss, rep.win ? `good` : rep.art ? `` : `warn`);
+    this.afterAct(rep.aDead ? null : u);
+  }
+  doAir(j) {
+    const S = this.S, P = S.player;
+    if (!canAir(S, P, j)) return this.closePv(), this.render();
+    this.undo = [];
+    const rep = airStrike(S, P, j);
+    this.closePv();
+    if (!rep) return this.render();
+    this.map.boomAt(j);
+    this.map.floatText(j, rep.dS ? `−${rep.dS}` : `орг −${rep.dO}`, rep.dS ? `#ff7a6a` : `#ffd27a`, 60);
+    rep.dS && this.map.floatText(j, `орг −${rep.dO}`, `#ffd27a`, 300, 16);
+    this.sfx(`boom`);
+    this.report(rep.out === `destroyed` ? `Авиаудар: дивизия уничтожена` : `Авиаудар: ${reg(j).n}`, `Противник: ${rep.dS ? `−${rep.dS} силы, ` : ``}−${rep.dO} организации. Осталось вылетов: ${S.nat[P].air}.`, `good`);
+    (S.nat[P].air || 0) <= 0 && (this.mode = null);
+    this.sel = 0;
+    this.render();
+    this.saveSoon();
+  }
+  doBuild(t) {
+    const S = this.S, P = S.player, i = this.sel;
+    if (!canBuild(S, P, t, i)) return this.sfx(`error`);
+    this.pushUndo();
+    const u = build(S, P, t, i);
+    if (!u) return;
+    this.map.boomAt(i);
+    this.map.floatText(i, `+${TYPE_N[t]}`, `#9ff0a6`, 60);
+    this.sfx(`select`);
+    this.render();
+    this.saveSoon();
+  }
+  doReinf() {
+    const S = this.S, u = this.selU();
+    if (!u) return;
+    if (!canReinforce(S, u)) return this.sfx(`error`);
+    this.pushUndo();
+    const k = reinforce(S, u);
+    this.map.floatText(u.r, `+${k}`, `#9ff0a6`);
+    this.sfx(`select`);
     this.render();
     this.saveSoon();
   }
   nextReady() {
-    const S = this.S, rd = this.ready();
-    if (!rd.length) return this.toast(`Все армии получили приказы`);
-    const regs = [...new Set(rd.map((u) => u.r))];
-    // сначала — у линии фронта
-    const front = (i) => (reg(i).nb.some((j) => S.ctrl[j] && atWar(S, S.ctrl[j], S.player)) ? 0 : 1);
-    regs.sort((a, b) => front(a) - front(b) || reg(a).ax - reg(b).ax);
-    const k = regs.indexOf(this.sel);
-    const r = regs[(k + 1) % regs.length];
-    this.select(r);
-    this.map.reveal(r);
-  }
-  // ——— бой ———
-  openBattle(j) {
-    const cands = this.attackers(j);
-    if (!cands.length) return this.sfx(`error`), this.toast(`Рядом нет армий, способных атаковать`);
-    const S = this.S, T = reg(j);
-    let on = cands.filter((c) => this.pick.has(c.u.id)).map((c) => c.u.id);
-    if (!on.length) on = cands.slice().sort((a, b) => b.u.s * UT[b.u.t].atk * b.u.o - a.u.s * UT[a.u.t].atk * a.u.o).map((c) => c.u.id);
-    on = on.slice(0, STACK);
-    // нельзя атаковать «с налёту» тем, кто через реку, если есть кто-то ещё — оставляем выбор игроку
-    this.bt = { j, cands, on: new Set(on) };
-    void S, void T;
-    this.renderBattle();
-  }
-  renderBattle() {
-    const { j, cands, on } = this.bt, S = this.S, P = S.player, T = reg(j), c = S.ctrl[j];
-    const att = cands.filter((x) => on.has(x.u.id));
-    const E = att.length ? estimate(S, att, j) : null, r = E ? E.r : 0;
-    const ch = E ? Math.max(0, Math.min(1, (1.18 - 1.15 / Math.max(0.01, r)) / 0.36)) : 0;
-    const defs = landIn(S, j), sA = att.reduce((s, x) => s + x.u.s, 0), sD = defs.reduce((s, u) => s + u.s, 0);
-    const lA = sA * Math.min(0.35, Math.max(0.03, 0.15 / Math.pow(Math.max(0.2, r), 0.8))), lD = sD * Math.min(0.45, Math.max(0.05, 0.06 + 0.085 * Math.min(r, 4)));
-    const wx = weather(S, T, P), deep = this.deepFor(j);
-    const verdict = !E ? `` : ch >= 0.95 ? `Решающий перевес` : ch >= 0.6 ? `Перевес на вашей стороне` : ch >= 0.3 ? `Исход неясен` : ch > 0 ? `Шансы невелики` : `Атака обречена`;
-    const row = (x) => `<div class="eu-u sm ${on.has(x.u.id) ? `on` : ``}" data-a="btog" data-id="${x.u.id}"><span class="eu-ck">${on.has(x.u.id) ? `✓` : ``}</span>${SYM(x.u.t, rgb(natRGB(x.u.n), 1.12))}<span class="eu-un"><b>${esc(x.u.nm)}</b><small>из: ${esc(reg(x.src).n)}${T.riv.has(x.src) ? ` · <span class="warn">через реку −25 %</span>` : ``}${x.amph ? ` · <span class="warn">десант −50 %</span>` : ``}</small></span><span class="eu-st"><span class="eu-bar"><i style="width:${(x.u.s / UT[x.u.t].max) * 100}%"></i></span><small>${f1(x.u.s)}</small></span><span class="eu-st org"><span class="eu-bar o"><i style="width:${x.u.o}%"></i></span><small>орг. ${Math.round(x.u.o)}</small></span></div>`;
-    this.modal(`<h2>${this.ic(`sword`, 2)} Наступление: ${esc(T.n)}</h2>
-<div class="eu-sub">${c ? `${FLAG(c)} ${esc(NATIONS[c].n)} · ` : ``}${esc(TERR_N[T.t])}${T.city ? ` · город` : ``} · ${this.ic(WX_ICON[wx.k] || `sun`, 1)} ${esc(wx.n)}${S.fort[j] ? ` · укрепления ур. ${S.fort[j]}` : ``}</div>
-<div class="eu-h3">Оборона · ${defs.length}</div><div class="eu-ul">${defs.map((u) => this.unitRow(u)).join(``) || `<p class="eu-hint">Войск нет</p>`}</div>
-<div class="eu-h3">Атакуют · ${att.length} из ${cands.length}${cands.length > STACK ? ` (не больше ${STACK})` : ``}</div><div class="eu-ul">${cands.map(row).join(``)}</div>
-${E ? `<div class="eu-odds panel"><div class="eu-vs"><span>${f1(E.A)}</span><span class="eu-bar2"><i style="width:${(E.A / (E.A + E.D)) * 100}%"></i></span><span>${f1(E.D)}</span></div>
-<div><b class="${ch >= 0.6 ? `good` : ch >= 0.3 ? `` : `warn`}">${verdict}: шанс ≈ ${Math.round(ch * 100)} %</b> · соотношение ${f1(r)} (нужно ≥ 1,15)</div>
-<div class="eu-hint">Авиация в радиусе: ваша ${f1(E.pa)}, противника ${f1(E.pd)} · ожидаемые потери: ваши ≈ ${f1(lA)}, противника ≈ ${f1(lD)}</div></div>` : `<p class="eu-hint">Отметьте атакующие армии.</p>`}
-${deep ? `<div class="eu-deep panel">${this.ic(`star`, 2)}<span><b>Командовать лично: «${esc(deep.n)}»</b><small>Тактическая битва «Мирового фронта» решит исход удара: ★★★ — разгром обороны, ★★ — серьёзный перевес, ★ — обычный бой, поражение — атака отбита.</small></span></div>` : ``}
-<div class="eu-row"><button class="btn" data-a="mclose">Отмена</button>${deep ? `<button class="btn" data-a="deep" ${att.length ? `` : `disabled`}>Лично</button>` : ``}<button class="btn gold" data-a="fight" ${att.length ? `` : `disabled`}>Атаковать</button></div>`, { cls: `wide` });
-  }
-  btog(id) {
-    const on = this.bt.on;
-    if (on.has(id)) on.delete(id);
-    else if (on.size >= STACK) return this.sfx(`error`), this.toast(`Не больше ${STACK} армий в одном ударе`);
-    else on.add(id);
-    this.sfx(`click`);
-    const sc = this.$.modal.querySelector(`.eu-dlg`)?.scrollTop || 0;
-    this.renderBattle();
-    const d = this.$.modal.querySelector(`.eu-dlg`);
-    d && (d.scrollTop = sc);
-  }
-  fight(mod, note) {
-    const { j, cands, on } = this.bt, S = this.S, T = reg(j);
-    const att = cands.filter((x) => on.has(x.u.id) && S.units.includes(x.u));
-    if (!att.length) return;
-    const dn = S.ctrl[j];
-    const rep = battle(S, att, j, mod ? { mod, deep: 1 } : {});
-    this.undo = [];
-    this.closeModal(true);
-    this.sfx(rep.win ? `capture` : `boom`);
-    this.marks.push({ r: j, k: rep.win ? `won` : `lost` });
-    this.map.setMarks(this.marks);
-    this.map.refresh();
-    const loss = `Потери: ваши −${f1(rep.lostA)}, ${NATIONS[dn]?.a || `противника`} −${f1(rep.lostD)}${rep.killed ? ` · уничтожено соединений: ${rep.killed}` : ``}`;
-    this.report(rep.win ? `Победа: ${T.n} взят` : `Атака на ${T.n} отбита`, (note ? note + ` ` : ``) + loss, rep.win ? `good` : `warn`);
-    if (rep.win) this.after(j, att.map((x) => x.u).filter((u) => S.units.includes(u) && u.mv > 0).map((u) => u.id));
-    else this.select(this.sel && unitsIn(S, this.sel).some((u) => u.n === S.player) ? this.sel : att[0] && S.units.includes(att[0].u) ? att[0].u.r : 0);
-    this.saveSoon();
+    const S = this.S, list = S.units.filter((u) => this.readyS.has(u.id));
+    if (!list.length) return this.toast(`Все дивизии получили приказы`);
+    const cur = unitAt(S, this.sel), k = cur ? list.indexOf(cur) : -1, u = list[(k + 1) % list.length];
+    this.mode = null;
+    this.closePv();
+    this.select(u.r);
+    this.map.reveal(u.r, 300);
   }
   // ——— тактическая битва «Мирового фронта» ———
   deepFor(j) {
@@ -651,20 +814,21 @@ ${deep ? `<div class="eu-deep panel">${this.ic(`star`, 2)}<span><b>Команд�
     return DEEP.find((d) => d.nat === S.player && S.t >= d.t0 && S.t <= d.t1 && d.keys.split(` `).includes(k) && !(d.op in (S.deep || {})) && (d.foe ? c === d.foe : c === `GER` || (c && side(S, c) === `axis`))) || null;
   }
   askDeep() {
-    const d = this.deepFor(this.bt.j);
+    const p = this.pv, d = p && this.deepFor(p.j);
     if (!d) return;
     this.deepAsk = d;
-    this.modal(`<h2>${this.ic(`star`, 2)} ${esc(d.n)}</h2><p>Вы примете командование в тактической битве «Мирового фронта». Это займёт 20–40 минут. Кампания «Европа» сохранится — после битвы вы вернётесь к этой карте, а итог решит исход удара на ${esc(reg(this.bt.j).n)}.</p>
-<p class="eu-hint">★★★ — оборона разгромлена (−30 % сил, дезорганизация) · ★★ — перевес · ★ — обычный бой · поражение — наступление захлебнулось. Выйти из битвы в меню — передать командование штабу (обычный бой).</p>
-<div class="eu-row"><button class="btn" data-a="deepno">Назад</button><button class="btn gold" data-a="deepgo">В бой!</button></div>`);
+    this.modal(`<h2>${this.ic(`star`, 2)} ${esc(d.n)}</h2><p>Вы примете командование в тактической битве «Мирового фронта». Это займёт 20–40 минут. Кампания сохранится — после битвы вы вернётесь к этой карте, а итог решит исход удара на ${esc(reg(p.j).n)}.</p>
+<p class="eu-hint">★★★ — оборона разгромлена · ★★ — перевес · ★ — обычный удар · поражение — наступление захлебнулось. Выход из битвы в меню — командование переходит штабу (обычный бой).</p>
+<div class="eu-row"><button class="btn" data-a="mclose">Назад</button><button class="btn gold" data-a="deepgo">В бой!</button></div>`);
   }
   goDeep() {
-    const d = this.deepAsk, S = this.S;
-    if (!d || !this.bt) return;
+    const d = this.deepAsk, S = this.S, p = this.pv;
+    if (!d || !p) return;
     S.deep = S.deep || {};
     S.deep[d.op] = -1;
-    S.deepPend = { j: this.bt.j, ids: [...this.bt.on], op: d.op };
+    S.deepPend = { j: p.j, id: p.id, k: p.k, op: d.op };
     this.undo = [];
+    this.closePv();
     this.save();
     this.closeModal(true);
     this.close();
@@ -677,87 +841,46 @@ ${deep ? `<div class="eu-deep panel">${this.ic(`star`, 2)}<span><b>Команд�
     S.deepPend = null;
     S.deep = S.deep || {};
     S.deep[p.op] = res ? (res.win ? res.stars || 1 : 0) : -2;
-    const att = p.ids.map((id) => S.units.find((u) => u.id === id)).filter((u) => u && u.n === S.player && u.mv > 0).map((u) => {
-      const t = targets(S, u).find((x) => x.r === p.j && (x.k === `attack` || x.k === `amph`));
-      return t ? { u, src: u.r, amph: t.k === `amph` } : null;
-    }).filter(Boolean);
+    const u = this.unit(p.id), d = unitAt(S, p.j);
     this.render();
-    if (!att.length || !landIn(S, p.j).length) return this.toast(`Удар отменён: обстановка изменилась`), this.save();
-    this.bt = { j: p.j, cands: att, on: new Set(att.slice(0, STACK).map((x) => x.u.id)) };
-    const T = reg(p.j);
-    if (!res) return this.fight(null, `Командование передано штабу фронта.`);
+    if (!u || !d || !attackTargets(S, u).get(p.j)) return this.toast(`Удар отменён: обстановка изменилась`), this.save();
+    this.pv = { k: p.k || `attack`, id: u.id, j: p.j };
+    if (!res) return this.fire(null, `Командование передано штабу фронта.`);
     if (!res.win) {
-      for (const x of att) (x.u.s *= 0.75), (x.u.o = Math.min(x.u.o, 25)), (x.u.at = 1), (x.u.mv = 0);
-      touch(S);
+      u.s = Math.max(1, u.s - 2), (u.o = Math.min(u.o, orgMax(S, u.n) * 0.25)), (u.at = 1), (u.mv = 0);
+      this.closePv();
       this.sfx(`boom`);
-      this.marks.push({ r: p.j, k: `lost` });
-      this.map.setMarks(this.marks);
-      this.map.invalidate();
-      this.report(`Наступление на ${T.n} захлебнулось`, `Тактическое поражение: атакующие армии понесли тяжёлые потери.`, `warn`);
+      this.map.boomAt(p.j);
+      this.report(`Наступление на ${reg(p.j).n} захлебнулось`, `Тактическое поражение: дивизия понесла тяжёлые потери.`, `warn`);
       this.render();
       return this.save();
     }
     const st = res.stars || 1;
-    for (const u of landIn(S, p.j)) st >= 3 ? ((u.s *= 0.7), (u.o *= 0.5)) : st === 2 && (u.o *= 0.7);
-    this.fight({ r: st >= 3 ? 1.5 : st === 2 ? 1.25 : 1.1 }, `Тактическая победа ${`★`.repeat(st)}.`);
+    st >= 3 && (d.o = Math.round(d.o * 0.5));
+    this.fire({ r: st >= 3 ? 1.6 : st === 2 ? 1.3 : 1.12 }, `Тактическая победа ${`★`.repeat(st)}.`);
   }
-  // ——— производство ———
-  showProd() {
-    const S = this.S, P = S.player, nat = S.nat[P], inc = this.inc(), i = this.sel;
-    const own = i && S.ctrl[i] === P, dep = deployRegion(S, P, own ? i : 0);
-    const cost = (k) => {
-      const c = itemCost(k);
-      return [[c.pp, `ПП`], [c.mp, `люди`], [c.st, `сталь`], [c.oil, `нефть`]].filter(([v]) => v).map(([v, n]) => `${v} ${n}`).join(` · `);
-    };
-    const place = (k) => (k === `fort` || k === `ic` ? (own ? reg(i).n : null) : dep ? reg(dep).n : `—`);
-    const items = Object.keys(ITEMS).map((k) => {
-      const it = ITEMS[k], can = canBuy(S, P, k), pl = place(k), need = (k === `fort` || k === `ic`) && !pl;
-      const ok = can && !need && (k !== `fort` || (S.fort[i] || 0) < 3);
-      const why = need ? `выберите свой регион на карте` : !can ? `не хватает ресурсов` : k === `fort` && (S.fort[i] || 0) >= 3 ? `максимум` : `место: ${pl}`;
-      return `<div class="eu-pi">${it.u ? SYM(it.u, rgb(natRGB(P), 1.12), 26, 17) : `<span class="eu-pic">${this.ic(k === `fort` ? `shield` : `gear`, 2)}</span>`}<span class="eu-un"><b>${esc(it.n)}</b><small>${cost(k)} · ${itemTime(k)} ${plural(itemTime(k), `ход`, `хода`, `ходов`)} · ${esc(why)}</small></span><button class="btn sm ${ok ? `gold` : ``}" data-a="buy" data-k="${k}" ${ok ? `` : `disabled`}>Заказать</button></div>`;
-    });
-    const turnsLeft = (q) => {
-      let paid = q.paid, left = q.left, n = 0;
-      while (n < 60) {
-        n++;
-        if (!(left > 0 && paid >= q.need)) paid += Math.min(q.need - paid, q.need / Math.max(1, q.time) + 0.01);
-        if (paid >= q.need - 0.01) left--;
-        if (left <= 0 && paid >= q.need - 0.01) break;
-      }
-      return n;
-    };
-    const queue = nat.q.map((q, k) => `<div class="eu-pi"><span class="eu-qn">${k + 1}</span><span class="eu-un"><b>${esc(ITEMS[q.k].n)}</b><small>${q.r ? esc(reg(q.r).n) : `место — по готовности`} · ≈ ${turnsLeft(q)} ${plural(turnsLeft(q), `ход`, `хода`, `ходов`)}</small><span class="eu-bar p"><i style="width:${Math.min(100, (q.paid / q.need) * 100)}%"></i></span></span><button class="btn sm" data-a="qdel" data-k="${k}" aria-label="Отменить">${this.ic(`cross`, 2)}</button></div>`).join(``);
-    const shares = [0, 0.25, 0.45, 0.65];
-    this.modal(`<h2>${this.ic(`crate`, 2)} Производство</h2>
-<div class="eu-sub">${FLAG(P)} ${esc(NATIONS[P].n)} · склад: ${f0(nat.pp)} ПП · ${f0(nat.oil)} нефти · ${f0(nat.st)} стали · ${f0(nat.mp)} людей</div>
-<div class="eu-hint">Доход за ход: ${sgn(inc.pp)} ПП (15 % — на науку), нефть ${sgn(inc.oil - this.upV)} (армия расходует ${f1(this.upV)}), сталь ${sgn(inc.st)}, люди ${sgn(inc.mp)}.</div>
-<div class="eu-h3">Пополнение потерь — доля ПП</div>
-<div class="seg eu-seg">${shares.map((v) => `<button class="btn ${v === shares.reduce((b, x) => (Math.abs(x - (nat.reinf ?? 0.45)) < Math.abs(b - (nat.reinf ?? 0.45)) ? x : b)) ? `on` : ``}" data-a="reinf" data-v="${v}">${Math.round(v * 100)} %</button>`).join(``)}</div>
-<div class="eu-h3">Заказать</div><div class="eu-pl">${items.join(``)}</div>
-<div class="eu-h3">Очередь · ${nat.q.length}</div><div class="eu-pl">${queue || `<p class="eu-hint">Пусто. ПП копятся на складе — заказы оплачиваются по мере поступления.</p>`}</div>
-<p class="eu-hint">Люди, сталь и нефть списываются при заказе, ПП — каждый ход. Новые армии появляются у столицы или в выбранном регионе.</p>
-<div class="eu-row"><button class="btn gold" data-a="mclose">Готово</button></div>`, { cls: `wide` });
+  // ——— экономика и авиация ———
+  showEco() {
+    const S = this.S, P = S.player, nat = S.nat[P], inc = this.inc(), up = this.upV;
+    const rows = TYPES.map((t) => {
+      const U = UT[t], c = buildCost(S, P, t);
+      return `<div class="eu-pw">${SPI(t, P, `sm`)}<span class="eu-un"><b>${TYPE_N[t]}</b><small>атака ${U.atk} · защита ${U.def} · ходы ${U.mv}${U.oil ? ` · топливо ${f1(U.oil)}/ход` : ``} — ${esc(U.d)}</small></span><span class="eu-cost">${esc(cost(c))}</span></div>`;
+    }).join(``);
+    this.modal(`<h2>${this.ic(`crate`, 2)} Экономика</h2>
+<div class="eu-info"><span><small>Промышленность (ПП)</small><b>${f0(nat.pp)} <em class="good">${sgn(inc.pp * 0.88)}</em></b></span><span><small>Нефть</small><b>${f0(nat.oil)} <em class="${inc.oil - up < 0 ? `warn` : `good`}">${sgn(inc.oil - up)}</em></b></span><span><small>Людские резервы</small><b>${f0(nat.mp)} <em class="good">${sgn(inc.mp)}</em></b></span></div>
+<p class="eu-hint">ПП за ход: ${f1(inc.pp)}, из них 12 % — на науку. Нефть: добыча и поставки ${f1(inc.oil)}, расход танков, мотопехоты и авиации ${f1(up)}. Без нефти танки и мотопехота ходят только на 1 провинцию.</p>
+<div class="eu-tog panel ${nat.autoRe !== false ? `on` : ``}" data-a="autore"><span class="eu-box">${nat.autoRe !== false ? `✓` : ``}</span><span><b>Автопополнение</b><small>В конце хода дивизии, которые не двигались и не воевали, получают +1 силы (ПП и люди списываются).</small></span></div>
+<div class="eu-h3">Дивизии · стоимость формирования</div><div class="eu-pl">${rows}</div>
+<p class="eu-hint">Формировать — нажмите на свою пустую провинцию со снабжением. Каждая новая дивизия чуть дороже предыдущей.</p>
+<div class="eu-row"><button class="btn gold" data-a="mclose">Закрыть</button></div>`, { cls: `wide` });
   }
-  doBuy(k) {
-    const S = this.S, P = S.player, i = this.sel, own = i && S.ctrl[i] === P;
-    const r = k === `fort` || k === `ic` ? (own ? i : 0) : own ? deployRegion(S, P, i) : 0;
-    if (!buy(S, P, k, r)) return this.sfx(`error`), this.toast(`Не хватает ресурсов`);
-    this.sfx(`select`);
-    this.incK = null;
-    this.render();
-    this.showProd();
-    this.saveSoon();
-  }
-  qdel(k) {
-    const S = this.S, nat = S.nat[S.player], q = nat.q[k];
-    if (!q) return;
-    const c = itemCost(q.k);
-    nat.q.splice(k, 1);
-    (nat.mp += c.mp), (nat.st += c.st), (nat.oil += c.oil), (nat.pp += q.paid * 0.5);
-    this.sfx(`click`);
-    this.render();
-    this.showProd();
-    this.saveSoon();
+  showAir() {
+    const S = this.S, P = S.player, nat = S.nat[P], ok = canBuyAir(S, P);
+    this.modal(`<h2>${this.ic(`plane`, 2)} Авиация</h2>
+<div class="eu-info"><span><small>Авиаполков</small><b>${nat.airMax || 0} из ${AIR.max}</b></span><span><small>Вылетов в этом ходу</small><b>${nat.air || 0}</b></span><span><small>Техника «Авиация»</small><b>уровень ${nat.tech.air || 0}</b></span></div>
+<p class="eu-hint">Каждый авиаполк даёт 1 вылет за ход. Удар по дивизии противника в 3 переходах от вашей снабжаемой земли: −15…25 организации и шанс выбить 1 силы. В лесах, горах и городах цель укрыта, зимой и в распутицу авиация слабее. Авиаполки расходуют нефть.</p>
+<div class="eu-row"><button class="btn" data-a="buyair" ${ok ? `` : `disabled`}>Новый авиаполк<small>${esc(cost(AIR.cost))}</small></button><button class="btn gold" data-a="airmode2" ${nat.air ? `` : `disabled`}>Авиаудар</button></div>
+<div class="eu-row"><button class="btn" data-a="mclose">Закрыть</button></div>`);
   }
   // ——— наука ———
   showTech() {
@@ -769,10 +892,10 @@ ${deep ? `<div class="eu-deep panel">${this.ic(`star`, 2)}<span><b>Команд�
     }).join(``);
     const cur = nat.res, lv = cur ? nat.tech[cur] || 0 : 0, c = cur ? techCost(lv) : 0;
     this.modal(`<h2>${this.ic(`gear`, 2)} Наука</h2>
-<div class="eu-sub">Очки исследований: ${f1(nat.rp || 0)}${cur ? ` из ${c}` : ``} · приток ≈ ${f1(inc.pp * 0.15)} за ход</div>
-${cur ? `<span class="eu-bar p wide"><i style="width:${Math.min(100, ((nat.rp || 0) / c) * 100)}%"></i></span>` : `<p class="warn">Направление не выбрано — очки пропадают.</p>`}
+<div class="eu-sub">Очки исследований: ${f1(nat.rp || 0)}${cur ? ` из ${c}` : ``} · приток ≈ ${f1(Math.max(0, inc.pp) * 0.12)} за ход</div>
+${cur ? bar((nat.rp || 0) / c, `p wide`) : `<p class="warn">Направление не выбрано — очки пропадают.</p>`}
 <div class="eu-tcs">${cards}</div>
-<p class="eu-hint">Уровень открывается не раньше своего года: 1 — 1939, 2 — 1940 … 5 — 1943. Очки копятся и после смены направления.</p>
+<p class="eu-hint">Уровень открывается не раньше своего года: 1 — 1939, 2 — 1940 … 5 — 1943.</p>
 <div class="eu-row"><button class="btn gold" data-a="mclose">Готово</button></div>`, { cls: `wide` });
   }
   // ——— державы и дипломатия ———
@@ -782,17 +905,16 @@ ${cur ? `<span class="eu-bar p wide"><i style="width:${Math.min(100, ((nat.rp ||
     const rel = (n) => (n === P ? `<b class="good">вы</b>` : !alive(S, n) ? `капитуляция` : atWar(S, n, P) ? `<b class="warn">война с вами</b>` : ally(S, n, P) ? `союзник` : coop(S, n, P) ? `попутчик` : side(S, n) ? `не воюет с вами` : `нейтралитет`);
     const canWar = (n) => n !== P && alive(S, n) && !atWar(S, n, P) && !ally(S, n, P) && !coop(S, n, P) && n !== `USA` && !(S.noWar || []).includes(pairKey(n, P)) && G.R.some((R) => S.ctrl[R.i] === n);
     const rows = (g) => Object.keys(NATIONS).filter((n) => (g === `dead` ? !alive(S, n) : alive(S, n) && (side(S, n) || null) === g)).map((n) => {
-      const v = vpState(S, n), regs = G.R.filter((R) => S.ctrl[R.i] === n).length, str = totalStr(S, n);
-      // ещё не появившиеся (Виши) и заокеанские без войск в Европе — не показываем
-      if (alive(S, n) && n !== P && !regs && str < 0.5 && !(n === `USA` && side(S, n))) return ``;
-      return `<div class="eu-pw">${FLAG(n, 16)}<span class="eu-un"><b>${esc(NATIONS[n].n)}</b><small>${rel(n)}${alive(S, n) ? ` · регионов ${regs} · войска ${f0(str)}${v.lost ? ` · потеряно ${Math.round(v.k * 100)} % ОП` : ``}` : ``}</small></span>${canWar(n) ? `<button class="btn sm" data-a="war" data-k="${n}">Война</button>` : ``}</div>`;
+      const v = vpState(S, n), regs = G.R.filter((R) => S.ctrl[R.i] === n).length, cnt = S.units.filter((u) => u.n === n).length;
+      if (alive(S, n) && n !== P && !regs && !cnt && !(n === `USA` && side(S, n))) return ``;
+      return `<div class="eu-pw">${FLAG(n, 16)}<span class="eu-un"><b>${esc(NATIONS[n].n)}</b><small>${rel(n)}${alive(S, n) ? ` · провинций ${regs} · ${divs(cnt)} · сила ${f0(totalStr(S, n))}${v.lost ? ` · потеряно ${Math.round(v.k * 100)} % ОП` : ``}` : ``}</small></span>${canWar(n) ? `<button class="btn sm" data-a="war" data-k="${n}">Война</button>` : ``}</div>`;
     }).join(``);
     this.modal(`<h2>${this.ic(`order`, 2)} Державы</h2>
 ${groups.map(([g, t]) => {
   const h = rows(g);
   return h ? `<div class="eu-h3">${t}</div><div class="eu-pl">${h}</div>` : ``;
 }).join(``)}
-<p class="eu-hint">Объявление войны нейтралу — его армии и союзники станут вашими противниками. «Попутчики» (СССР и западные союзники) воюют с общим врагом, но не делят снабжение.</p>
+<p class="eu-hint">Объявление войны нейтралу — его дивизии и союзники станут вашими противниками. «Попутчики» воюют с общим врагом, но не делят снабжение.</p>
 <div class="eu-row"><button class="btn gold" data-a="mclose">Закрыть</button></div>`, { cls: `wide` });
   }
   askWar(n) {
@@ -814,33 +936,36 @@ ${groups.map(([g, t]) => {
   // ——— журнал ———
   showLog() {
     const S = this.S, P = S.player, ts = [...new Set([...S.news.map((e) => e.t), ...S.caps.map((c) => c.t), ...S.log.map((l) => l.t)])].sort((a, b) => b - a);
-    const cap = (c) => (c.cap ? `<div class="eu-le warn">${esc(NATIONS[c.cap]?.n || c.cap)} капитулирует</div>` : ``);
     const body = ts.map((t) => {
       const ns = S.news.filter((e) => e.t === t).map((e) => `<div class="eu-le"><b>${esc(e.ttl)}</b><small>${esc(e.txt)}</small></div>`).join(``);
       const cs = S.caps.filter((c) => c.t === t && !c.cap && (ally(S, c.to, P) || (c.from && ally(S, c.from, P)))).map((c) => `${ally(S, c.to, P) ? `<span class="good">+</span>` : `<span class="warn">−</span>`} ${esc(reg(c.r).n)}`);
       const lg = S.log.filter((l) => l.t === t && l.n === P).map((l) => `<div class="eu-le"><small>${esc(l.txt)}</small></div>`).join(``);
-      const cp = S.caps.filter((c) => c.t === t && c.cap).map(cap).join(``);
+      const cp = S.caps.filter((c) => c.t === t && c.cap).map((c) => `<div class="eu-le warn">${esc(NATIONS[c.cap]?.n || c.cap)} капитулирует</div>`).join(``);
       return ns || cs.length || lg || cp ? `<div class="eu-h3">${esc(dateLabel(t))}</div>${ns}${cp}${cs.length ? `<div class="eu-le"><small>Фронт: ${cs.join(`, `)}</small></div>` : ``}${lg}` : ``;
     }).join(``);
     this.modal(`<h2>${this.ic(`book`, 2)} Журнал</h2>${body || `<p class="eu-hint">Пока пусто.</p>`}<div class="eu-row"><button class="btn gold" data-a="mclose">Закрыть</button></div>`, { cls: `wide` });
   }
   // ——— меню ———
   showMenu() {
+    const o = this.opt;
     this.modal(`<h2>Европа 1939–1945</h2><div class="eu-sub">${esc(dateLabel(this.S.t))} · ход ${this.S.t + 1}</div>
 <div class="eu-mbtns"><button class="btn gold" data-a="mclose">Продолжить</button>
+<button class="btn" data-a="log">Журнал</button>
+<button class="btn" data-a="eco">Экономика</button>
 <button class="btn" data-a="help">Как играть</button>
+<div class="eu-tog panel ${o.anim ? `on` : ``}" data-a="animtog"><span class="eu-box">${o.anim ? `✓` : ``}</span><span><b>Показывать ходы противника</b><small>Марши и атаки ИИ на видимой части карты.</small></span></div>
 <button class="btn" data-a="hub">Новая кампания</button>
 <button class="btn" data-a="exit">Сохранить и выйти в меню</button></div>`);
   }
   showHelp() {
     this.modal(`<h2>Как играть</h2><div class="eu-help">
-<p><b>Ход — полмесяца.</b> Вы отдаёте приказы своим армиям, затем ходят все остальные державы. Кампания длится до конца 1945 года.</p>
-<p><b>Армии.</b> Пехота — основа обороны (1 переход), моторизованные корпуса и танки — 2 перехода, прорывы и окружения, авиация поддерживает бои в радиусе двух регионов. В регионе — не больше ${STACK} армий.</p>
-<p><b>Приказы.</b> Нажмите на регион со своими войсками и отметьте армии — цели подсветятся: зелёный — марш, жёлтый — занять пустой регион, красный — атака, фиолетовый — морской десант. Кнопки «Ж/Д» и «Море» перебрасывают армию далеко по своей территории (число эшелонов и конвоев за ход ограничено).</p>
-<p><b>Бой.</b> Сила армии — численность × организованность × опыт × качество войск × техника. Оборону усиливают леса, холмы, горы, болота, города, реки и укрепления; зимой и в распутицу наступать тяжело. Для прорыва нужно соотношение сил не меньше 1,15. Удар с нескольких направлений сильнее.</p>
-<p><b>Снабжение</b> идёт от столицы, узлов и портов по своей территории. Без него армии теряют силы — окружайте врага и берегите свои фланги. Режим карты «Снабжение» показывает обстановку.</p>
-<p><b>Экономика.</b> Промышленность (ПП), нефть, сталь и люди. ПП оплачивают заказы и пополнение потерь, 15 % идёт на науку. Захваченные регионы дают меньше, советская земля — совсем мало.</p>
-<p><b>События.</b> История идёт своим чередом: пакты, вступление в войну Италии и США, ленд-лиз, высадки союзников. Важные решения за вашу державу принимаете вы.</p>
+<p><b>Ход — полмесяца.</b> Вы отдаёте приказы дивизиям, затем ходят остальные державы. Кампания длится до конца 1945 года.</p>
+<p><b>Дивизии.</b> В провинции — одна дивизия. Сила 1–10 (число на фишке), организация — полоска под числом. Пехота держит оборону, артиллерия бьёт на 2 провинции без ответного огня, кавалерия, мотопехота и танки ходят на 2 провинции и после прорыва могут идти дальше. Золотые нашивки — опыт, мешки с песком — окопы.</p>
+<p><b>Приказы.</b> Нажмите на свою дивизию: <b class="c-move">зелёный</b> — марш, <b class="c-cap">жёлтый</b> — занять пустую вражескую провинцию, <b class="c-att">красный</b> — атака, <b class="c-bomb">оранжевый</b> — обстрел, <b class="c-amph">фиолетовый</b> — десант. Рядом с врагом марш останавливается. Марш можно отменить кнопкой ${this.ic(`undo`, 1)}, бой — нельзя. Повторное нажатие на цель атаки — тоже атака.</p>
+<p><b>Бой.</b> Перед атакой видны шанс прорыва и потери. Если организация защитника падает до нуля — он отступает, а без пути отхода сдаётся. Соседние дивизии дают поддержку с флангов. Оборону усиливают леса, холмы, горы, болота, города, реки, окопы и укрепления; зимой и в распутицу наступать тяжело.</p>
+<p><b>Снабжение</b> идёт от столицы, узлов и портов по своей земле. Без него дивизии теряют организацию и силу — окружайте врага и берегите фланги. Режим карты «Снабжение» показывает обстановку.</p>
+<p><b>Экономика.</b> ПП, нефть и люди. Нажмите на свою пустую провинцию — сформируйте дивизию. «Пополнить» в карточке дивизии восстанавливает силу. Авиаполки дают вылеты: кнопка с самолётом.</p>
+<p><b>Ж/д и море.</b> Дивизия вне боя может уехать по железной дороге в любую свою провинцию или переправиться морем между портами — число эшелонов и конвоев за ход ограничено.</p>
 <p><b>Лично.</b> В ключевых сражениях (Польша 1939, Смоленск, Москва, Харьков, Ржев, Сталинград, Курск, «Багратион», Берлин) можно взять командование и сыграть тактическую битву — её итог решит исход удара.</p></div>
 <div class="eu-row"><button class="btn gold" data-a="mclose">Понятно</button></div>`, { cls: `wide` });
   }
@@ -866,7 +991,7 @@ ${groups.map(([g, t]) => {
     d.textContent = msg;
     this.$.toasts.appendChild(d);
     while (this.$.toasts.children.length > 3) this.$.toasts.firstElementChild.remove();
-    setTimeout(() => d.remove(), 2600);
+    setTimeout(() => d.remove(), 2800);
   }
   report(ttl, txt, cls = ``) {
     const r = this.$.rep;
@@ -876,46 +1001,132 @@ ${groups.map(([g, t]) => {
     clearTimeout(this.repT);
     this.repT = setTimeout(() => r.classList.add(`hidden`), 4200);
   }
-  wait(txt) {
+  wait(txt, turn = false) {
     const w = this.$.wait;
     if (!txt) return w.classList.add(`hidden`);
-    w.innerHTML = `<span class="eu-spin"></span><span>${esc(txt)}</span>`;
-    w.classList.remove(`hidden`);
+    w.className = `eu-wait panel ${turn ? `turn` : ``}`;
+    w.innerHTML = `<span class="eu-spin"></span><span>${esc(txt)}</span>${turn && !this.fast ? `<button class="btn sm" data-a="fast">Быстрее</button>` : ``}`;
   }
   // ——— конец хода ———
   async endTurn() {
     const S = this.S;
     if (this.busy || !S || S.over) return;
     if (S.pending.length) return this.flow();
+    const rd = this.readyS.size;
+    if (rd && !this.endArm) {
+      this.endArm = 1;
+      clearTimeout(this.endT);
+      this.endT = setTimeout(() => ((this.endArm = 0), this.renderFoot()), 3500);
+      this.toast(`Ещё ${divs(rd)} без приказа — нажмите ещё раз`);
+      this.sfx(`click`);
+      return this.renderFoot();
+    }
+    this.endArm = 0;
+    clearTimeout(this.endT);
+    this.$.toasts.innerHTML = ``;
+    this.cam0 = { cx: this.map.cx, cy: this.map.cy, z: this.map.z };
+    this.panned = 0;
     this.busy = true;
     this.mode = null;
+    this.closePv();
     this.closeModal(true);
+    this.sel = 0;
+    this.fast = !this.opt.anim;
     const t0 = S.t, ctrl0 = S.ctrl.slice();
     this.sfx(`turn`);
-    this.renderSheet();
-    this.wait(`Ходят другие державы…`);
+    this.render();
+    this.wait(`Ходят другие державы…`, true);
     await raf();
-    await sleep(16);
     try {
+      S._fx = [];
       const it = turnSteps(S);
-      let t = performance.now();
+      let last = null, tm = performance.now();
       for (;;) {
         const st = it.next();
+        const fx = S._fx || [];
+        S._fx = [];
+        if (fx.length && !this.fast) await this.playFx(fx);
         if (st.done) break;
-        if (performance.now() - t > 30) {
-          this.wait(`Ход: ${NATIONS[st.value]?.n || st.value}…`);
+        last = st.value;
+        if (performance.now() - tm > 40) {
+          this.wait(`Ход: ${NATIONS[last]?.n || last}…`, true);
           await raf();
-          t = performance.now();
+          tm = performance.now();
         }
       }
     } catch (e) {
       console.error(e);
       this.toast(`Ошибка хода: ${e.message}`, `warn`);
     }
+    delete S._fx;
+    // камера — туда, где игрок оставил карту
+    this.panned && this.cam0 && this.map.flyTo(this.cam0, 420);
     this.busy = false;
     this.wait(null);
     this.undo = [];
+    this.skip.clear();
     this.afterTurn(t0, ctrl0);
+  }
+  // ходы ИИ на видимой части карты: марши, удары, потери
+  async playFx(fx) {
+    const S = this.S, P = S.player, m = this.map, { l, t, r, b } = m.inset;
+    const vis = (i) => {
+      if (!i) return false;
+      const R = reg(i), [x, y] = m.toScr(R.ax, R.ay);
+      return x > l - 10 && y > t - 10 && x < m.W - r + 10 && y < m.H - b + 10;
+    };
+    const rel = (e) => {
+      const a = e.rep ? e.rep.a : e.n, d = e.rep?.d;
+      return a !== P && (atWar(S, a, P) || (!!d && (d === P || ally(S, d, P))));
+    };
+    const seen = (e) => vis(e.from) || vis(e.to) || vis(e.rep?.T) || vis(e.rep?.src);
+    let show = fx.filter((e) => e.k !== `new` && rel(e) && seen(e));
+    // удары по вам за краем экрана — камера едет к самому жаркому участку
+    const hot = fx.filter((e) => e.k === `atk` && rel(e) && e.rep?.T);
+    if (!show.length && hot.length && !this.fast) {
+      const pts = hot.map((e) => reg(e.rep.T)), d2 = (a, b) => (a.ax - b.ax) ** 2 + (a.ay - b.ay) ** 2;
+      let best = pts[0], bn = 0;
+      for (const p of pts) {
+        const n = pts.filter((q) => d2(p, q) < 4900).length;
+        n > bn && ((bn = n), (best = p));
+      }
+      const list = hot.filter((e) => d2(reg(e.rep.T), best) < 4900).flatMap((e) => [e.rep.T, e.rep.src].filter(Boolean));
+      m.fitRegions(list, Math.max(m.z, 1.8), 420, 30);
+      this.panned = 1;
+      await sleep(460);
+      show = fx.filter((e) => e.k !== `new` && rel(e) && seen(e));
+    }
+    if (!show.length) return;
+    m.refresh();
+    let delay = 0, end = 0, boom = 0;
+    for (const e of show.slice(0, 28)) {
+      if (e.k === `mv` || e.k === `rail` || e.k === `sea`) {
+        const path = e.k === `mv` && e.path?.length > 1 ? e.path : [e.from, e.to], ms = e.k === `mv` ? 150 + 140 * (path.length - 1) : 420;
+        m.animMove(e.id, path, ms, delay);
+        end = Math.max(end, delay + ms);
+        delay += 40;
+      } else if (e.k === `atk`) {
+        const x = e.rep;
+        m.boomAt(x.T, delay, x.win);
+        x.dS && m.floatText(x.T, `−${x.dS}`, `#ff7a6a`, delay + 80);
+        x.aS && m.floatText(x.src, `−${x.aS}`, `#ffb0a0`, delay + 150);
+        x.out === `retreat` && x.to && m.animMove(x.du, [x.T, x.to], 280, delay + 120);
+        x.adv && m.animMove(x.au, [x.src, x.T], 280, delay + 200);
+        end = Math.max(end, delay + 650);
+        delay += 120;
+        boom++;
+      } else if (e.k === `air`) {
+        const x = e.rep;
+        m.boomAt(x.T, delay);
+        m.floatText(x.T, x.dS ? `−${x.dS}` : `орг −${x.dO}`, `#ffd27a`, delay + 60);
+        end = Math.max(end, delay + 500);
+        delay += 90;
+        boom++;
+      }
+    }
+    boom && this.sfx(`boom`);
+    const t0 = performance.now();
+    while (performance.now() - t0 < Math.min(1800, end + 80) && !this.fast) await sleep(40);
   }
   afterTurn(t0, ctrl0) {
     const S = this.S, P = S.player, mine = (n) => !!n && ally(S, n, P);
@@ -923,11 +1134,8 @@ ${groups.map(([g, t]) => {
     const fl = [];
     for (let r = 1; r <= G.R.length; r++) ctrl0[r] !== S.ctrl[r] && (mine(ctrl0[r]) || mine(S.ctrl[r])) && fl.push({ r, col: mine(S.ctrl[r]) ? `rgba(120,255,140,.32)` : `rgba(255,70,50,.42)` });
     this.map.flash(fl, 3400);
-    this.marks = S.bat.filter((b) => b.t === t0 && (mine(b.a) || mine(b.d)) && b.a !== P).map((b) => ({ r: b.T, k: (mine(b.a) ? b.win : !b.win) ? `won` : `lost` }));
+    this.marks = S.bat.filter((x) => x.t === t0 && !x.air && (mine(x.a) || mine(x.d)) && x.a !== P).map((x) => ({ r: x.T, k: (mine(x.a) ? x.win : !x.win) ? `won` : `lost` }));
     this.map.setMarks(this.marks);
-    const sel = this.sel;
-    this.pick.clear();
-    sel && unitsIn(S, sel).forEach((u) => u.n === P && u.mv > 0 && this.pick.add(u.id));
     this.render();
     this.save();
     if (S.over) return this.showOver();
@@ -935,30 +1143,35 @@ ${groups.map(([g, t]) => {
   }
   summary(t0, ctrl0) {
     const S = this.S, P = S.player, mine = (n) => !!n && ally(S, n, P);
-    const ns = S.news.filter((e) => e.t === t0 || e.t === S.t);
+    // новости — только ещё не показанные
+    if (S.nSeen == null || S.nSeen > S.news.length) (S.nSeen = S.news.findIndex((e) => e.t >= t0)), S.nSeen < 0 && (S.nSeen = S.news.length);
+    const ns = S.news.slice(S.nSeen);
+    S.nSeen = S.news.length;
+    this.saveSoon();
     const lost = [], won = [];
     for (let r = 1; r <= G.R.length; r++) {
       const a = ctrl0[r], b = S.ctrl[r];
       if (a === b) continue;
       mine(a) && !mine(b) ? lost.push(r) : !mine(a) && mine(b) && won.push(r);
     }
-    const hit = S.bat.filter((b) => b.t === t0 && mine(b.d) && !mine(b.a)), held = hit.filter((b) => !b.win).length;
+    const hit = S.bat.filter((x) => x.t === t0 && !x.air && x.d === P && !mine(x.a)), held = hit.filter((x) => !x.win).length;
+    const dead = hit.filter((x) => x.out === `destroyed` || x.out === `surrender`).length;
     const caps = S.caps.filter((c) => c.t === t0 && c.cap);
-    const lg = S.log.filter((l) => l.t === t0 && l.n === P);
+    const lg = S.log.filter((x) => x.t === t0 && x.n === P);
     const far = S.caps.filter((c) => c.t === t0 && !c.cap && !mine(c.to) && !mine(c.from) && reg(c.r).vp >= 5);
     if (!ns.length && !lost.length && !won.length && !hit.length && !caps.length && !lg.length && !far.length) {
       this.toast(dateLabel(S.t));
       return this.flow();
     }
-    const nm = (rs) => rs.map((r) => esc(reg(r).n)).join(`, `);
+    const nm = (rs) => rs.slice(0, 14).map((r) => esc(reg(r).n)).join(`, `) + (rs.length > 14 ? ` и ещё ${rs.length - 14}` : ``);
     this.modal(`<h2>${esc(dateLabel(S.t))}</h2><div class="eu-sub">Итоги хода ${t0 + 1} · ${esc(shortDate(t0))}</div>
 ${ns.map((e) => `<div class="eu-news ${e.k === `war` ? `war` : ``}"><b>${esc(e.ttl)}</b><span>${esc(e.txt)}</span></div>`).join(``)}
 ${caps.map((c) => `<div class="eu-news war"><b>${esc(NATIONS[c.cap]?.n || c.cap)} капитулирует</b></div>`).join(``)}
-${hit.length ? `<div class="eu-sl">${this.ic(`shield`, 1)} Атак противника: ${hit.length}, отбито: ${held}</div>` : ``}
+${hit.length ? `<div class="eu-sl">${this.ic(`shield`, 1)} Атак на ваши дивизии: ${hit.length}, отбито: ${held}${dead ? `, потеряно дивизий: ${dead}` : ``}</div>` : ``}
 ${lost.length ? `<div class="eu-sl warn">Потеряны: ${nm(lost)}</div>` : ``}
-${won.length ? `<div class="eu-sl good">Заняты союзниками и вами: ${nm(won)}</div>` : ``}
+${won.length ? `<div class="eu-sl good">Заняты вами и союзниками: ${nm(won)}</div>` : ``}
 ${far.length ? `<div class="eu-sl">${far.map((c) => `${esc(NATIONS[c.to]?.n || c.to)} занимает ${esc(reg(c.r).n)}`).join(` · `)}</div>` : ``}
-${lg.map((l) => `<div class="eu-sl">${this.ic(l.k === `tech` ? `gear` : `crate`, 1)} ${esc(l.txt.replace(/^[^:]+: /, ``))}</div>`).join(``)}
+${lg.map((x) => `<div class="eu-sl">${this.ic(x.k === `tech` ? `gear` : `crate`, 1)} ${esc(x.txt.replace(/^[^:]+: /, ``))}</div>`).join(``)}
 <div class="eu-row"><button class="btn gold" data-a="mclose">К карте</button></div>`, { cls: `wide` });
     this.afterModal = () => this.flow();
   }
@@ -1009,6 +1222,8 @@ ${lg.map((l) => `<div class="eu-sl">${this.ic(l.k === `tech` ? `gear` : `crate`,
   showOver() {
     const S = this.S, o = S.over, P = S.player, x = this.overText(), st = this.stars();
     if (!o) return;
+    this.sel = 0;
+    this.render();
     if (!this.overShown) (this.overShown = 1), this.sfx(o.win ? `win` : `lose`);
     try {
       const k = `wf_eu_best_${P}`;
@@ -1019,7 +1234,7 @@ ${lg.map((l) => `<div class="eu-sl">${this.ic(l.k === `tech` ? `gear` : `crate`,
     this.modal(`<h2 class="${o.win ? `good` : `warn`}">${o.win ? `Победа!` : `Поражение`}</h2><div class="eu-stars">${stars}</div>
 <p>${esc(x.t)}</p>
 <p class="eu-hint">История: Берлин пал 2 мая 1945 года, Германия капитулировала 8 мая. ${P === `GER` ? `Чтобы победить за Германию, нужно устоять до конца 1945 года.` : `★★★ — капитуляция Германии до мая 1945, ★★ — до осени 1945.`}</p>
-<div class="eu-info"><span><small>Ход</small><b>${o.t + 1}</b></span><span><small>Регионов у вашего блока</small><b>${regs}</b></span><span><small>Ваши потери</small><b>${f0(S.nat[P].lost || 0)}</b></span>${P === `GER` ? `<span><small>Потери СССР</small><b>${f0(S.nat.SOV.lost || 0)}</b></span><span><small>Потери Британии</small><b>${f0(S.nat.UK.lost || 0)}</b></span>` : `<span><small>Потери Германии</small><b>${f0(S.nat.GER.lost || 0)}</b></span>`}<span><small>Сложность</small><b>${esc(DIFF[S.diff])}</b></span></div>
+<div class="eu-info"><span><small>Ход</small><b>${o.t + 1}</b></span><span><small>Провинций у вашего блока</small><b>${regs}</b></span><span><small>Ваши потери (сила)</small><b>${f0(S.nat[P].lost || 0)}</b></span><span><small>Уничтожено дивизий</small><b>${f0(S.nat[P].kills || 0)}</b></span><span><small>Сложность</small><b>${esc(DIFF[S.diff])}</b></span></div>
 <div class="eu-row"><button class="btn" data-a="mclose">Карта</button><button class="btn" data-a="exit">В меню</button><button class="btn gold" data-a="hub">Новая кампания</button></div>`, { cls: `wide` });
   }
   // ——— действия ———
@@ -1037,16 +1252,20 @@ ${lg.map((l) => `<div class="eu-sl">${this.ic(l.k === `tech` ? `gear` : `crate`,
       case `help`: return this.sfx(`click`), this.showHelp();
       case `mclose`: return this.sfx(`click`), this.closeModal();
       case `mflow`: return this.sfx(`click`), this.closeModal(true), this.flow();
-      case `zin`: return this.map.zoomBy(1.4);
-      case `zout`: return this.map.zoomBy(1 / 1.4);
+      case `zin`: return this.map.zoomBy(1.35);
+      case `zout`: return this.map.zoomBy(1 / 1.35);
+      case `fast`: return (this.fast = true), b.remove();
     }
     if (!S) return;
     switch (a) {
-      case `prod`: return this.sfx(`click`), this.showProd();
+      case `eco`: return this.sfx(`click`), this.showEco();
+      case `air`: return this.sfx(`click`), this.showAir();
       case `tech`: return this.sfx(`click`), this.showTech();
       case `pow`: return this.sfx(`click`), this.showPow();
       case `log`: return this.sfx(`click`), this.showLog();
       case `overview`: return this.sfx(`click`), this.showOver();
+      case `animtog`: return (this.opt.anim = !this.opt.anim), this.saveOpt(), this.sfx(`click`), this.showMenu();
+      case `autore`: return (S.nat[S.player].autoRe = S.nat[S.player].autoRe === false), this.sfx(`click`), this.showEco(), this.saveSoon();
       case `mapmode`: {
         const m = (this.map.mode + 1) % 3;
         this.map.setMode(m);
@@ -1054,40 +1273,56 @@ ${lg.map((l) => `<div class="eu-sl">${this.ic(l.k === `tech` ? `gear` : `crate`,
         this.toast([`Политическая карта`, `Рельеф`, `Снабжение: зелёный — хорошее, красный — нет`][m]);
         return this.renderRail();
       }
+      case `airmode`:
+      case `airmode2`: {
+        this.closeModal(true);
+        if (this.mode?.k === `air` && a === `airmode`) return (this.mode = null), this.sfx(`click`), this.render();
+        if (!(S.nat[S.player].air > 0)) return this.sfx(`error`), this.toast(S.nat[S.player].airMax ? `Вылеты на этот ход израсходованы` : `Нет авиаполков — купите в окне «Авиация»`);
+        this.closePv();
+        this.mode = { k: `air` };
+        this.sel = 0;
+        this.sfx(`click`);
+        this.render();
+        this.tg.size ? this.revealAny([...this.tg.keys()]) : this.toast(`Нет целей в радиусе авиации`);
+        return;
+      }
+      case `buyair`: return buyAir(S, S.player) ? (this.sfx(`select`), this.render(), this.showAir(), this.saveSoon()) : this.sfx(`error`);
       case `next`: return this.nextReady();
       case `undo`: return this.doUndo();
       case `end`: return this.endTurn();
-      case `desel`: return this.select(0);
-      case `pick`: {
-        const u = this.unit(+d.id);
-        if (!u) return;
-        if (u.mv <= 0) return this.sfx(`error`), this.toast(`${u.nm}: ходы израсходованы`);
-        this.pick.has(u.id) ? this.pick.delete(u.id) : this.pick.add(u.id);
+      case `desel`: return this.mode = null, this.select(0);
+      case `skip`: {
+        const u = this.selU();
+        u && this.skip.add(u.id);
         this.sfx(`click`);
-        return this.render();
+        this.sel = 0;
+        this.render();
+        return this.readyS.size && this.nextReady();
       }
-      case `pickall`: return unitsIn(S, this.sel).forEach((u) => u.n === S.player && u.mv > 0 && this.pick.add(u.id)), this.sfx(`click`), this.render();
-      case `picknone`: return this.pick.clear(), this.sfx(`click`), this.render();
+      case `reinf`: return this.doReinf();
       case `rail`:
       case `sea`: {
-        const u = this.unit(+d.id);
+        const u = this.selU();
         if (!u) return;
-        this.mode = { k: a, u };
+        this.mode = { k: a, id: u.id };
         this.sfx(`click`);
         this.render();
-        this.tg.size && this.map.fitRegions([u.r, ...this.tg.keys()], this.map.z, 450, 6);
+        this.tg.size && this.map.fitRegions([u.r, ...this.tg.keys()], this.map.z, 450, 10);
         return;
       }
-      case `mcancel`: return (this.mode = null), this.sfx(`click`), this.render();
-      case `attack`: return this.sfx(`click`), this.openBattle(+d.r);
-      case `btog`: return this.btog(+d.id);
-      case `fight`: return this.fight();
+      case `mcancel`: return (this.mode = null), this.closePv(), this.sfx(`click`), this.render();
+      case `atkby`: {
+        const u = this.unit(+d.id), j = this.sel, t = u && attackTargets(S, u).get(j);
+        if (!t) return this.sfx(`error`);
+        this.sel = u.r;
+        this.updateHL();
+        return this.openAtk(u, j, t.k);
+      }
+      case `pvno`: return this.closePv(), this.sfx(`click`), this.render();
+      case `fire`: return this.fire();
       case `deep`: return this.sfx(`click`), this.askDeep();
-      case `deepno`: return this.sfx(`click`), this.renderBattle();
       case `deepgo`: return this.goDeep();
-      case `buy`: return this.doBuy(d.k);
-      case `qdel`: return this.qdel(+d.k);
-      case `reinf`: return (S.nat[S.player].reinf = +d.v), this.sfx(`click`), this.showProd(), this.saveSoon();
+      case `build`: return this.doBuild(d.t);
       case `res`: return (S.nat[S.player].res = d.k), this.sfx(`click`), this.showTech(), this.renderRail(), this.saveSoon();
       case `war`: return this.sfx(`click`), this.askWar(d.k);
       case `war2`: return this.doWar();

@@ -1,17 +1,19 @@
-# Code map (v0.6; restored from v0.4 build, names in game.js are minified)
+# Code map (v0.6.1; restored from v0.4 build, names in game.js are minified)
 
 Project restored 2026-11-02 from MirovoyFront-v0.4.html (original TS sources lost with the old chat). Since v0.5 the project lives on GitHub: `theefe1st/game_ww2` (public; the signing key is NOT in git — it is kept in MirovoyFront-v0.5-source.zip). Android binaries (icons, splash, gradle-wrapper.jar) are stored as text in `tools/android-binaries.b64` → `tools/unpack-binaries.sh` / `tools/pack-binaries.sh`.
-- `src/game.js` — whole game (prettified bundle, one scope). `src/data/map_*.json` — hex maps. `src/style.css` — CSS with inlined Tiny5 font (minified line; new rules appended at the end).
+- `src/game.js` — whole game (prettified bundle, one scope). `src/data/map_*.json` — hex maps. `src/style.css` — CSS with the inlined Rubik font (variable woff2 300–900, Cyrillic + Latin; `--px: "Rubik", system-ui, …` — used by all modes; canvases use `Rubik, sans-serif` / `FONT(s, w)` in europe/map.js; minified line, new rules appended at the end). Since v0.6.1 the pixel Tiny5 font is gone (hard to read on phones).
 - `src/ops/kharkov42.js`, `src/ops/rzhev42.js` — v0.5 operations (factory functions taking the helper object `__OH`).
 - `src/front/` — v0.5 «Карта фронта»: `stages.js` (data), `render.js` (pixel rasterizer), `frontmap.js` (interactive canvas widget). Base map: `src/data/front_base.json`.
-- `src/europe/` — v0.6 «Европа 1939–1945» (strategic mode, plain ES modules, rules/AI without DOM). Map data: `src/data/europe.json`. See the section below.
+- `src/europe/` — «Европа 1939–1945» (v0.6; since v0.6.1 — divisions in provinces, phone-first UI; plain ES modules, rules/AI without DOM). Map data: `src/data/europe.json`. See the section below.
 - Build: `npx vite build` (dist/ → Android), `npx vite build --mode single` (dist-single/index.html, one file).
 - Android: `android/` (Capacitor 8). `npx cap sync android && cd android && ./gradlew assembleRelease` with JAVA_HOME = JDK 21, ANDROID_HOME = SDK (platform 36).
   Release signing: `android/keystore.properties` + `android/keystore/worldfront-release.jks` (KEEP, not in git — needed to update the app without uninstall).
   `MainActivity.java` — immersive fullscreen; manifest — sensorLandscape; `capacitor.config.json` → SystemBars hidden.
 - Europe tools: `tools/build-europe.mjs` (NE 10m/50m → src/data/europe.json + preview PNG), `tools/simeu.mjs [seed] [turns] [-v]` (headless all-AI war, prints capitulations and key cities),
-  `tools/e2e-europe.cjs` (env W H NAT=SOV|GER|UK Y=1939|1941 TAG TURNS: hub → start → select → attack → production/tech/powers → map modes → turns → screenshots tools/shots/eu_*.png),
-  `tools/e2e-europe2.cjs` (rail move + undo, «Командовать лично» round trip, events, reload → continue, game over, back).
+  `tools/e2e-europe.cjs` (env W H NAT=SOV|GER|UK Y=1939|1941 TAG TURNS SHOTS DEEP=1: real touch taps on canvas hit boxes — hub → start → select division → march + undo → attack preview → fire or «Лично» round trip →
+  foe card → build division → air strike → economy/tech/powers/log/menu/help modals → map modes → turns with events → reload → «Продолжить»; overflow checks; screenshots tools/shots/eu_*.png),
+  `tools/e2e-europe2.cjs` (GER 1941 «Барбаросса» decision, rail move + undo, sea move, Android back, game over → over card → hub, stars),
+  `tools/shots-modes.cjs` (menu / tactical battle / front map screenshots, portrait + landscape — font check).
 - Tests: `tools/autoplay.cjs` (passive play of a standalone op), `tools/walk.cjs` (scripted clicks), `tools/fronttest.cjs [W H]` (front map scenarios → tools/shots/fm_*.png),
   `tools/e2e-career.cjs` (new career → front map → op → result → front map transition), `tools/sim.cjs` (in-page balance sim: env OPS, POL=pass|ai|def|off|smart, SEEDS, CAREER, DIFF).
 - Map tools: `tools/build-hexmap.cjs` (NE 10m → hex op map), `tools/build-frontmap.cjs` (NE 10m → front_base.json), `tools/preview-front.mjs [scale] [filter]` (stage previews → tools/shots/front_*.png).
@@ -50,27 +52,39 @@ App class: showCareerHub, showOpsList, showOpSetup, showCampNew (→ showFrontMa
 startCampOp, showMemoirs, enterGame, runAI, endTurn, showResult, showCareerResult («Дальше» → showFrontMap({after})), showFrontMap, closeFront, careerTurnStart, showOrders, showTelegraph…
 DOM layers in #ui: #top, #rail, #bottom, #menu, #front (v0.5), #modal (topmost).
 
-## Europe 1939–1945 (src/europe, v0.6)
+## Europe 1939–1945 (src/europe, v0.6 → v0.6.1 divisions)
 - `europe.json` (tools/build-europe.mjs): w 858, h 726, proj LAEA {lon0 22, lat0 50, ≈6.5 km/px}; `cls` pixel classes RLE (`[A-Z]` class + base36 run; 0 sea, 2 lake → water; others land biomes),
   `reg` region id per land pixel (RLE "id.len" in base36, land pixels only), `R[k]` = [px, ax, ay, sx, sy, x0, y0, x1, y1] (area, unit anchor, city/label point, bbox), `adj` [[a, b, river]], `sea` [[a, b, zone]].
 - `regions.js`: NATIONS {key: {n, a (genitive), col, …}} (29), NAT_KEYS, SEA_LINKS, REGIONS (236 seeds: key, name, lon, lat, owner 1939, terrain pl|fo|hi|mo|ma|de, ic, oil, st, co, vp, cap/city/port flags, fort, extra), REG by key.
 - `mapdata.js`: decodeEurope(E) → {w, h, cls, reg, R[{…seed, px, ax, ay, sx, sy, bb, nb[], riv:Set, sea2[]}], byKey}.
-- `rules.js` (pure): graph `G` (set by useGraph), dates (turn = half month; `turnOf(y, m, d)`, `dateLabel`, `shortDate`, T_END = Dec 1945 = 151), unit types `UT` (inf/mot/arm/air), STACK 8,
-  diplomacy (pairs of wars, blocs axis/allies/comintern: side, ally, coop, atWar, declareWar, makePeace, joinSide), terrain TERR, weather(S, R, P), supply(S, P) → distance per region (−1 none),
-  combat estimate/battle (r ≥ 1.15 wins; retreat or destroy; losses → S.nat[n].lost), targets(S, u) → [{r, k: move|capture|attack|amph|air, cost}], moveUnit/occupy, railTargets/railMove, seaTargets/seaMove,
-  TECH/techCost/techYear, income/upkeep/economy, ITEMS/itemCost/itemTime/canBuy/buy/deployRegion, vpState (victory points lost share), capitalLost, totalStr.
-- `setup.js`: newState({seed, diff, hist}) — 1939 order of battle, nations' resources, wars of 1 Sep 1939.
-- `events.js`: EV (53 dated events: {id, t, until?, if, ask?: nation, ttl, txt, opts[{l, fx}], fx}); runEvents (AI picks opts[0] = historical; for the player → S.pending), resolveEvent(S, id, k),
+- `rules.js` (pure, v0.6.1 division model): graph `G` (set by useGraph), dates (turn = half month; `turnOf(y, m, d)`, `dateLabel`, `shortDate`, T_END = Dec 1945 = 151).
+  **One division per region** (`unitAt(S, r)`); `UT`/`TYPES` = inf, art, cav, mot, arm (atk/def/mv/cost; art — ranged 2 provinces, no counter-fire; cav/mot/arm mv 2, `MECH`, `BLITZ` — mobile units may continue after a breakthrough),
+  `MAXS` 10 (strength 1–10), org (`orgMax`), xp (`xpL` stripes), entrenchment; `AIR` = air wings (sorties, not counters). Diplomacy (pairs of wars, blocs axis/allies/comintern: side, ally, coop, atWar, declareWar, makePeace, joinSide),
+  ZoC `zocOf`, terrain TERR/TERR_N, cityDef, fortLvl, weather(S, R, P), supply(S, P) → distance per region (−1 none), inSup.
+  Orders: `mvOf`, `moves(S, u)` / `attackTargets` / `amphTargets` → targets {r, k: move|capture|attack|fire|amph, cost}, `moveTo`, `RAIL` `railTargets`/`railMove`, `NAVCAP` `seaTargets`/`seaMove`.
+  Combat: `combat()` (division vs division; flank support +10 % per adjacent friendly division; terrain, city, river, trenches, forts, weather, supply, tech), `attack(S, u, r)` → report {aO, dO = actual org lost, win, kill, …}
+  (defender without org retreats via `retreatTo`, without a way out — surrenders; `capture`), estimate = Monte-Carlo of the same formula; air: `airRange`, `canAir`, `airEst`, `airStrike` (−15…25 org, chance −1 str).
+  Economy: PP / oil / manpower, `income`, `upkeep`, `economy`; `buildCost`/`buildSite`/`canBuild`/`build` (own supplied province; arm/mot — industrial only), `canBuyAir`/`buyAir`,
+  `reCost`/`canReinforce`/`reinforce` (+ auto-reinforce +1 str for units that stood still, option), TECH/techCost/techYear, vpState, capitalOf/capitalLost, totalStr.
+  Visual hook: `S._fx` (optional callback: move/attack/air/kill events → map animations; skipped in save).
+- `setup.js`: newState({seed, diff, hist}) — 1939 order of battle as divisions (one per region, extra ones in neighbouring provinces), nations' resources, wars of 1 Sep 1939.
+- `events.js`: EV (54 dated events, v0.6.1 adds `sovstrike` — March 1942: if Germany never attacked the USSR, the USSR declares war first; {id, t, until?, if, ask?: nation, ttl, txt, opts[{l, fx}], fx}); runEvents (AI picks opts[0] = historical; for the player → S.pending), resolveEvent(S, id, k),
   checkCapitulations (will to fight: CAP_K/CAP_C; FRA → Vichy, ITA surrender, minors switch side), landing (Torch/Husky/Overlord), playerWar(S, a, b) (GER→SOV before 22.06.1941 triggers Barbarossa).
 - `ai.js`: DIR — «director» directives [nation, from t, to t, enemies|'*'|null, mode A (attack, area/obj/need) | H (hold) | S (stage/gar), params]; gate() — historical schedule (no running ahead of history; disabled vs the player);
   aiTurn(S, n): fronts & threats → needs (defence, offence, depth, garrisons, staging) → free units move (rail/sea) → attacks with concentration → production & research.
 - `engine.js`: initMap(E) (decode + useGraph), newGame({seed, player, diff, hist, start: 1939|1941}) (1941 = deterministic AI fast-forward to T41 = 43), beginTurn, `*turnSteps(S)` (yields nation before each AI turn — UI time slicing), endTurn, checkEnd (S.over {win, k, t}), save/load (JSON, keys starting with `_` skipped).
 - `map.js`: class EuropeMap(canvas, {onTap}) — offscreen 2× ImageData composed from biome base + nation tint (modes 0 political, 1 terrain, 2 supply), occupation hatch, sub-pixel edges (region/coast/border/front);
-  partial recompose by changed regions (`refresh()`), highlights `setHL(Map r→kind, sel)`, `flash([{r, col}])`, battle marks `setMarks`, cached label/unit layer (cities, labels with LOD/collision, unit counters → `hit` boxes),
-  camera: pan/pinch/wheel, setInset, fit, fitRegions, reveal, zoomBy, toScr/toMap, regionAt, pause.
-- `ui.js`: class EuropeUI(root, host {icon, sfx, exit, deep(op, nat, diff, cb)}) — hub (start 1939/1941, nation, difficulty, historical AI; options `wf_eu_opt`), top bar, rail, region sheet, battle modal (attacker picks, odds, «Лично»),
-  production/tech/powers/journal/menu/help modals, events (S.pending), async end turn (turnSteps + time slicing), turn summary, game over (stars → `wf_eu_best_<nat>`), undo stack (snapshots, cleared after battle/turn).
-  Save `wf_eu_v1` + meta `wf_eu_v1_meta` {v, p, t, d, over, at}. `act()` dispatches `data-a` buttons. Exports NAT_INFO, DEEP (ops for «Командовать лично»), EuropeUI.menuLabel().
-- `europe.css`: all `#eu` styles (`.land` / `.port` set by layout(), `.hubmode`).
+  partial recompose by changed regions (`refresh()`), highlights `setHL(Map r→kind, sel)`, `flash([{r, col}])`, battle marks `setMarks`, cached label layer (cities, labels with LOD/collision).
+  Division tokens (v0.6.1): plate in nation colour + pixel sprite of the type + strength number + org bar; LOD by zoom: full token → compact chip with number → dot; frame gold = ready (`setReady`), dimmed = acted, red = enemy, blue = ally.
+  `declutter(items, gw, gh, sel)` — repulsion ≤ 0.6 token size (selected fixed), painter's order top-down (selected last + bobbing marker), `tpos` Map r → [x, y] (leader line to the province when displaced ≥ 7 px);
+  hit boxes top-down → `regionAt`. Animations: `animMove`, `boomAt`, `floatText`, `setArrow`, `addFx`, `animating()`. Camera: pan/pinch/wheel, setInset, fit, `flyTo({cx, cy, z}, ms)`, fitRegions, reveal, zoomBy, toScr/toMap, pause. Default zoom ≈ 2.4–2.5 (phone).
+  Input: pointer events (tap on pointerup); `touchend` → preventDefault so a tap never turns into a «ghost» click on a panel button rendered under the finger (same in front/frontmap.js and the tactical canvas in game.js).
+- `ui.js`: class EuropeUI(root, host {icon, sfx, exit, deep(op, nat, diff, cb)}) — hub (start 1939/1941, nation, difficulty, historical AI; options `wf_eu_opt`), top bar, rail, bottom sheet (portrait) / right panel (landscape).
+  Render order: computeReady → updateHL → renderTop/Rail/Sheet. Cards: unitCard (stats rows, «Пополнить»), foeCard (who can attack and odds), provCard («Сформировать дивизию», tag chips), modeCard (rail/sea), airModeCard, overCard.
+  Tap own division → targets (green march, yellow capture, red attack, orange fire, violet landing); attack → atkCard (`estimate()` → odds, losses, enemy org after the strike, modifiers, «Лично»); second tap on the target = attack.
+  Footer: undo, «Следующая N» (`nextReady`), «Конец хода» (double tap if divisions without orders). Modals: economy, air, tech, powers, log, menu, help; events (S.pending); async end turn (turnSteps + time slicing)
+  with `playFx` (AI moves/strikes animated; camera pans to the hottest cluster of attacks on the player if none visible, then flies back to `cam0`; «Быстрее» / option), turn summary (news dedupe `S.nSeen`), game over (stars → `wf_eu_best_<nat>`), undo stack (snapshots, cleared after battle/turn).
+  Save `wf_eu_v2` + meta `wf_eu_v2_meta` {v: 2, p, t, d, over, at} (v0.6 saves `wf_eu_v1` are not loaded). `act()` dispatches `data-a` buttons. Exports NAT_INFO, DEEP (ops for «Командовать лично»), EuropeUI.menuLabel().
+- `europe.css`: all `#eu` styles (`.land` / `.port` set by layout(), `.hubmode`; compact cards, odds bar, toasts `width: max-content`, small-height media tweaks).
 - App glue (`src/game.js`): `#eu` layer, menu button `#m-eu`, `openEurope()/closeEurope()`, `euDeepStart(op, nat, diff, cb)` (backs up the tactical save `Do` → `wf_eu_bak`, starts the op from `ma[op]`),
   `euDeepResult()` (result modal → back to Europe → cb({win, stars})), `euRestore()` (also on app start, if the app was killed mid-battle), showMenu() aborts a deep battle (cb(null) → normal battle), onBack → eu.back().

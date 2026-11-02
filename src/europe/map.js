@@ -1,6 +1,7 @@
 // «Европа 1939–1945»: карта на холсте — рельеф и политическая заливка (2×), границы держав, линии фронта,
-// штриховка оккупации, режим снабжения, подсветка регионов, фишки войск и подписи; панорама и зум.
-import { G, reg, LAND, ix, atWar, ally, side, supply } from './rules.js';
+// штриховка оккупации, режим снабжения, подсветка целей, фишки дивизий (пиксель-арт, как в тактике), подписи;
+// анимация марша, вспышки боёв, всплывающие потери, стрелка удара; панорама и зум.
+import { G, reg, ix, atWar, ally, side, supply, orgMax, xpL, mvOf } from './rules.js';
 import { NATIONS } from './regions.js';
 
 const SC = 2;
@@ -12,7 +13,49 @@ export const natRGB = (n) => NC[NI[n] || 0];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ease = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
 const SEA = `#22476a`;
-const FONT = (s) => `${s}px Tiny5, "Trebuchet MS", monospace`;
+export const FONT = (s, w = 600) => `${w} ${s}px Rubik, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+const rgbS = (c, k = 1) => `rgb(${c.map((v) => Math.round(clamp(v * k, 0, 255))).join(`,`)})`;
+const mix = (a, b, k) => a.map((v, i) => v * (1 - k) + b[i] * k);
+// ——— спрайты дивизий: пиксель-арт 16×10, как у фишек «Мирового фронта» ———
+export const SPR = {
+  inf: [`......kkk.......`, `.....khhhk......`, `.....kssk.......`, `....kbbbbkkkkkkk`, `...kbbbbbbwwwwk.`, `...kbbkbbkkkkk..`, `....kbbbbk......`, `....kbkkbk......`, `...kbk..kbk.....`, `...kk....kk.....`],
+  arm: [`................`, `.....kkkkk......`, `....kbbbbbkkkkkk`, `....kbbbbbkgggk.`, `.kkkkkkkkkkkkk..`, `kbbbbbbbbbbbbbk.`, `kddddddddddddddk`, `kdgkgkgkgkgkgdk.`, `.kdddddddddddk..`, `..kkkkkkkkkkkk..`],
+  cav: [`......kkk.......`, `.....khhhk......`, `.....kssk....kk.`, `....kbbbbk..kHHk`, `..kkkbbbbkkkHHk.`, `.kHHHHHHHHHHHHk.`, `kHHHHHHHHHHHHk..`, `.kHk.kHk.kHkHk..`, `.kHk.kHk..kHk...`, `.kk...kk...kk...`],
+  mot: [`................`, `.kkkkkkkkk......`, `.kcccccccckkkk..`, `.kcccccccckwwbk.`, `.kcccccccckbbbbk`, `.kkkkkkkkkkbbbbk`, `kddddddddddddddk`, `kdkgkddddddkgkdk`, `..kgk......kgk..`, `...k........k...`],
+  art: [`................`, `.............kk.`, `...........kkggk`, `.........kkggkk.`, `.......kkggkk...`, `....kkkbggkk....`, `...kbbbbbbk.....`, `..kbbkkkbbbkkk..`, `.kHHk...kHHkddk.`, `..kk.....kk..kk.`],
+};
+// обмундирование: корпус, тень, каска, брезент
+const UNI = {
+  GER: [`#6c7366`, `#4a4f47`, `#59604f`, `#7f8473`], SOV: [`#7a7243`, `#575130`, `#4f6a3a`, `#8a8257`], POL: [`#7c7650`, `#5a5537`, `#686440`, `#8d8760`],
+  SVK: [`#6f735c`, `#4f5240`, `#5c604b`, `#80846c`], UK: [`#8b7a4e`, `#64573a`, `#6e6a45`, `#9a8a5e`], USA: [`#6b6b3e`, `#4c4c2c`, `#5d6236`, `#7d7b4f`],
+  FRA: [`#8a8458`, `#635f3e`, `#5f6f7a`, `#958f66`], VIC: [`#8a8458`, `#635f3e`, `#5f6f7a`, `#958f66`], ITA: [`#7c7c5e`, `#5a5a43`, `#6b6d55`, `#8a8a6c`],
+  FIN: [`#7b7e74`, `#585b52`, `#6a6d63`, `#8d9085`], ROM: [`#7d7550`, `#5a5438`, `#6b6646`, `#8c8560`], HUN: [`#7f7652`, `#5c553a`, `#6a6447`, `#8e8660`],
+  _: [`#77735a`, `#55523f`, `#666349`, `#88846a`],
+};
+const SPRC = new Map();
+export function sprite(t, n, sd, flip = false) {
+  const key = `${t}|${n}|${sd}|${flip ? 1 : 0}`;
+  let c = SPRC.get(key);
+  if (c) return c;
+  const P = SPR[t] || SPR.inf, u = UNI[n] || UNI._;
+  const pal = { k: `#16181a`, b: u[0], d: u[1], h: u[2], s: `#e0b48a`, w: `#6b4a2b`, g: `#9aa0a6`, H: `#7a5330`, c: u[3] };
+  c = document.createElement(`canvas`);
+  c.width = 16 * sd;
+  c.height = 10 * sd;
+  const x = c.getContext(`2d`);
+  for (let r = 0; r < 10; r++)
+    for (let q = 0; q < 16; q++) {
+      const ch = P[r][q];
+      if (ch === `.`) continue;
+      x.fillStyle = pal[ch] || `#f0f`;
+      x.fillRect((flip ? 15 - q : q) * sd, r * sd, sd, sd);
+    }
+  SPRC.set(key, c);
+  return c;
+}
+// размеры фишек по уровню детализации: W — ширина, A — поле спрайта, B — полоса силы, f — шрифт, k — масштаб спрайта
+const LOD = [null, { W: 28, A: 17, B: 12, f: 11, k: 1.5 }, { W: 38, A: 24, B: 14, f: 12.5, k: 2 }];
+export const lodOf = (z) => (z >= 1.75 ? 2 : z >= 1.15 ? 1 : z >= 0.8 ? 0 : -1);
 const PAL = Object.fromEntries(
   Object.entries({
     deep: `#24507a`, mid: `#2b5c8a`, shelf: `#356a99`, coast: `#4a84b6`, wave: `#3f74a4`, lake: `#3b78ab`, river: `#3e7fc1`, river2: `#4f8fc8`, sand: `#d2c592`,
@@ -79,11 +122,43 @@ function baseRGB() {
 // Цвета подсветки: выбор и цели
 export const HL = {
   sel: [`rgba(255,236,170,.16)`, `#ffe9a0`], move: [`rgba(98,211,107,.30)`, `#7ff08a`], capture: [`rgba(255,214,80,.34)`, `#ffd650`],
-  attack: [`rgba(240,70,50,.38)`, `#ff6a50`], amph: [`rgba(205,110,255,.34)`, `#d68cff`], air: [`rgba(90,169,230,.30)`, `#8fd0ff`],
-  rail: [`rgba(80,220,230,.30)`, `#7ff3ff`], sea: [`rgba(80,150,255,.32)`, `#8fb8ff`], deploy: [`rgba(255,214,80,.30)`, `#ffd650`],
-  flash: [`rgba(255,255,255,.0)`, `#ffffff`],
+  attack: [`rgba(240,70,50,.40)`, `#ff6a50`], bomb: [`rgba(255,140,40,.38)`, `#ffa040`], amph: [`rgba(205,110,255,.34)`, `#d68cff`],
+  amphcap: [`rgba(205,110,255,.26)`, `#d68cff`], air: [`rgba(255,150,60,.34)`, `#ffb070`], rail: [`rgba(80,220,230,.30)`, `#7ff3ff`],
+  sea: [`rgba(80,150,255,.32)`, `#8fb8ff`], build: [`rgba(255,214,80,.22)`, `#ffd650`], flash: [`rgba(255,255,255,.0)`, `#ffffff`],
 };
 
+// раздвинуть перекрывающиеся фишки (не дальше 0,6 размера от центра провинции); выбранная стоит на месте
+function declutter(items, gw, gh, sel) {
+  const n = items.length;
+  for (const it of items) (it.ax = it.x), (it.ay = it.y);
+  if (n < 2) return;
+  const lim = Math.max(gw, gh) * 0.6;
+  for (let k = 0; k < 12; k++) {
+    let hit = 0;
+    for (let a = 0; a < n; a++) {
+      const A = items[a];
+      for (let b = a + 1; b < n; b++) {
+        const B = items[b], dx = B.x - A.x, dy = B.y - A.y, ox = gw - Math.abs(dx), oy = gh - Math.abs(dy);
+        if (ox <= 0 || oy <= 0) continue;
+        hit = 1;
+        const wa = A.R.i === sel ? 0 : B.R.i === sel ? 1 : 0.5, wb = 1 - wa;
+        if (ox / gw < oy / gh) {
+          const s = (dx > 0 || (dx === 0 && a % 2) ? 1 : -1) * ox;
+          (A.x -= s * wa), (B.x += s * wb);
+        } else {
+          const s = (dy > 0 || (dy === 0 && a % 2) ? 1 : -1) * oy;
+          (A.y -= s * wa), (B.y += s * wb);
+        }
+      }
+    }
+    for (const it of items) {
+      const dx = it.x - it.ax, dy = it.y - it.ay, d = Math.hypot(dx, dy);
+      d > lim && ((it.x = it.ax + (dx / d) * lim), (it.y = it.ay + (dy / d) * lim));
+    }
+    if (!hit) break;
+  }
+  for (const it of items) (it.x = Math.round(it.x)), (it.y = Math.round(it.y));
+}
 export class EuropeMap {
   constructor(cv, o = {}) {
     this.cv = cv;
@@ -98,7 +173,7 @@ export class EuropeMap {
     this.img = this.octx.createImageData(this.w * SC, this.h * SC);
     this.cx = this.w * 0.55;
     this.cy = this.h * 0.45;
-    this.z = 1.5;
+    this.z = 2.4;
     this.inset = { l: 0, t: 0, r: 0, b: 0 };
     this.mode = 0;
     this.sel = 0;
@@ -107,6 +182,10 @@ export class EuropeMap {
     this.marks = [];
     this.paths = new Map();
     this.ptr = new Map();
+    this.anims = new Map();
+    this.fx = [];
+    this.arrow = null;
+    this.ready = new Set();
     this.moved = 0;
     this.dirty = 1;
     this.ver = 0;
@@ -119,7 +198,8 @@ export class EuropeMap {
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
-    document.fonts?.load?.(FONT(10)).then(() => ((this.fontOk = 1), (this.dirty = 1))).catch(() => {});
+    const fl = document.fonts;
+    fl?.load ? Promise.all([fl.load(FONT(12, 700)), fl.load(FONT(12, 500))]).then(() => ((this.fontOk = 1), this.invalidate())).catch(() => {}) : (this.fontOk = 1);
   }
   destroy() {
     this.dead = 1;
@@ -127,6 +207,7 @@ export class EuropeMap {
     const c = this.cv, h = this.hd;
     for (const k of [`pointerdown`, `pointermove`, `pointerup`, `pointercancel`]) c.removeEventListener(k, h[k]);
     c.removeEventListener(`wheel`, h.wheel);
+    c.removeEventListener(`touchend`, h.touchend);
     window.removeEventListener(`resize`, h.resize);
   }
   pause(p) {
@@ -188,15 +269,23 @@ export class EuropeMap {
         this.zoomAt(x, y, Math.exp(-clamp(e.deltaY, -120, 120) * 0.0022));
       },
       resize: () => this.resize(),
+      // касание карты не должно порождать «призрачный» click: после выбора региона панель
+      // перерисовывается под пальцем, и браузер нажал бы кнопку, оказавшуюся в этой точке
+      touchend: (e) => e.cancelable && e.preventDefault(),
     };
     this.hd.pointercancel = this.hd.pointerup;
     for (const k of [`pointerdown`, `pointermove`, `pointerup`, `pointercancel`]) c.addEventListener(k, this.hd[k]);
     c.addEventListener(`wheel`, this.hd.wheel, { passive: false });
+    c.addEventListener(`touchend`, this.hd.touchend, { passive: false });
     window.addEventListener(`resize`, this.hd.resize);
   }
   // регион под точкой экрана: фишка → пиксель → ближайший регион в радиусе (острова, побережье)
   regionAt(sx, sy) {
-    for (const b of this.hit) if (sx >= b[0] - 3 && sx <= b[2] + 3 && sy >= b[1] - 3 && sy <= b[3] + 3) return b[4];
+    // сверху — последние нарисованные фишки
+    for (let q = this.hit.length - 1; q >= 0; q--) {
+      const b = this.hit[q];
+      if (sx >= b[0] - 3 && sx <= b[2] + 3 && sy >= b[1] - 3 && sy <= b[3] + 3) return b[4];
+    }
     const [mx, my] = this.toMap(sx, sy), x = Math.floor(mx), y = Math.floor(my), { w, h } = this;
     const at = (x, y) => (x >= 0 && y >= 0 && x < w && y < h ? G.reg[y * w + x] : 0);
     if (at(x, y)) return at(x, y);
@@ -273,6 +362,12 @@ export class EuropeMap {
     const to = { cx: (bb[0] + bb[2]) / 2, cy: (bb[1] + bb[3]) / 2, z };
     if (!ms) return Object.assign(this, to), this.clamp();
     this.cam = { from: { cx: this.cx, cy: this.cy, z: this.z }, to, t0: performance.now(), ms };
+  }
+  // плавно перевести камеру в точку {cx, cy, z}
+  flyTo(to, ms = 400) {
+    const t = { cx: to.cx, cy: to.cy, z: clamp(to.z, this.minZ(), 10) };
+    if (!ms) return Object.assign(this, t), this.clamp(), (this.dirty = 1);
+    this.cam = { from: { cx: this.cx, cy: this.cy, z: this.z }, to: t, t0: performance.now(), ms };
   }
   fitRegions(list, maxZ = 3.2, ms = 0, pad = 10) {
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -478,6 +573,38 @@ export class EuropeMap {
     this.paths.set(r, p);
     return p;
   }
+  // ——— готовность, анимация, эффекты ———
+  setReady(set) {
+    this.ready = set || new Set();
+    this.ver++;
+    this.dirty = 1;
+  }
+  // марш дивизии по провинциям path (первая — откуда)
+  animMove(id, path, ms, delay = 0) {
+    if (!path || path.length < 2) return;
+    this.anims.set(id, { path, t0: performance.now() + delay, ms: ms || 170 + 160 * (path.length - 1) });
+    this.ver++;
+    this.dirty = 1;
+  }
+  addFx(e) {
+    e.t0 = performance.now() + (e.delay || 0);
+    e.ms = e.ms || 1100;
+    this.fx.push(e);
+    this.dirty = 1;
+  }
+  boomAt(r, delay = 0, big = false) {
+    this.addFx({ k: `boom`, r, ms: big ? 800 : 620, delay, big });
+  }
+  floatText(r, txt, col = `#ff7a6a`, delay = 0, dy = 0) {
+    this.addFx({ k: `txt`, r, txt, col, ms: 1400, delay, dy });
+  }
+  setArrow(a, b, col = `#ff6a50`) {
+    this.arrow = a && b ? { a, b, col } : null;
+    this.dirty = 1;
+  }
+  animating() {
+    return this.anims.size > 0 || this.fx.length > 0;
+  }
   // ——— кадр ———
   frame(t) {
     if (this.paused) return;
@@ -491,8 +618,9 @@ export class EuropeMap {
     }
     const fl = this.flashSet && t - this.flashSet.t0 < this.flashSet.ms;
     this.flashSet && !fl && ((this.flashSet = null), (this.dirty = 1));
-    const anim = this.hl.size > 0 || fl;
-    if (!this.dirty && !(anim && t - this.last > 50)) return;
+    const live = this.animating();
+    const anim = this.hl.size > 0 || fl || this.arrow || this.sel;
+    if (!this.dirty && !live && !(anim && t - this.last > 50)) return;
     this.dirty = 0;
     this.last = t;
     this.draw(t);
@@ -521,7 +649,7 @@ export class EuropeMap {
       ctx.stroke(P.edge);
       ctx.globalAlpha = 1;
     };
-    for (const [r, k] of this.hl) hlDraw(r, k, 1.6, 0.75 + ph * 0.25);
+    for (const [r, k] of this.hl) hlDraw(r, k, 1.8, 0.72 + ph * 0.28);
     if (this.sel) {
       const P = this.path(this.sel);
       ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * ox, dpr * oy);
@@ -544,6 +672,8 @@ export class EuropeMap {
       }
       ctx.globalAlpha = 1;
     }
+    // завершённые марши — обратно в общий слой
+    for (const [id, a] of this.anims) t - a.t0 >= a.ms && (this.anims.delete(id), this.ver++);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // подписи и фишки — кэш-слой, пока камера и состояние стоят
     const key = `${this.W}|${this.H}|${dpr}|${z.toFixed(4)}|${this.cx.toFixed(3)}|${this.cy.toFixed(3)}|${this.ver}|${this.S?._uv}|${this.sel}|${this.fontOk ? 1 : 0}`;
@@ -560,65 +690,102 @@ export class EuropeMap {
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.lab, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.S && this.drawLive(ctx, t);
   }
-  // ——— фишки войск, города, подписи ———
+  // направление взгляда фишки: к соседним врагам, иначе — по блоку
+  face(u) {
+    const S = this.S, R = reg(u.r);
+    let dx = 0;
+    for (const j of R.nb) {
+      const c = S.ctrl[j];
+      c && atWar(S, c, u.n) && (dx += reg(j).ax - R.ax);
+    }
+    if (dx) return dx < 0;
+    const P = S.player;
+    return P ? atWar(S, u.n, P) : u.n === `SOV`;
+  }
+  tokSt(u) {
+    const S = this.S, P = S.player, own = u.n === P;
+    const ready = own && this.ready.has(u.id);
+    // «отходила»: дивизия уже действовала в этом ходу (стоящие без целей не затемняются)
+    const acted = own && !ready && (u.fr || u.at || u.mvd || u.mv < mvOf(S, u));
+    return { own, ally: !own && P && ally(S, u.n, P), enemy: P && atWar(S, u.n, P), ready, acted, sel: u.r === this.sel };
+  }
+  // ——— фишки дивизий, города, подписи ———
   drawUnits(ctx) {
-    const S = this.S, z = this.z, P = S.player, I = ix(S), boxes = [];
+    const S = this.S, z = this.z, I = ix(S), boxes = [], L = lodOf(z), D = LOD[L];
     this.hit = [];
-    const mini = z < 0.95, cw = z >= 2.4 ? 30 : 26, ch = z >= 2.4 ? 18 : 16;
     const vis = (x, y, m = 40) => x > -m && y > -m && x < this.W + m && y < this.H + m;
     const items = [];
     for (const R of G.R) {
-      const us = I[R.i];
-      if (!us.length) continue;
+      const u = I[R.i];
+      if (!u || this.anims.has(u.id)) continue;
       const [x, y] = this.toScr(R.ax, R.ay);
-      if (!vis(x, y)) continue;
-      const land = us.filter(LAND), air = us.filter((u) => !LAND(u));
-      items.push({ R, x: Math.round(x), y: Math.round(y), land, air });
+      vis(x, y) && items.push({ u, R, x: Math.round(x), y: Math.round(y) });
     }
-    // маркеры боёв
+    const th = D ? D.A + D.B : L === 0 ? 13 : 8, tw = D ? D.W : L === 0 ? 20 : 8;
+    L >= 0 && declutter(items, tw + 4, th + 4, this.sel);
+    // порядок рисования: сверху вниз, выбранная — поверх всех
+    items.sort((a, b) => (a.R.i === this.sel) - (b.R.i === this.sel) || a.y - b.y || a.x - b.x);
+    this.tpos = new Map(items.map((it) => [it.R.i, [it.x, it.y]]));
+    for (const it of items) boxes.push([it.x - tw / 2 - 2, it.y - th / 2 - 2, it.x + tw / 2 + 2, it.y + th / 2 + 2]);
+    // сдвинутые фишки — тонкая линия к своей провинции
+    for (const it of items) {
+      const dx = it.x - it.ax, dy = it.y - it.ay;
+      if (dx * dx + dy * dy < 49) continue;
+      ctx.strokeStyle = `rgba(8,10,12,.85)`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(it.ax, it.ay);
+      ctx.lineTo(it.x, it.y);
+      ctx.stroke();
+      ctx.strokeStyle = rgbS(natRGB(it.u.n), 1.15);
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = `#0b0d0f`;
+      ctx.fillRect(it.ax - 3, it.ay - 3, 6, 6);
+      ctx.fillStyle = rgbS(natRGB(it.u.n), 1.15);
+      ctx.fillRect(it.ax - 2, it.ay - 2, 4, 4);
+    }
+    // маркеры боёв прошлого хода
     for (const m of this.marks) {
       const R = reg(m.r);
       if (!R) continue;
-      const [x, y] = this.toScr(R.ax, R.ay);
-      vis(x, y) && this.boom(ctx, Math.round(x - (mini ? 6 : cw / 2 + 4)), Math.round(y - (mini ? 6 : ch / 2 + 4)), m.k);
+      const [x, y] = this.tpos.get(m.r) || this.toScr(R.ax, R.ay);
+      vis(x, y) && this.boom(ctx, Math.round(x + tw / 2 - 2), Math.round(y - th / 2 - 8), m.k);
     }
     // города и столицы
-    const cities = [];
     for (const R of G.R) {
       if (!R.city && !R.cap) continue;
-      const [x, y] = this.toScr(R.sx, R.sy);
-      vis(x, y) && cities.push({ R, x: Math.round(x), y: Math.round(y) });
-    }
-    for (const it of items) {
-      const { x, y } = it;
-      if (mini) boxes.push([x - 5, y - 5, x + 5, y + 5]);
-      else boxes.push([x - cw / 2 - 1, y - ch / 2 - 1, x + cw / 2 + 1, y + ch / 2 + 5]);
-    }
-    for (const c of cities) {
-      const d = c.R.cap ? 4 : 2;
+      const [x0, y0] = this.toScr(R.sx, R.sy), x = Math.round(x0), y = Math.round(y0);
+      if (!vis(x, y)) continue;
+      const d = R.cap ? (z >= 1.75 ? 5 : 4) : z >= 1.75 ? 3 : 2;
       ctx.fillStyle = `#0b0d0f`;
-      ctx.fillRect(c.x - d - 1, c.y - d - 1, 2 * d + 2, 2 * d + 2);
-      ctx.fillStyle = c.R.cap ? `#ffd34d` : `#f2f0e6`;
-      ctx.fillRect(c.x - d, c.y - d, 2 * d, 2 * d);
-      c.R.cap && ((ctx.fillStyle = `#8a5a10`), ctx.fillRect(c.x - 1, c.y - 1, 2, 2));
+      ctx.fillRect(x - d - 1, y - d - 1, 2 * d + 2, 2 * d + 2);
+      ctx.fillStyle = R.cap ? `#ffd34d` : `#f2f0e6`;
+      ctx.fillRect(x - d, y - d, 2 * d, 2 * d);
+      R.cap && ((ctx.fillStyle = `#8a5a10`), ctx.fillRect(x - 1, y - 1, 2, 2));
     }
     // подписи: столицы → города → остальные регионы
-    const minLab = z >= 1.9 ? 0 : z >= 1.15 ? 1 : z >= 0.7 ? 2 : 3;
+    const minLab = z >= 1.75 ? 0 : z >= 1.15 ? 1 : z >= 0.7 ? 2 : 3;
     const labs = G.R.filter((R) => (R.cap ? 2 : R.city ? 1 : 0) >= minLab).sort((a, b) => (b.cap ? 2 : b.city ? 1 : 0) - (a.cap ? 2 : a.city ? 1 : 0) || b.vp - a.vp);
     ctx.textBaseline = `middle`;
+    ctx.textAlign = `left`;
     ctx.lineJoin = `round`;
     const hitB = (b) => boxes.some((c) => b[0] < c[2] && b[2] > c[0] && b[1] < c[3] && b[3] > c[1]);
     for (const R of labs) {
-      const big = R.cap || R.city, fs = R.cap ? 12 : 10;
+      const big = R.cap || R.city, fs = R.cap ? 13 : big ? 12 : 11;
       const [x0, y0] = big ? this.toScr(R.sx, R.sy) : this.toScr(R.ax, R.ay);
       if (!vis(x0, y0, 80)) continue;
-      ctx.font = FONT(fs);
-      const tw = ctx.measureText(R.n).width;
-      const cand = big ? [[x0 + 6, y0], [x0 - 6 - tw, y0], [x0 - tw / 2, y0 - 10], [x0 - tw / 2, y0 + 10]] : [[x0 - tw / 2, y0 + (I[R.i].length ? ch / 2 + 9 : 0)], [x0 - tw / 2, y0 - ch / 2 - 8]];
+      ctx.font = FONT(fs, R.cap ? 700 : big ? 600 : 500);
+      const tw2 = ctx.measureText(R.n).width, hasU = !!I[R.i];
+      const cand = big
+        ? [[x0 + 8, y0], [x0 - 8 - tw2, y0], [x0 - tw2 / 2, y0 - 12], [x0 - tw2 / 2, y0 + 12]]
+        : [[x0 - tw2 / 2, y0 + (hasU ? th / 2 + 10 : 0)], [x0 - tw2 / 2, y0 - th / 2 - 9]];
       let ok = null;
       for (const [lx, ly] of cand) {
-        const b = [lx - 2, ly - fs / 2 - 1, lx + tw + 2, ly + fs / 2 + 1];
+        const b = [lx - 2, ly - fs / 2 - 1, lx + tw2 + 2, ly + fs / 2 + 1];
         if (!hitB(b)) {
           ok = [lx, ly, b];
           break;
@@ -626,82 +793,193 @@ export class EuropeMap {
       }
       if (!ok) continue;
       boxes.push(ok[2]);
-      ctx.strokeStyle = `rgba(10,12,14,.9)`;
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = `rgba(10,12,14,.92)`;
+      ctx.lineWidth = 3.2;
       ctx.strokeText(R.n, ok[0], ok[1] + 0.5);
-      ctx.fillStyle = R.cap ? `#ffe7a0` : big ? `#f4f4f0` : `#d9dccf`;
+      ctx.fillStyle = R.cap ? `#ffe7a0` : big ? `#f6f6f2` : `#e2e5da`;
       ctx.fillText(R.n, ok[0], ok[1] + 0.5);
     }
-    // фишки
-    for (const it of items) this.counter(ctx, it, mini, cw, ch, P);
-  }
-  counter(ctx, it, mini, cw, ch, P) {
-    const { x, y, land, air, R } = it, S = this.S;
-    const lead = (land.length ? land : air).reduce((m, u) => ((m[u.n] = (m[u.n] || 0) + u.s), m), {});
-    const n = Object.keys(lead).sort((a, b) => lead[b] - lead[a])[0];
-    const col = natRGB(n), mine = n === P, pal = P && atWar(S, n, P);
-    const ready = mine && [...land, ...air].some((u) => u.mv > 0 && !(u.at && u.t !== `arm` && u.t !== `mot` && u.t !== `air`));
-    if (mini) {
-      const s = 4;
-      ctx.fillStyle = `#0b0d0f`;
-      ctx.fillRect(x - s - 1, y - s - 1, 2 * s + 2, 2 * s + 2);
-      ctx.fillStyle = `rgb(${col})`;
-      ctx.fillRect(x - s, y - s, 2 * s, 2 * s);
-      ready && ((ctx.fillStyle = `#ffd34d`), ctx.fillRect(x - s, y - s, 2 * s, 2));
-      this.hit.push([x - 7, y - 7, x + 7, y + 7, R.i]);
-      return;
+    // фишки — сверху
+    for (const it of items) {
+      const b = this.token(ctx, it.u, it.x, it.y, L, this.tokSt(it.u));
+      this.hit.push([...b, it.R.i]);
     }
-    const x0 = x - cw / 2, y0 = y - ch / 2;
-    const str = land.reduce((s, u) => s + u.s, 0);
-    // тень стопки
-    land.length > 1 && ((ctx.fillStyle = `#0b0d0f`), ctx.fillRect(x0 + 2, y0 + 2, cw + 1, ch + 1));
+  }
+  // Фишка дивизии в точке (x, y). L: 2 — полная, 1 — компактная, 0 — значок с силой, −1 — точка. Возвращает рамку.
+  token(ctx, u, x, y, L, st, alpha = 1) {
+    const S = this.S, c = natRGB(u.n), dpr = this.dpr;
+    const frame = st.sel ? `#fff3b0` : st.enemy ? `#ff5a44` : st.own ? (st.ready ? `#f5cf55` : `#77715f`) : st.ally ? `#8fc3ff` : `#b3b3a8`;
+    const spent = !!st.acted;
+    alpha < 1 && (ctx.globalAlpha = alpha);
+    if (L < 0) {
+      ctx.fillStyle = `#0b0d0f`;
+      ctx.fillRect(x - 5, y - 5, 10, 10);
+      ctx.fillStyle = frame;
+      ctx.fillRect(x - 4, y - 4, 8, 8);
+      ctx.fillStyle = rgbS(c, spent ? 0.6 : 1);
+      ctx.fillRect(x - 3, y - 3, 6, 6);
+      ctx.globalAlpha = 1;
+      return [x - 7, y - 7, x + 7, y + 7];
+    }
+    if (L === 0) {
+      const W = 20, H = 13, x0 = x - W / 2, y0 = Math.round(y - H / 2);
+      ctx.fillStyle = `#0b0d0f`;
+      ctx.fillRect(x0 - 2, y0 - 2, W + 4, H + 4);
+      ctx.fillStyle = frame;
+      ctx.fillRect(x0 - 1, y0 - 1, W + 2, H + 2);
+      ctx.fillStyle = rgbS(c, spent ? 0.5 : 0.78);
+      ctx.fillRect(x0, y0, W, H);
+      ctx.font = FONT(10.5, 700);
+      ctx.textAlign = `center`;
+      ctx.textBaseline = `middle`;
+      ctx.fillStyle = `#fff`;
+      ctx.fillText(String(Math.round(u.s)), x, y0 + H / 2 + 0.5);
+      ctx.globalAlpha = 1;
+      return [x0 - 4, y0 - 4, x0 + W + 4, y0 + H + 4];
+    }
+    const D = LOD[L], { W, A, B } = D, x0 = x - W / 2, y0 = Math.round(y - (A + B) / 2);
+    if (st.sel) (ctx.fillStyle = `#0b0d0f`), ctx.fillRect(x0 - 4, y0 - 4, W + 8, A + B + 8), (ctx.fillStyle = `#fff3b0`), ctx.fillRect(x0 - 3, y0 - 3, W + 6, A + B + 6);
     ctx.fillStyle = `#0b0d0f`;
-    ctx.fillRect(x0 - 1, y0 - 1, cw + 2, ch + 2);
-    const dk = mine && !ready ? 0.62 : 1;
-    ctx.fillStyle = `rgb(${col.map((v) => Math.round(v * 0.78 * dk))})`;
-    ctx.fillRect(x0, y0, cw, ch);
-    ctx.fillStyle = `rgba(255,255,255,${mine && !ready ? 0.1 : 0.22})`;
-    ctx.fillRect(x0, y0, cw, 2);
-    // знак рода войск (НАТО)
-    const bw = 12, bh = ch - 6, bx = x0 + 3, by = y0 + 3;
-    const top = land.length ? land.reduce((m, u) => (u.t === `arm` ? `arm` : m === `arm` ? m : u.t === `mot` ? `mot` : m), `inf`) : `air`;
-    ctx.fillStyle = `#ebe5cf`;
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.strokeStyle = `#1a1a16`;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    if (top === `inf` || top === `mot`) ctx.moveTo(bx, by), ctx.lineTo(bx + bw, by + bh), ctx.moveTo(bx + bw, by), ctx.lineTo(bx, by + bh);
-    if (top === `arm` || top === `mot`) ctx.rect(bx + 2.5, by + 2.5, bw - 5, bh - 5);
-    if (top === `air`) ctx.moveTo(bx + 2, by + bh / 2), ctx.lineTo(bx + bw - 2, by + bh / 2), ctx.moveTo(bx + bw / 2, by + 2), ctx.lineTo(bx + bw / 2, by + bh - 2);
-    ctx.stroke();
-    // сила
-    ctx.font = FONT(10);
+    ctx.fillRect(x0 - 2, y0 - 2, W + 4, A + B + 4);
+    ctx.fillStyle = frame;
+    ctx.fillRect(x0 - 1, y0 - 1, W + 2, A + B + 2);
+    // табличка в цвет державы
+    ctx.fillStyle = rgbS(mix(c, [238, 232, 214], 0.45));
+    ctx.fillRect(x0, y0, W, A);
+    ctx.fillStyle = rgbS(c, 0.92);
+    ctx.fillRect(x0, y0, W, L === 2 ? 3 : 2);
+    ctx.fillStyle = `rgba(0,0,0,.13)`;
+    ctx.fillRect(x0, y0 + A - 3, W, 3);
+    // спрайт: целые пиксели устройства
+    const sd = Math.max(1, Math.round(D.k * dpr)), sw = (16 * sd) / dpr, sh = (10 * sd) / dpr;
+    const spr = sprite(u.t, u.n, sd, this.face(u));
+    const sx = Math.round((x0 + (W - sw) / 2) * dpr) / dpr, sy = Math.round((y0 + (L === 2 ? 3 : 2) + (A - (L === 2 ? 3 : 2) - sh) / 2) * dpr) / dpr;
+    ctx.drawImage(spr, sx, sy, sw, sh);
+    // опыт — золотые нашивки
+    const xl = xpL(u.x || 0);
+    for (let q = 0; q < xl; q++) {
+      const px = x0 + 2 + q * (L === 2 ? 5 : 4), py = y0 + (L === 2 ? 5 : 4);
+      ctx.fillStyle = `#0b0d0f`;
+      ctx.fillRect(px - 1, py - 1, L === 2 ? 5 : 4, L === 2 ? 5 : 4);
+      ctx.fillStyle = `#ffd34d`;
+      ctx.fillRect(px, py, L === 2 ? 3 : 2, L === 2 ? 3 : 2);
+    }
+    // окопы — мешки с песком
+    if (u.e > 0) {
+      const bw = L === 2 ? 5 : 4, bx = x0 + W - (u.e >= 2 ? 3 : 2) * bw - 2, by = y0 + A - 5;
+      for (let q = 0; q < (u.e >= 2 ? 3 : 2); q++) (ctx.fillStyle = `#2a2216`), ctx.fillRect(bx + q * bw, by, bw, 4), (ctx.fillStyle = `#cdb57c`), ctx.fillRect(bx + q * bw + 1, by + 1, bw - 2, 2);
+      u.e >= 2 && ((ctx.fillStyle = `#2a2216`), ctx.fillRect(bx + bw / 2 + 2, by - 3, bw + 2, 4), (ctx.fillStyle = `#cdb57c`), ctx.fillRect(bx + bw / 2 + 3, by - 2, bw, 2));
+    }
+    // без снабжения
+    if (u.oos > 0 || (S.player && u.n === S.player && supply(S, u.n)[u.r] < 0)) {
+      const bx = x0 + W - (L === 2 ? 10 : 8), by = y0 + (L === 2 ? 4 : 3), bs = L === 2 ? 8 : 7;
+      ctx.fillStyle = `#0b0d0f`;
+      ctx.fillRect(bx - 1, by - 1, bs + 2, bs + 2);
+      ctx.fillStyle = `#e0402e`;
+      ctx.fillRect(bx, by, bs, bs);
+      ctx.fillStyle = `#fff`;
+      ctx.fillRect(bx + bs / 2 - 1, by + 1, 2, bs - 4);
+      ctx.fillRect(bx + bs / 2 - 1, by + bs - 2, 2, 1);
+    }
+    spent && ((ctx.fillStyle = `rgba(8,10,12,.40)`), ctx.fillRect(x0, y0, W, A));
+    // полоса: сила и организация
+    ctx.fillStyle = `#13171b`;
+    ctx.fillRect(x0, y0 + A, W, B);
+    ctx.font = FONT(D.f, 700);
     ctx.textAlign = `center`;
     ctx.textBaseline = `middle`;
-    const txt = String(Math.round(land.length ? str : air.reduce((s, u) => s + u.s, 0)));
-    ctx.fillStyle = pal ? `#ffd0c8` : `#fff`;
-    ctx.fillText(txt, x0 + bw + 3 + (cw - bw - 3) / 2, y + 0.5);
-    ctx.textAlign = `left`;
-    // число соединений
-    const k = land.length;
-    for (let q = 0; q < Math.min(8, k); q++) {
+    ctx.fillStyle = st.enemy ? `#ffd9d2` : spent ? `#c9c6bb` : `#ffffff`;
+    ctx.fillText(String(Math.round(u.s)), x0 + W / 2, y0 + A + (B - 3) / 2 + 0.5);
+    const om = orgMax(S, u.n), k = clamp(u.o / om, 0, 1);
+    ctx.fillStyle = `#2c3238`;
+    ctx.fillRect(x0, y0 + A + B - 3, W, 3);
+    ctx.fillStyle = k > 0.66 ? `#62d36b` : k > 0.33 ? `#e8c547` : `#e0574b`;
+    ctx.fillRect(x0, y0 + A + B - 3, Math.max(1, Math.round(W * k)), 3);
+    ctx.globalAlpha = 1;
+    return [x0 - 3, y0 - 3, x0 + W + 3, y0 + A + B + 3];
+  }
+  // слой анимаций: марширующие фишки, вспышки, всплывающие числа, стрелка удара
+  drawLive(ctx, t) {
+    const S = this.S, L = lodOf(this.z), D = LOD[L], th = D ? D.A + D.B : 13;
+    const an = (r) => this.toScr(reg(r).ax, reg(r).ay), at = (r) => this.tpos?.get(r) || an(r);
+    // выбранная дивизия — прыгающий маркер над фишкой
+    const sp = this.sel && L >= 0 && this.tpos?.get(this.sel);
+    if (sp) {
+      const bob = Math.round(Math.abs(Math.sin(t / 240)) * 5), x = sp[0], y = Math.round(sp[1] - th / 2 - 8 - bob);
       ctx.fillStyle = `#0b0d0f`;
-      ctx.fillRect(x0 + 1 + q * 4, y0 + ch + 1, 4, 4);
-      ctx.fillStyle = mine ? (ready ? `#ffd34d` : `#9a8a5a`) : `rgb(${col})`;
-      ctx.fillRect(x0 + 2 + q * 4, y0 + ch + 2, 2, 2);
+      ctx.beginPath();
+      ctx.moveTo(x - 10, y - 9), ctx.lineTo(x + 10, y - 9), ctx.lineTo(x, y + 3), ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = `#ffe45c`;
+      ctx.beginPath();
+      ctx.moveTo(x - 6.5, y - 7), ctx.lineTo(x + 6.5, y - 7), ctx.lineTo(x, y - 0.5), ctx.closePath();
+      ctx.fill();
     }
-    // авиация
-    if (air.length && land.length) {
-      const ax = x0 + cw - 4, ay = y0 - 7;
-      ctx.fillStyle = `#0b0d0f`;
-      ctx.fillRect(ax - 1, ay - 1, 13, 10);
-      ctx.fillStyle = air[0].n === P ? `#3d6fd6` : pal ? `#8a2b22` : `#4a5560`;
-      ctx.fillRect(ax, ay, 11, 8);
-      ctx.fillStyle = `#fff`;
-      ctx.fillRect(ax + 2, ay + 3, 7, 2);
-      ctx.fillRect(ax + 5, ay + 1, 1, 6);
+    if (this.arrow) {
+      const [ax, ay] = at(this.arrow.a), [bx, by] = at(this.arrow.b), dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len, s0 = Math.min(len * 0.3, 18), s1 = Math.min(len * 0.3, 20);
+      const x1 = ax + ux * s0, y1 = ay + uy * s0, x2 = bx - ux * s1, y2 = by - uy * s1, hw = 9, hl = 13;
+      const pts = (w) => {
+        const nx = -uy * w, ny = ux * w, hx = x2 - ux * hl, hy = y2 - uy * hl;
+        return [[x1 + nx * 0.5, y1 + ny * 0.5], [hx + nx * 0.5, hy + ny * 0.5], [hx + nx * 1.6, hy + ny * 1.6], [x2, y2], [hx - nx * 1.6, hy - ny * 1.6], [hx - nx * 0.5, hy - ny * 0.5], [x1 - nx * 0.5, y1 - ny * 0.5]];
+      };
+      const poly = (p) => {
+        ctx.beginPath();
+        p.forEach(([x, y], q) => (q ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.closePath();
+      };
+      const pul = 0.8 + 0.2 * Math.sin(t / 160);
+      poly(pts(hw));
+      ctx.lineJoin = `miter`;
+      ctx.strokeStyle = `rgba(10,10,10,.9)`;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.globalAlpha = pul;
+      ctx.fillStyle = this.arrow.col;
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
-    this.hit.push([x0 - 1, y0 - 1, x0 + cw + 1, y0 + ch + 5, R.i]);
+    for (const [id, a] of this.anims) {
+      const u = S.units.find((v) => v.id === id);
+      if (!u) continue;
+      const p = clamp((t - a.t0) / a.ms, 0, 1), e = ease(p), n = a.path.length - 1, f = e * n, k = Math.min(n - 1, Math.floor(f)), q = f - k;
+      const [x0, y0] = an(a.path[k]), [x1, y1] = an(a.path[k + 1]);
+      const x = Math.round(x0 + (x1 - x0) * q), y = Math.round(y0 + (y1 - y0) * q - Math.sin(q * Math.PI) * 3);
+      this.token(ctx, u, x, y, L, this.tokSt(u));
+    }
+    const keep = [];
+    for (const e of this.fx) {
+      const p = (t - e.t0) / e.ms;
+      if (p >= 1) continue;
+      keep.push(e);
+      if (p < 0) continue;
+      const [x, y] = at(e.r);
+      if (e.k === `boom`) {
+        const r0 = (e.big ? 26 : 18) * ease(Math.min(1, p * 1.4)), a = 1 - p;
+        ctx.globalAlpha = a;
+        for (let q = 0; q < 10; q++) {
+          const an = (q / 10) * Math.PI * 2 + e.r, rr = r0 * (0.6 + 0.4 * ((q * 7) % 3) / 2), s = q % 2 ? 4 : 5;
+          ctx.fillStyle = q % 3 === 0 ? `#fff2a8` : q % 3 === 1 ? `#ffb14a` : `#ff5a3c`;
+          ctx.fillRect(Math.round(x + Math.cos(an) * rr - s / 2), Math.round(y + Math.sin(an) * rr - s / 2), s, s);
+        }
+        p < 0.35 && ((ctx.fillStyle = `#fff6c8`), ctx.fillRect(x - 6, y - 6, 12, 12));
+        ctx.globalAlpha = 1;
+      } else if (e.k === `txt`) {
+        const yy = y - th / 2 - 8 - p * 22 + (e.dy || 0), a = p < 0.75 ? 1 : 1 - (p - 0.75) / 0.25;
+        ctx.globalAlpha = Math.max(0, a);
+        ctx.font = FONT(15, 800);
+        ctx.textAlign = `center`;
+        ctx.textBaseline = `middle`;
+        ctx.lineJoin = `round`;
+        ctx.strokeStyle = `rgba(8,8,8,.95)`;
+        ctx.lineWidth = 4;
+        ctx.strokeText(e.txt, x, yy);
+        ctx.fillStyle = e.col;
+        ctx.fillText(e.txt, x, yy);
+        ctx.globalAlpha = 1;
+      }
+    }
+    this.fx = keep;
   }
   boom(ctx, x, y, k) {
     const c = k === `lost` ? `#ff5a3c` : k === `won` ? `#ffd34d` : `#ffb14a`;
