@@ -23,17 +23,25 @@ export function beginTurn(S) {
   runEvents(S, `start`);
   checkEnd(S);
 }
-// конец хода игрока: события-внезапности, ходы ИИ, экономика, капитуляции, следующий ход
-export function endTurn(S, next = true) {
+// конец хода игрока: события-внезапности, ходы ИИ, экономика, капитуляции, следующий ход.
+// Генератор — чтобы интерфейс мог выполнять ход ИИ порциями и показывать, чья очередь.
+export function* turnSteps(S, next = true) {
   if (S.over) return;
   runEvents(S, `pre`);
-  for (const n of ORDER) n !== S.player && alive(S, n) && aiTurn(S, n);
+  for (const n of ORDER) {
+    if (n === S.player || !alive(S, n)) continue;
+    yield n;
+    aiTurn(S, n);
+  }
   for (const n of ORDER) alive(S, n) && economy(S, n);
   checkCapitulations(S);
   checkEnd(S);
   if (S.over) return;
   S.t++;
   next && beginTurn(S);
+}
+export function endTurn(S, next = true) {
+  for (const n of turnSteps(S, next)) void n;
 }
 export function checkEnd(S) {
   if (S.over) return;

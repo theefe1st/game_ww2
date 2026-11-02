@@ -635,6 +635,17 @@ export function runEvents(S, ph) {
   }
   return out;
 }
+// объявление войны игроком: «Барбаросса» раньше срока — со всеми последствиями события
+export function playerWar(S, a, b) {
+  if (a === `GER` && b === `SOV` && !S.done.barb) {
+    barbarossa(S);
+    S.done.barb = S.t + 1;
+    news(S, `Германия напала на СССР`, `Вермахт перешёл советскую границу без объявления войны.`, `war`);
+    return;
+  }
+  declareWar(S, a, b);
+  news(S, `${NATIONS[a].n} объявляет войну: ${NATIONS[b].n}`, `Дипломатия исчерпана — слово за армиями.`, `war`);
+}
 export function resolveEvent(S, id, k) {
   const e = EV.find((x) => x.id === id);
   S.pending = S.pending.filter((x) => x !== id);

@@ -337,7 +337,7 @@ export function battle(S, att, Ti, o = {}) {
   win && r >= 3 && (fd *= 1.35);
   for (const a of att) {
     const l = a.u.s * fa;
-    a.u.s -= l, (rep.lostA += l);
+    a.u.s -= l, (rep.lostA += l), (S.nat[a.u.n].lost = (S.nat[a.u.n].lost || 0) + l);
     a.u.o = Math.max(5, a.u.o - (12 + 10 / Math.max(0.4, r)) * (mod.oa || 1));
     a.u.x = Math.min(100, a.u.x + (win ? 4 : 2));
     a.u.at = 1;
@@ -346,7 +346,7 @@ export function battle(S, att, Ti, o = {}) {
   }
   for (const u of defs) {
     const l = u.s * fd;
-    u.s -= l, (rep.lostD += l);
+    u.s -= l, (rep.lostD += l), (S.nat[u.n].lost = (S.nat[u.n].lost || 0) + l);
     u.o = Math.max(5, u.o - (16 + 11 * Math.min(r, 3)) * (mod.od || 1));
     u.x = Math.min(100, u.x + 3);
   }
@@ -361,7 +361,7 @@ export function battle(S, att, Ti, o = {}) {
         S.nat[u.n].lost = (S.nat[u.n].lost || 0) + u.s;
         kill(S, u);
       } else {
-        u.s *= 0.9, (rep.lostD += u.s / 9);
+        u.s *= 0.9, (rep.lostD += u.s / 9), (S.nat[u.n].lost = (S.nat[u.n].lost || 0) + u.s / 9);
         u.o = Math.max(5, u.o - 15);
         u.r = j, (u.ent = 0), (u.mv = 0);
         touch(S);
