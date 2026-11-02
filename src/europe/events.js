@@ -62,7 +62,7 @@ const PART = {
   GRE: { GER: `athens salonika crete`, ITA: `ioannina` },
   IRN: { SOV: `tabriz`, UK: `tehran khuzestan` },
 };
-const CAP_K = { POL: 0.85, FRA: 0.42, UK: 0.55, SOV: 0.85, GER: 0.7, ITA: 0.55, NOR: 0.85, YUG: 0.45, GRE: 0.6, FIN: 0.6, _: 0.5 };
+const CAP_K = { POL: 0.85, FRA: 0.42, UK: 0.55, SOV: 0.85, GER: 0.85, ITA: 0.55, NOR: 0.85, YUG: 0.45, GRE: 0.6, FIN: 0.6, _: 0.5 };
 const CAP_C = { FRA: 0.2, UK: 0.3, SOV: 0.6, GER: 0.3, POL: 0.45, NOR: 0.85, FIN: 0.6, GRE: 0.45, _: 0.25 };
 // доля потерянных очков побед — только у воюющих противников
 function lostK(S, n) {
@@ -352,6 +352,22 @@ export const EV = [
     txt: `Май 1941 года: германские парашютисты захватили Крит ценой тяжёлых потерь. Британский флот эвакуировал часть гарнизона.`,
     fx: (S) => { for (const u of landIn(S, I(`crete`))) u.s *= 0.5; give(S, `crete`, `GER`); place(S, `GER`, `crete`, `inf`, 1, `7-я авиадесантная дивизия`, 40); },
   },
+  // Газала: обход британских позиций и падение Тобрука (май — июнь 1942)
+  {
+    id: `gazala`, t: 64, until: 68, ttl: `Битва при Газале`,
+    txt: `26 мая 1942 года танковая армия «Африка» обошла британские позиции у Газалы с юга. 8-я армия отступает к границе Египта, гарнизон Тобрука в окружении.`,
+    if: (S) => S.histOn !== false && ![`UK`, `GER`, `ITA`].includes(S.player) && own(S, `tobruk`, `UK`) && ownSide(S, `benghazi`, `GER`),
+    fx: (S) => {
+      for (const u of S.units) u.n === `UK` && [`tobruk`, `sollum`].includes(reg(u.r).k) && ((u.o = Math.min(u.o, 20)), (u.s *= 0.8));
+      for (const u of S.units) [`GER`, `ITA`].includes(u.n) && AFRK.has(reg(u.r).k) && (u.o = 100);
+    },
+  },
+  // Греческая армия сложила оружие, когда вермахт прорвал линию Метаксаса и вышел в Эпир (апрель 1941)
+  {
+    id: `grecap`, t: 40, until: 46, ttl: ``, txt: ``,
+    if: (S) => alive(S, `GRE`) && S.player !== `GRE` && S.player !== `UK` && [`salonika`, `ioannina`].every((k) => S.ctrl[I(k)] && side(S, S.ctrl[I(k)]) === `axis`),
+    fx: (S) => capitulate(S, `GRE`),
+  },
   {
     id: `syria`, t: 42, until: 46, if: (S) => alive(S, `UK`) && alive(S, `VIC`) && (own(S, `damascus`, `VIC`) || own(S, `aleppo`, `VIC`)), ask: `UK`, ttl: `Сирия и Ливан`,
     txt: `Июнь 1941 года: чтобы не допустить немцев на Ближний Восток, британские и «Свободные французские» войска вступили в подмандатную Сирию.`,
@@ -407,9 +423,9 @@ export const EV = [
   { id: `speer`, t: 62, if: (S) => alive(S, `GER`), fx: (S) => (S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.35)) },
   { id: `twar`, t: 82, if: (S) => alive(S, `GER`), ttl: `«Тотальная война»`, txt: `После Сталинграда Геббельс провозгласил тотальную войну: промышленность рейха и людские ресурсы мобилизуются полностью.`, fx: (S) => ((S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.42)), (S.nat.GER.mpk = 0.1)) },
   { id: `ger44`, t: 104, if: (S) => alive(S, `GER`), fx: (S) => (S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.48)) },
-  { id: `sov42`, t: 58, if: (S) => alive(S, `SOV`), fx: (S) => ((S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.36)), (S.nat.SOV.qmul = 1)) },
-  { id: `sov44`, t: 104, if: (S) => alive(S, `SOV`), fx: (S) => (S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.43)) },
-  { id: `sov43`, t: 80, if: (S) => alive(S, `SOV`), fx: (S) => (S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.4)) },
+  { id: `sov42`, t: 58, if: (S) => alive(S, `SOV`), fx: (S) => ((S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.4)), (S.nat.SOV.qmul = 1)) },
+  { id: `sov44`, t: 104, if: (S) => alive(S, `SOV`), fx: (S) => (S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.46)) },
+  { id: `sov43`, t: 80, if: (S) => alive(S, `SOV`), fx: (S) => (S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.48)) },
   { id: `uk41`, t: 40, if: (S) => alive(S, `UK`), fx: (S) => (S.nat.UK.eco = Math.max(S.nat.UK.eco, 0.34)) },
   {
     id: `monty`, t: 70, if: (S) => alive(S, `UK`) && [`alexandria`, `cairo`, `alamein`].some((k) => own(S, k, `UK`)), ttl: `8-я армия Монтгомери`,
@@ -427,6 +443,10 @@ export const EV = [
     fx: (S) => {
       const k = `saratov voronezh tambov astrakhan stalingrad elista penza kuibyshev`;
       place(S, `SOV`, k, `arm`, 6, `5-я танковая армия`, 90), place(S, `SOV`, k, `arm`, 5, `4-й механизированный корпус`, 90), place(S, `SOV`, k, `inf`, 8, `21-я армия`, 85), place(S, `SOV`, k, `inf`, 8, `51-я армия`, 85);
+      // удар по флангам: румынские, итальянские и венгерские армии на Дону
+      const don = new Set(W(`millerovo elista voronezh voroshilovgrad rostov stalingrad`).map(I));
+      for (const i of [...don]) for (const j of reg(i).nb) don.add(j);
+      for (const u of S.units) if ([`ROM`, `ITA`, `HUN`].includes(u.n) && don.has(u.r) && u.t !== `nav`) (u.o = Math.min(u.o, 25)), (u.s *= 0.75);
     },
   },
   {
@@ -586,7 +606,9 @@ export function tick(S) {
   if (alive(S, `GER`)) {
     const sov = alive(S, `SOV`) && !atWar(S, `GER`, `SOV`) && S.t >= 4;
     const rom = alive(S, `ROM`) && side(S, `ROM`) === `axis` && own(S, `ploiesti`, `ROM`);
-    S.nat.GER.imp = { st: (alive(S, `SWE`) && !atWar(S, `GER`, `SWE`) ? 5 : 0) + (sov ? 1 : 0), oil: 3 + (sov ? 2 : 0) + (rom ? 4 : 0) + (S.t >= 60 ? 2 : 0) - (S.t >= 112 ? 3 : 0) };
+    // стратегические бомбардировки союзников с середины 1943 года
+    const air = [`UK`, `USA`].some((a) => alive(S, a) && atWar(S, a, `GER`)) ? (S.t >= 84 ? 3 : 0) + (S.t >= 100 ? 3 : 0) + (S.t >= 112 ? 3 : 0) : 0;
+    S.nat.GER.imp = { pp: -air, st: (alive(S, `SWE`) && !atWar(S, `GER`, `SWE`) ? 5 : 0) + (sov ? 1 : 0), oil: 3 + (sov ? 2 : 0) + (rom ? 4 : 0) + (S.t >= 60 ? 2 : 0) - (S.t >= 112 ? 3 : 0) };
   }
 }
 // ——— запуск событий ———

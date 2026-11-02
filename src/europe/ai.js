@@ -43,8 +43,8 @@ export const DIR = [
   [`HUN`, 38, 41, [`YUG`], `A`, {}],
   [`BUL`, 38, 41, [`YUG`, `GRE`], `A`, {}],
   [`UK`, 42, 45, [`VIC`], `A`, { area: AR(`damascus aleppo`) }],
-  [`UK`, 47, 49, [`IRN`], `A`, {}],
-  [`SOV`, 47, 49, [`IRN`], `A`, {}],
+  [`UK`, 47, 56, [`IRN`], `A`, { need: 1.2 }],
+  [`SOV`, 47, 56, [`IRN`], `A`, { need: 1.2 }],
   [`GER`, 43, 49, [`SOV`], `A`, { area: AR(AREA.EAST41), obj: AR(`minsk smolensk kiev moscow kharkov rostov crimea dnepropetrovsk`), need: 1.12 }],
   [`GER`, 50, 54, [`SOV`], `A`, { area: AR(AREA.EAST41), obj: AR(`moscow kharkov rostov crimea tula kalinin`), need: 1.35 }],
   [`SOV`, 43, 65, null, `S`, { gar: { moscow: 3, leningrad: 3, kiev: 2, kharkov: 1, stalingrad: 1, rostov: 1, crimea: 1, murmansk: 1 } }],
@@ -122,20 +122,33 @@ function gate(S, n, T) {
   }
   const t = S.t, cur = iv.find(([a, b]) => t >= a && t < b);
   let early = 0;
+  // отставание от истории — небольшая скидка (догоняем ход войны)
+  const late = (d) => -Math.min(axisC(S, n) ? 0.2 : 0.25, (axisC(S, n) ? 0.06 : 0.04) * Math.max(0, d - 1));
   if (axisC(S, n) && !axisC(S, c)) {
-    if (cur) return 0;
+    if (cur) return late(t - cur[0]);
     const nx = iv.filter(([a]) => a > t).sort((x, y) => x[0] - y[0])[0];
-    if (!nx) return iv.length ? 0.15 : 0.5;
+    // после последнего периода — небольшая надбавка; там, куда Ось не доходила, — запрет
+    if (!nx) return iv.length ? 0.15 : 9;
     early = nx[0] - t;
   } else if (!axisC(S, n) && axisC(S, c)) {
     // западные союзники не идут за Эльбу
     if (n !== `SOV` && ELBE.has(T)) return 9;
-    if (!cur) return 0;
+    if (!cur) {
+      const pb = iv.filter(([, b]) => b <= t).sort((x, y) => y[1] - x[1])[0];
+      return pb ? late(t - pb[1]) : 0;
+    }
     early = cur[1] - t;
-    if (n !== `SOV` && early > 5) return 9;
+    // столицы — не раньше чем за месяц до истории; западные союзники — не раньше чем за полтора
+    if ((reg(T).cap && early > 2) || (n !== `SOV` && early > 3)) return 9;
   } else return 0;
   // больше чем на 3,5 месяца раньше истории — не атаковать вовсе
+  if (!axisC(S, n)) return early > 4 ? 9 : 0.1 * Math.max(0, early - 1);
   return early > 7 ? 9 : 0.06 * Math.max(0, early - 2);
+}
+// «ход истории» в бою ИИ против ИИ: отстающая от истории сторона дерётся увереннее
+function momentum(S, n, T) {
+  const g = gate(S, n, T);
+  return g < 0 ? 1 - g : g > 0 && g < 9 ? 1 - Math.min(0.12, g * 0.25) : 1;
 }
 const AXIS_E = new Set([`GER`, `ROM`, `HUN`, `FIN`, `ITA`, `SVK`]);
 function director(S, n, out) {
@@ -149,8 +162,10 @@ function director(S, n, out) {
     for (const e of Object.keys(S.nat)) {
       if (side(S, e) !== `axis` || !atWar(S, `SOV`, e)) continue;
       const P = out.post[e];
-      if (P && P.p === `A`) (L <= -10 || (L <= -6 && S.t < 80)) && delete out.post[e];
-      else if (L >= 6) out.post[e] = { p: `A`, need: 1.4, obj: null, area: null };
+      if (P && P.p === `A`) {
+        if (L <= -10 || (L <= -6 && S.t < 80) || (L <= -7 && S.t >= 110)) delete out.post[e];
+        else if (L >= 4 && S.t >= 80) P.need = Math.max(1.15, P.need - Math.min(0.3, 0.03 * (L - 2)));
+      } else if (L >= 6) out.post[e] = { p: `A`, need: 1.4, obj: null, area: null };
     }
 }
 // Директивы державы на текущий ход
@@ -243,13 +258,17 @@ function postFor(S, n, C, T) {
 }
 
 // ——— атаки ———
+// совместные удары союзников вне Восточного фронта: немцы с итальянцами, англичане с американцами
+const COAL = { GER: [`ITA`], ITA: [`GER`], UK: [`USA`], USA: [`UK`] };
+const COALZ = new Set([...AR(AREA.AFR), ...AR(AREA.ITALY), ...AR(AREA.WEST)]);
+const coal = (S, n, T) => (COALZ.has(reg(T).k) ? (COAL[n] || []).filter((m) => m !== S.player && alive(S, m) && atWar(S, m, S.ctrl[T])) : []);
 function pickAttack(S, n, C, T, P) {
-  const R = reg(T), defs = landIn(S, T);
-  if (!defs.length) return null;
-  const pool = [];
+  const R = reg(T), defs = landIn(S, T), g = gate(S, n, T);
+  if (!defs.length || g >= 9) return null;
+  const pool = [], cm = coal(S, n, T), mine = (u) => u.n === n || cm.includes(u.n);
   for (const i of R.nb) {
     if (!C.fr[i]) continue;
-    const us = unitsIn(S, i).filter((u) => u.n === n && canAtk(u) && (u.o >= 34 || C.sup[i] < 0));
+    const us = unitsIn(S, i).filter((u) => mine(u) && canAtk(u) && (u.o >= 34 || C.sup[i] < 0));
     if (!us.length) continue;
     const oos = C.sup[i] < 0;
     // сколько обороны оставить в исходном регионе
@@ -257,12 +276,13 @@ function pickAttack(S, n, C, T, P) {
     for (const j of reg(i).nb) j !== T && C.en[j] && (other += C.eAtk[j]);
     const keep = oos ? 0 : other * 0.7;
     let left = C.have[i];
-    const all = landIn(S, i).filter((u) => u.n === n);
+    const all = landIn(S, i).filter(mine);
     us.sort((a, b) => atkPow(S, b, R, i) - atkPow(S, a, R, i));
     let kept = all.length - us.length;
+    const gk = C.D.gar[reg(i).k] || 0;
     for (const u of us) {
       const dp = defPow(S, u, reg(i));
-      if (other > 0 && (left - dp < keep || (kept === 0 && us.length + kept - pool.filter((p) => p.src === i).length <= 1))) {
+      if (kept < gk || (other > 0 && (left - dp < keep || (kept === 0 && us.length + kept - pool.filter((p) => p.src === i).length <= 1)))) {
         kept++;
         continue;
       }
@@ -274,7 +294,7 @@ function pickAttack(S, n, C, T, P) {
   pool.sort((a, b) => b.p - a.p);
   let D = 0;
   for (const u of defs) D += defPow(S, u, R);
-  const need = P.need + gate(S, n, T) + (R.cap && R.own === S.ctrl[T] ? 0.2 : 0), goal = Math.max(need * 1.25, 1.9);
+  const need = Math.max(1.05, P.need + g + (R.cap && R.own === S.ctrl[T] ? 0.2 : 0)), goal = Math.max(need * 1.25, 1.9);
   const att = [];
   let A = 0;
   for (const a of pool) {
@@ -328,7 +348,7 @@ function attacks(S, n, C) {
       if (!C.en[c.T] || !landIn(S, c.T).length) continue;
       const pk = pickAttack(S, n, C, c.T, c.P);
       if (!pk) continue;
-      const rep = battle(S, pk.att, c.T);
+      const rep = battle(S, pk.att, c.T, { mod: { r: momentum(S, n, c.T) } });
       any++;
       refreshAround(S, n, C, c.T);
       if (rep.win) for (const a of pk.att) refreshAround(S, n, C, a.src);
@@ -381,6 +401,7 @@ function captures(S, n, C) {
         let v = attackValue(S, n, C, o.r, P);
         // не оставлять пустым угрожаемый регион
         const left = landIn(S, u.r).filter((v2) => v2.n === n).length - 1;
+        if (left < (C.D.gar[reg(u.r).k] || 0)) continue;
         if (left <= 0 && C.thr[u.r] > 0 && C.D.post[S.ctrl[o.r]]?.p !== `A`) continue;
         left <= 0 && C.thr[u.r] > 2 && (v *= 0.5);
         v > bv && ((bv = v), (best = o));
@@ -459,6 +480,9 @@ function expCap(S, n) {
   for (const u of S.units) u.n === n && LAND(u) && east(u.r) && k++;
   return { full: k >= cap, east };
 }
+// немецкие войска в Африке не уходят с театра, пока он не потерян (до 1943 г.)
+const AFRS = new Set(AR(AREA.AFR));
+const pinned = (S, u, T) => u.n === `GER` && S.t < 90 && AFRS.has(reg(u.r).k) && !AFRS.has(reg(T).k);
 function redeploy(S, n, C) {
   const my = (i) => landIn(S, i).filter((u) => u.n === n);
   const XC = expCap(S, n);
@@ -488,7 +512,10 @@ function redeploy(S, n, C) {
       off = Math.max(off, dsum * 1.4 * (P.objD && P.objD[T] <= 2 ? 1.3 : 1));
     }
     const h = C.have[i];
-    off > h && need.push({ i, k: `off`, amt: Math.min(off - h, capW * 1.5), pr: Math.min(60, (off - h) * 0.6) });
+    // цели, которые по истории уже должны быть взяты, — в первую очередь
+    let due = 0;
+    for (const T of reg(i).nb) C.en[T] && gate(S, n, T) < 0 && (due = 1);
+    off > h && need.push({ i, k: `off`, amt: Math.min(off - h, capW * 1.5), pr: Math.min(60, (off - h) * 0.6) + due * 45 });
   }
   // эшелонирование: крупные города в одном переходе за фронтом не оставлять пустыми
   for (const i of C.front)
@@ -499,7 +526,8 @@ function redeploy(S, n, C) {
     }
   for (const [k, c] of Object.entries(C.D.gar)) {
     const i = idOf(k);
-    i && C.fr[i] && cnt(i) < c && need.push({ i, k: `gar`, n: c - cnt(i), pr: 90 });
+    // гарнизон столицы — сразу после прикрытия пустого фронта
+    i && C.fr[i] && cnt(i) < c && need.push({ i, k: `gar`, n: c - cnt(i), pr: reg(i).cap ? 190 : 90 });
   }
   for (const [k, c] of Object.entries(C.D.stage)) {
     const i = idOf(k);
@@ -536,6 +564,7 @@ function redeploy(S, n, C) {
       // нет пути по суше — только морем (если есть тоннаж и порт)
       if (du === 0 || (du > 24 && !(du === 99 && NAT.navl > 0 && reg(u.r).sea.length))) continue;
       if (XC && XC.full && XC.east(nd.i) && !XC.east(u.r)) continue;
+      if (pinned(S, u, nd.i)) continue;
       if (go(S, u, nd.i, d, NAT)) {
         free.delete(u);
         amt -= defPow(S, u, reg(nd.i)), num--;
@@ -555,7 +584,7 @@ function redeploy(S, n, C) {
       if (du === undefined || du >= 6) {
         if (NAT.navl > 0 && reg(u.r).sea.length && free.has(u)) {
           let best = 0, bd = du === undefined ? 99 : du - 3;
-          for (const j of seaTargets(S, u)) d.has(j) && d.get(j) < bd && ((bd = d.get(j)), (best = j));
+          for (const j of seaTargets(S, u)) d.has(j) && d.get(j) < bd && !pinned(S, u, j) && ((bd = d.get(j)), (best = j));
           if (best) {
             seaMove(S, u, best);
             continue;
