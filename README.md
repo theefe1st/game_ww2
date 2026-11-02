@@ -1,0 +1,39 @@
+# Мировой фронт
+
+Пошаговая стратегия о Второй мировой войне для Android и браузера: пиксель-арт, операции на гексовых картах, режим «Карьера генерала» (Красная армия 1941–1945) и стратегическая «Карта фронта» между операциями. Ориентиры — European War, World Conqueror и Hearts of Iron.
+
+**Текущая версия:** 0.5.0 «Карта фронта» (versionCode 5). Что есть в игре, баланс и дорожная карта — в [дизайн-документе](docs/GDD.md).
+
+## Как собрать
+
+```bash
+npm install
+npx vite build --mode single   # один HTML-файл: dist-single/index.html (играть в браузере)
+npx vite build                 # dist/ — веб-часть для Android
+```
+
+Android (нужны JDK 21 и Android SDK 36, установка — `tools/setup-android.sh`):
+
+```bash
+bash tools/unpack-binaries.sh  # иконки, заставка и gradle-wrapper.jar (см. ниже)
+npx cap sync android
+cd android && ./gradlew assembleRelease
+```
+
+Готовый APK: `android/app/build/outputs/apk/release/app-release.apk`. Ключа подписи в репозитории нет: он не должен быть публичным. Без файла `android/keystore.properties` APK собирается неподписанным.
+
+## Что где лежит
+
+| Путь | Что там |
+|---|---|
+| `src/game.js` | вся игра: правила, ИИ, интерфейс, сценарии (восстановлена из сборки v0.4, имена сокращены) |
+| `src/front/` | «Карта фронта»: этапы войны, растеризация, интерактивная карта |
+| `src/ops/` | операции «Харьков 1942» и «Ржев 1942» |
+| `src/data/` | гексовые карты операций и подложка карты фронта |
+| `tools/` | генераторы карт из Natural Earth, автотесты и симуляции (Playwright + Chromium) |
+| `android/` | Android-проект (Capacitor 8) |
+| `docs/` | `GDD.md` — дизайн-документ, `CODEMAP.md` — карта кода, `chat-summary.md` — история работы и планы |
+
+## Бинарные файлы
+
+Подключение GitHub, через которое ведётся работа, загружает только текстовые файлы. Поэтому иконки и заставка Android и `gradle-wrapper.jar` хранятся одним текстовым файлом `tools/android-binaries.b64`. Распаковка — `tools/unpack-binaries.sh`, упаковка после изменений — `tools/pack-binaries.sh`.
