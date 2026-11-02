@@ -1,5 +1,12 @@
-// «Европа 1939–1945»: ИИ держав — «режиссёр» по датам, атаки с концентрацией сил, резервы, авиация, производство.
-import { G, reg, rnd, tDate, UT, LAND, MOBILE, STACK, alive, ally, atWar, side, landIn, unitsIn, quality, defPow, atkPow, estimate, battle, targets, moveUnit, occupy, railTargets, railMove, seaTargets, seaMove, supply, canBuy, buy, itemCost, techYear, income, upkeep, ITEMS } from './rules.js';
+// «Европа 1939–1945» (v0.6.1): ИИ держав — «режиссёр» по датам и дивизии на карте провинций:
+// авиаудары и артиллерия, последовательные удары по одной цели, захват пустых провинций,
+// удержание фронта (в провинции одна дивизия), переброски, производство и наука.
+import {
+  G, reg, rnd, tDate, UT, AIR, MAXS, MECH, alive, ally, atWar, side, friendly, hostile, unitAt, supply, combat, attack, airStrike, canAir,
+  moves, moveTo, attackTargets, amphTargets, railTargets, railMove, seaTargets, seaMove, orgMax, quality, buildSite, build, buildCost, canBuyAir, buyAir,
+  canReinforce, reinforce, income, upkeep, techYear, MARITIME, navZones, touch,
+} from './rules.js';
+
 
 // ——— театры ———
 export const AREA = {
@@ -194,120 +201,36 @@ function distFrom(ids) {
   }
   return d;
 }
-const qOrg = (u) => 0.35 + 0.0065 * Math.max(0, u.o);
-const canAtk = (u) => LAND(u) && u.mv > 0 && !(u.at && !MOBILE(u)) && u.s >= 0.8;
-// куда ставить новые войска ИИ: свой снабжаемый регион в 2–3 переходах от фронта
-function aiDeploy(S, n) {
-  const d = new Map(), q = [];
-  for (const R of G.R) if (S.ctrl[R.i] === n && R.nb.some((j) => S.ctrl[j] && atWar(S, S.ctrl[j], n))) (d.set(R.i, 0), q.push(R.i));
-  for (let k = 0; k < q.length; k++) for (const b of reg(q[k]).nb) !d.has(b) && S.ctrl[b] === n && (d.set(b, d.get(q[k]) + 1), q.push(b));
-  const sup = supply(S, n);
-  const c = [...d].filter(([i, v]) => v >= 2 && v <= 3 && sup[i] >= 0 && landIn(S, i).length < STACK - 2).sort((a, b) => reg(b[0]).vp - reg(a[0]).vp);
-  return c[0]?.[0] || 0;
-}
-
-// ——— контекст хода ———
-function ctx(S, n, D) {
-  const NR = G.R.length, fr = new Uint8Array(NR + 1), en = new Uint8Array(NR + 1);
-  for (const R of G.R) {
-    const c = S.ctrl[R.i];
-    if (!c) continue;
-    if (ally(S, c, n)) fr[R.i] = 1;
-    else if (atWar(S, c, n)) en[R.i] = 1;
-  }
-  const eAtk = new Float64Array(NR + 1);
-  for (const R of G.R) {
-    if (!en[R.i]) continue;
-    let a = 0;
-    for (const u of landIn(S, R.i)) atWar(S, u.n, n) && (a += UT[u.t].atk * u.s * quality(S, u.n) * qOrg(u));
-    eAtk[R.i] = a;
-  }
-  const thr = new Float64Array(NR + 1), have = new Float64Array(NR + 1), front = [];
-  for (const R of G.R) {
-    if (!fr[R.i]) continue;
-    let t = 0, adj = 0;
-    for (const j of R.nb) en[j] && ((adj = 1), (t += eAtk[j] * (R.riv.has(j) ? 0.75 : 1)));
-    thr[R.i] = t;
-    adj && front.push(R.i);
-    for (const u of landIn(S, R.i)) ally(S, u.n, n) && (have[R.i] += defPow(S, u, R));
-  }
-  // цели наступления: расстояния до объектов для каждой установки
-  const objD = {};
-  for (const [e, P] of Object.entries(D.post)) {
-    if (P.p !== `A` || !P.obj) continue;
-    const key = P.obj.join(` `);
-    objD[key] = objD[key] || distFrom(P.obj.map(idOf).filter((i) => i && !(S.ctrl[i] && ally(S, S.ctrl[i], n))));
-    P.objD = objD[key];
-    void e;
-  }
-  return { fr, en, eAtk, thr, have, front, D, sup: supply(S, n) };
-}
+// ——— оценки ———
+const orgK = (S, u) => 0.4 + 0.6 * Math.max(0, Math.min(1, u.o / orgMax(S, u.n)));
+const power = (S, u, k) => UT[u.t][k] * (u.s / 10) * quality(S, u.n) * orgK(S, u);
 const regVal = (R) => 1 + R.vp * 0.5 + R.ic * 0.2 + (R.cap ? 3 : 0);
-function wantOf(S, n, C, i) {
-  const R = reg(i), t = C.thr[i];
-  if (t <= 0) return 0;
-  return t * (R.cap ? 1.25 : R.vp >= 5 ? 1.05 : 0.9);
+// угроза своим провинциям: сила атаки соседних дивизий противника (артиллерия — на 2 перехода)
+function threat(S, n) {
+  const t = new Float64Array(G.R.length + 1);
+  for (const u of S.units) {
+    if (!atWar(S, u.n, n)) continue;
+    const p = power(S, u, `atk`), R = reg(u.r);
+    for (const j of u.t === `art` ? R.d2 : R.nb) friendly(S, j, n) && (t[j] += u.t === `art` ? p * 0.5 : p);
+  }
+  return t;
 }
-// Установка против хозяина региона T
+function ctx(S, n, D) {
+  for (const P of Object.values(D.post)) {
+    if (P.p !== `A` || !P.obj) continue;
+    P.objD = distFrom(P.obj.map(idOf).filter((i) => i && !friendly(S, i, n)));
+  }
+  return { D, thr: threat(S, n), sup: supply(S, n) };
+}
+// Установка против хозяина провинции T: наступление по директиве или контрудар за свои земли
 function postFor(S, n, C, T) {
   const c = S.ctrl[T], P = C.D.post[c];
   if (P && P.p === `A` && (!P.area || P.area.has(T))) return P;
-  // контрудар за свои / союзные исконные земли
   const core = S.core[T];
   if (core && (core === n || ally(S, core, n))) return { p: `H`, need: 1.6, objD: null };
   return null;
 }
-
-// ——— атаки ———
-// совместные удары союзников вне Восточного фронта: немцы с итальянцами, англичане с американцами
-const COAL = { GER: [`ITA`], ITA: [`GER`], UK: [`USA`], USA: [`UK`] };
-const COALZ = new Set([...AR(AREA.AFR), ...AR(AREA.ITALY), ...AR(AREA.WEST)]);
-const coal = (S, n, T) => (COALZ.has(reg(T).k) ? (COAL[n] || []).filter((m) => m !== S.player && alive(S, m) && atWar(S, m, S.ctrl[T])) : []);
-function pickAttack(S, n, C, T, P) {
-  const R = reg(T), defs = landIn(S, T), g = gate(S, n, T);
-  if (!defs.length || g >= 9) return null;
-  const pool = [], cm = coal(S, n, T), mine = (u) => u.n === n || cm.includes(u.n);
-  for (const i of R.nb) {
-    if (!C.fr[i]) continue;
-    const us = unitsIn(S, i).filter((u) => mine(u) && canAtk(u) && (u.o >= 34 || C.sup[i] < 0));
-    if (!us.length) continue;
-    const oos = C.sup[i] < 0;
-    // сколько обороны оставить в исходном регионе
-    let other = 0;
-    for (const j of reg(i).nb) j !== T && C.en[j] && (other += C.eAtk[j]);
-    const keep = oos ? 0 : other * 0.7;
-    let left = C.have[i];
-    const all = landIn(S, i).filter(mine);
-    us.sort((a, b) => atkPow(S, b, R, i) - atkPow(S, a, R, i));
-    let kept = all.length - us.length;
-    const gk = C.D.gar[reg(i).k] || 0;
-    for (const u of us) {
-      const dp = defPow(S, u, reg(i));
-      if (kept < gk || (other > 0 && (left - dp < keep || (kept === 0 && us.length + kept - pool.filter((p) => p.src === i).length <= 1)))) {
-        kept++;
-        continue;
-      }
-      left -= dp;
-      pool.push({ u, src: i, p: atkPow(S, u, R, i) });
-    }
-  }
-  if (!pool.length) return null;
-  pool.sort((a, b) => b.p - a.p);
-  let D = 0;
-  for (const u of defs) D += defPow(S, u, R);
-  const need = Math.max(1.05, P.need + g + (R.cap && R.own === S.ctrl[T] ? 0.2 : 0)), goal = Math.max(need * 1.25, 1.9);
-  const att = [];
-  let A = 0;
-  for (const a of pool) {
-    if (att.length >= STACK) break;
-    att.push(a), (A += a.p);
-    if (A >= D * goal) break;
-  }
-  const E = estimate(S, att, T);
-  if (E.r < need) return null;
-  return { att: att.map(({ u, src }) => ({ u, src })), r: E.r };
-}
-function attackValue(S, n, C, T, P) {
+function targetValue(S, n, C, T, P) {
   const R = reg(T);
   let v = regVal(R);
   if (P.objD) {
@@ -316,348 +239,329 @@ function attackValue(S, n, C, T, P) {
   }
   S.core[T] === n && (v += 3);
   // окружение: у защитника нет пути отхода
-  const dn = S.ctrl[T];
-  let esc = 0;
-  for (const j of R.nb) {
-    const c = S.ctrl[j];
-    c && ally(S, c, dn) && !C.fr[j] && esc++;
+  const d = unitAt(S, T);
+  if (d) {
+    let esc = 0;
+    for (const j of R.nb) friendly(S, j, d.n) && !unitAt(S, j) && esc++;
+    !esc && (v += 4);
+    v += (MAXS - d.s) * 0.3;
   }
-  !esc && (v += 4);
   return v;
 }
-function attacks(S, n, C) {
-  for (let round = 0; round < 3; round++) {
-    const cand = [];
-    const seen = new Set();
-    for (const i of C.front)
-      for (const T of reg(i).nb) {
-        if (!C.en[T] || seen.has(T)) continue;
-        seen.add(T);
-        const P = postFor(S, n, C, T);
-        if (!P) {
-          // прорыв из окружения
-          if (C.sup[i] < 0) cand.push({ T, P: { p: `H`, need: 1.0 }, v: 5 });
-          continue;
-        }
-        if (!landIn(S, T).length) continue;
-        cand.push({ T, P, v: attackValue(S, n, C, T, P) });
+// ——— авиация ———
+function airOn(S, n, T, k = 2) {
+  let hit = 0;
+  for (let q = 0; q < k && canAir(S, n, T); q++) airStrike(S, n, T) && hit++;
+  return hit;
+}
+// ——— план удара по провинции T: кто и в каком порядке бьёт (без случайности) ———
+function plan(S, n, C, T, P, mom) {
+  const d = unitAt(S, T);
+  if (!d || !atWar(S, d.n, n)) return null;
+  const g = gate(S, n, T);
+  if (g >= 9) return null;
+  const needR = Math.max(0.7, P.need - 0.35 + g);
+  const cand = [];
+  for (const j of reg(T).d2) {
+    const u = unitAt(S, j);
+    if (!u || u.n !== n || u.fr || u.at || C.used?.has(u.id)) continue;
+    const tg = attackTargets(S, u).get(T);
+    if (!tg) continue;
+    // гарнизоны и последний защитник столицы не уходят вперёд
+    const R0 = reg(u.r), hold = !!C.D.gar[R0.k] || (R0.cap && C.thr[u.r] > 0);
+    cand.push({ u, k: tg.k, hold, c: combat(S, u, d, { src: u.r, art: tg.k === `bomb` }) });
+  }
+  if (!cand.length) return null;
+  cand.sort((a, b) => (b.k === `bomb`) - (a.k === `bomb`) || b.c.R - a.c.R);
+  // последовательные удары с ожидаемыми потерями
+  const s0 = d.s, o0 = d.o, list = [];
+  let aLoss = 0, rSum = 0, ok = false;
+  try {
+    for (const x of cand) {
+      const c = combat(S, x.u, d, { src: x.u.r, art: x.k === `bomb` });
+      const R = c.R * mom;
+      if (R < needR * (x.k === `bomb` ? 0.6 : 1) && list.length === 0 && x.k !== `bomb`) break;
+      if (R < needR * 0.8 && x.k !== `bomb`) continue;
+      list.push(x);
+      rSum += R;
+      aLoss += c.aStr;
+      d.s -= c.dStr, (d.o -= c.dOrg);
+      if (d.s <= 0.4 || (d.o <= 0 && x.k !== `bomb`)) {
+        ok = true;
+        break;
       }
+      d.o = Math.max(0, d.o);
+    }
+  } finally {
+    d.s = s0, (d.o = o0);
+  }
+  if (!list.length) return null;
+  const gain = d.s * (ok ? 1 : 0) + (ok && !combat(S, list[list.length - 1].u, d, {}).canRet ? 3 : 0);
+  // без шанса выбить — только выгодный размен (артиллерия бьёт без ответа)
+  if (!ok) {
+    const best = list.filter((x) => x.k === `bomb` || x.c.R * mom >= needR + 0.45);
+    if (!best.length || P.p !== `A`) return null;
+    return { T, d, list: best, ok: false, aLoss: 0, gain: 0 };
+  }
+  if (aLoss > gain + 2.5) return null;
+  return { T, d, list, ok, aLoss, gain, rAvg: rSum / list.length };
+}
+function execPlan(S, n, C, pl) {
+  const mom = momentum(S, n, pl.T);
+  for (const x of pl.list) {
+    if (!S.units.includes(x.u) || !unitAt(S, pl.T)) break;
+    if (!attackTargets(S, x.u).has(pl.T)) continue;
+    const rep = attack(S, x.u, pl.T, { amph: x.k === `amph`, noAdv: x.hold, mod: mom !== 1 ? { r: mom } : null });
+    C.used.add(x.u.id);
+    if (!rep) break;
+    if (rep.adv || rep.out === `destroyed` || rep.out === `surrender` || rep.out === `retreat`) break;
+  }
+}
+function attacks(S, n, C) {
+  C.used = C.used || new Set();
+  for (let round = 0; round < 3; round++) {
+    const cand = [], seen = new Set();
+    for (const u of S.units) {
+      if (u.n !== n || u.fr || u.at) continue;
+      for (const T of attackTargets(S, u).keys()) {
+        if (seen.has(T)) continue;
+        seen.add(T);
+        let P = postFor(S, n, C, T);
+        // прорыв из окружения
+        if (!P && C.sup[u.r] < 0) P = { p: `A`, need: 1.15, objD: null };
+        if (!P) continue;
+        cand.push({ T, P, v: targetValue(S, n, C, T, P) });
+      }
+    }
     if (!cand.length) return;
     cand.sort((a, b) => b.v - a.v);
     let any = 0;
     for (const c of cand) {
-      if (!C.en[c.T] || !landIn(S, c.T).length) continue;
-      const pk = pickAttack(S, n, C, c.T, c.P);
-      if (!pk) continue;
-      const rep = battle(S, pk.att, c.T, { mod: { r: momentum(S, n, c.T) } });
+      if (!unitAt(S, c.T) || !hostile(S, c.T, n) && !atWar(S, unitAt(S, c.T).n, n)) continue;
+      const mom = momentum(S, n, c.T);
+      let pl = plan(S, n, C, c.T, c.P, mom);
+      // авиация — по целям, где не хватает немного
+      if ((!pl || !pl.ok) && (S.nat[n].air || 0) > 0 && canAir(S, n, c.T) && gate(S, n, c.T) < 9) {
+        airOn(S, n, c.T, 2);
+        pl = plan(S, n, C, c.T, c.P, mom);
+      } else if (pl && pl.ok && (S.nat[n].air || 0) > 1 && canAir(S, n, c.T) && c.v >= 4) {
+        airOn(S, n, c.T, 1);
+        pl = plan(S, n, C, c.T, c.P, mom) || pl;
+      }
+      if (!pl || !unitAt(S, c.T)) continue;
+      execPlan(S, n, C, pl);
       any++;
-      refreshAround(S, n, C, c.T);
-      if (rep.win) for (const a of pk.att) refreshAround(S, n, C, a.src);
     }
+    C.thr = threat(S, n);
+    C.sup = supply(S, n);
     if (!any) return;
   }
 }
-// пересчёт угроз и обороны вокруг региона после боя
-function refreshAround(S, n, C, T) {
-  const ids = new Set([T, ...reg(T).nb]);
-  for (const i of ids) {
-    const c = S.ctrl[i];
-    C.fr[i] = c && ally(S, c, n) ? 1 : 0;
-    C.en[i] = c && atWar(S, c, n) ? 1 : 0;
-    let a = 0;
-    if (C.en[i]) for (const u of landIn(S, i)) atWar(S, u.n, n) && (a += UT[u.t].atk * u.s * quality(S, u.n) * qOrg(u));
-    C.eAtk[i] = a;
+// остаток авиации — по самым опасным дивизиям противника у фронта
+function airRest(S, n, C) {
+  const nat = S.nat[n];
+  if ((nat.air || 0) <= 0) return;
+  const cand = [];
+  for (const u of S.units) {
+    if (!atWar(S, u.n, n) || !canAir(S, n, u.r)) continue;
+    let adj = 0;
+    for (const j of reg(u.r).nb) friendly(S, j, n) && unitAt(S, j) && adj++;
+    adj && cand.push({ r: u.r, v: power(S, u, `atk`) * (1 + adj * 0.2) });
   }
-  const ids2 = new Set();
-  for (const i of ids) for (const j of [i, ...reg(i).nb]) ids2.add(j);
-  for (const i of ids2) {
-    if (!C.fr[i]) ((C.thr[i] = 0), (C.have[i] = 0));
-    else {
-      let t = 0, h = 0;
-      const R = reg(i);
-      for (const j of R.nb) C.en[j] && (t += C.eAtk[j] * (R.riv.has(j) ? 0.75 : 1));
-      for (const u of landIn(S, i)) ally(S, u.n, n) && (h += defPow(S, u, R));
-      (C.thr[i] = t), (C.have[i] = h);
-      if (t > 0 && !C.front.includes(i)) C.front.push(i);
-    }
+  cand.sort((a, b) => b.v - a.v);
+  for (const c of cand) {
+    if ((nat.air || 0) <= 0) break;
+    airOn(S, n, c.r, 1);
   }
-  C.front = C.front.filter((i) => C.fr[i] && reg(i).nb.some((j) => C.en[j]));
-  C.sup = supply(S, n);
 }
-// ——— захват пустых регионов ———
+// ——— захват пустых провинций ———
 function captures(S, n, C) {
-  const us = S.units.filter((u) => u.n === n && LAND(u) && u.mv > 0).sort((a, b) => MOBILE(b) - MOBILE(a));
+  const us = S.units.filter((u) => u.n === n && !u.fr && u.mv > 0).sort((a, b) => UT[b.t].mv - UT[a.t].mv);
   for (const u of us) {
-    for (let step = 0; step < 3 && u.mv > 0; step++) {
-      const opts = targets(S, u).filter((o) => o.k === `capture` && !o.sea);
+    for (let step = 0; step < 3 && u.mv > 0 && S.units.includes(u); step++) {
       let best = null, bv = 0;
-      for (const o of opts) {
-        const P = postFor(S, n, C, o.r);
-        if (!P || gate(S, n, o.r) >= 0.15) continue;
-        // без «прорывов в пустоту»: рядом с войсками врага — только при опоре на два своих региона
-        const R = reg(o.r);
+      for (const m of moves(S, u).values()) {
+        if (m.k !== `capture`) continue;
+        const P = postFor(S, n, C, m.r);
+        if (!P || gate(S, n, m.r) >= 0.15) continue;
+        const R = reg(m.r);
+        // без «прорывов в пустоту»: рядом с сильным врагом — только при опоре на свои провинции
         let eAdj = 0, fN = 0;
-        for (const j of R.nb) j !== o.r && (C.en[j] && (eAdj += C.eAtk[j]), C.fr[j] && fN++);
-        if (eAdj > 0 && fN < 2 && eAdj > defPow(S, u, R) * 1.6) continue;
-        let v = attackValue(S, n, C, o.r, P);
-        // не оставлять пустым угрожаемый регион
-        const left = landIn(S, u.r).filter((v2) => v2.n === n).length - 1;
-        if (left < (C.D.gar[reg(u.r).k] || 0)) continue;
-        if (left <= 0 && C.thr[u.r] > 0 && C.D.post[S.ctrl[o.r]]?.p !== `A`) continue;
-        left <= 0 && C.thr[u.r] > 2 && (v *= 0.5);
-        v > bv && ((bv = v), (best = o));
+        for (const j of R.nb) {
+          const v = unitAt(S, j);
+          v && atWar(S, v.n, n) && (eAdj += power(S, v, `atk`));
+          friendly(S, j, n) && fN++;
+        }
+        if (eAdj > power(S, u, `def`) * 2.2 && fN < 2) continue;
+        let v = targetValue(S, n, C, m.r, P) - m.cost * 0.2;
+        // не оставлять пустой угрожаемую провинцию
+        const R0 = reg(u.r);
+        if (C.D.gar[R0.k] || (R0.cap && C.thr[u.r] > 0)) continue;
+        C.thr[u.r] > 0 && P.p !== `A` && (v *= 0.4);
+        C.thr[u.r] > power(S, u, `def`) && (v *= 0.6);
+        v > bv && ((bv = v), (best = m));
+      }
+      // высадка в пустую вражескую провинцию через море
+      if (!best && u.mv >= UT[u.t].mv && (S.nat[n].navl || 0) > 0) {
+        for (const r of amphTargets(S, u)) {
+          const P = postFor(S, n, C, r);
+          if (!P || P.p !== `A` || gate(S, n, r) >= 0.15) continue;
+          const R = reg(r);
+          let eAdj = 0;
+          for (const j of R.nb) {
+            const v = unitAt(S, j);
+            v && atWar(S, v.n, n) && (eAdj += power(S, v, `atk`));
+          }
+          if (eAdj > power(S, u, `def`) * 1.2) continue;
+          const v = targetValue(S, n, C, r, P) - 1;
+          v > bv && ((bv = v), (best = { r, k: `amphcap`, cost: u.mv }));
+        }
       }
       if (!best) break;
-      const from = u.r;
-      occupy(S, u, best.r, best.cost);
-      refreshAround(S, n, C, best.r), refreshAround(S, n, C, from);
+      moveTo(S, u, best.r, best);
     }
   }
 }
-// ——— авиация ———
-function airMoves(S, n, C) {
-  for (const u of S.units) {
-    if (u.n !== n || u.t !== `air` || u.mv <= 0) continue;
-    const opts = [u.r, ...targets(S, u).map((o) => o.r)];
-    let best = u.r, bv = -1;
-    for (const i of opts) {
-      const R = reg(i);
-      let v = 0;
-      for (const [j, k] of R.near) {
-        if (k > 2) continue;
-        if (C.en[j]) {
-          const P = postFor(S, n, C, j);
-          v += P && P.p === `A` ? attackValue(S, n, C, j, P) * (landIn(S, j).length ? 1 : 0.3) : 0.3;
-        } else if (C.fr[j] && C.thr[j] > 0) v += Math.min(4, C.thr[j] / 6);
-      }
-      C.thr[i] > 0 && (v *= 0.75);
-      C.sup[i] < 0 && (v *= 0.2);
-      i === u.r && (v *= 1.05);
-      v > bv && ((bv = v), (best = i));
-    }
-    if (bv < 1.5) {
-      // без дела — к фронту, где идёт наступление
-      const af = airFront(S, n, C);
-      if (af && af.has(u.r) ? af.get(u.r) > 0 : af) {
-        let bd = af.has(u.r) ? af.get(u.r) : 99;
-        for (const o of targets(S, u)) af.has(o.r) && af.get(o.r) < bd && C.sup[o.r] >= 0 && ((bd = af.get(o.r)), (best = o.r));
-      }
-    }
-    best !== u.r && moveUnit(S, u, best, u.mv);
+// ——— удержание фронта и переброски ———
+// какие свободные провинции нужно занять и насколько это важно
+const MINOR_AREA = new Set([`ITA`, `ROM`, `HUN`, `BUL`, `FIN`, `SVK`, `VIC`]);
+function needs(S, n, C) {
+  const NR = G.R.length, nd = new Float64Array(NR + 1), sup = C.sup, D = C.D;
+  const enemyMar = Object.keys(S.nat).some((e) => MARITIME.has(e) && alive(S, e) && atWar(S, e, n));
+  let area = null;
+  if (MINOR_AREA.has(n)) {
+    area = new Set();
+    for (const R of G.R) if (S.ctrl[R.i] === n || S.core[R.i] === n) for (const j of [R.i, ...R.nb]) area.add(j);
+    for (const P of Object.values(D.post)) if (P.p === `A` && P.area) for (const i of P.area) area.add(i);
   }
+  for (const R of G.R) {
+    const i = R.i;
+    if (!friendly(S, i, n) || (area && !area.has(i))) continue;
+    let v = 0;
+    const t = C.thr[i];
+    if (t > 0) v = 2 + Math.min(4, t * 0.25) + regVal(R) * 0.25;
+    else if (R.nb.some((j) => hostile(S, j, n))) v = 1.2 + regVal(R) * 0.15;
+    const g = D.gar[R.k], st = D.stage[R.k];
+    g && (v = Math.max(v, 3 + g));
+    st && (v = Math.max(v, 2 + st * 0.4));
+    if (enemyMar && R.sea.length && (R.cap || R.vp >= 4) && S.ctrl[i] === n) v = Math.max(v, 0.9 + R.vp * 0.1);
+    R.cap && S.ctrl[i] === n && R.near && [...R.near].some(([j, k]) => k <= 2 && hostile(S, j, n)) && (v = Math.max(v, 4));
+    sup[i] < 0 && (v *= 0.3);
+    nd[i] = v;
+  }
+  // сосредоточение: соседи провинций сосредоточения тоже нужны
+  for (const [k, w] of Object.entries(D.stage)) {
+    const i = idOf(k);
+    if (!i) continue;
+    for (const j of reg(i).nb) friendly(S, j, n) && (!area || area.has(j)) && (nd[j] = Math.max(nd[j], 1.4 + w * 0.15));
+  }
+  return nd;
 }
-function airFront(S, n, C) {
-  if (C._af !== undefined) return C._af;
-  const seeds = C.front.filter((i) => reg(i).nb.some((T) => C.en[T] && postFor(S, n, C, T)?.p === `A`));
-  if (!seeds.length) return (C._af = null);
-  const d = new Map(), q = [];
-  for (const i of seeds) (d.set(i, 0), q.push(i));
-  for (let k = 0; k < q.length; k++) for (const b of reg(q[k]).nb) !d.has(b) && C.fr[b] && (d.set(b, d.get(q[k]) + 1), q.push(b));
-  return (C._af = d);
-}
-// ——— резервы: дефициты обороны, гарнизоны, сосредоточение ———
-function bfsFrom(S, n, C, T, maxD = 40) {
-  const d = new Map([[T, 0]]), q = [T];
+// расстояния по своей и союзной территории (дивизии можно проходить)
+function landDist(S, n, to) {
+  const d = new Int16Array(G.R.length + 1).fill(99), q = [to];
+  d[to] = 0;
   for (let k = 0; k < q.length; k++) {
-    const a = q[k], da = d.get(a);
-    if (da >= maxD) continue;
-    for (const b of reg(a).nb) if (!d.has(b) && C.fr[b]) (d.set(b, da + 1), q.push(b));
+    const a = q[k];
+    for (const b of reg(a).nb) {
+      if (d[b] <= d[a] + 1 || !friendly(S, b, n)) continue;
+      const v = unitAt(S, b);
+      if (v && !ally(S, v.n, n)) continue;
+      d[b] = d[a] + 1;
+      q.push(b);
+    }
   }
   return d;
 }
-// экспедиционные силы союзников Германии на Восточном фронте
-// (и британский экспедиционный корпус во Франции 1939–1940 гг.)
-// (и британские экспедиционные силы во Франции 1939–1940 гг. и в Греции 1941 г.)
-const EXP = { ITA: [[66, 2], [82, 5], [999, 0]], HUN: [[66, 2], [82, 4], [999, 2]], SVK: [[999, 1]], BUL: [[999, 0]], UK: [[20, 3], [44, 2], [999, 999]] };
-const FRZ = new Set([`FRA`, `BEL`, `NED`]), GRZ = new Set([`GRE`, `YUG`]);
-function expCap(S, n) {
-  const e = EXP[n];
-  if (!e) return null;
-  const cap = e.find(([t]) => S.t < t)[1];
-  if (cap >= 999) return null;
-  const Z = S.t < 20 ? FRZ : GRZ;
-  const east = n === `UK` ? (i) => Z.has(S.core[i]) : (i) => S.core[i] !== n && (S.core[i] === `SOV` || reg(i).nb.some((j) => S.ctrl[j] === `SOV`));
-  let k = 0;
-  for (const u of S.units) u.n === n && LAND(u) && east(u.r) && k++;
-  return { full: k >= cap, east };
-}
-// немецкие войска в Африке не уходят с театра, пока он не потерян (до 1943 г.)
-const AFRS = new Set(AR(AREA.AFR));
-const pinned = (S, u, T) => u.n === `GER` && S.t < 90 && AFRS.has(reg(u.r).k) && !AFRS.has(reg(T).k);
 function redeploy(S, n, C) {
-  const my = (i) => landIn(S, i).filter((u) => u.n === n);
-  const XC = expCap(S, n);
-  const cnt = (i) => my(i).length;
-  const friends = (i) => landIn(S, i).filter((u) => ally(S, u.n, n)).length;
-  // желаемая оборона фронта, с потолком — чтобы не собирать всё в одну «кучу»
-  let avg = 0;
-  for (const i of C.front) avg += wantOf(S, n, C, i);
-  avg /= Math.max(1, C.front.length);
-  const capW = Math.max(avg * 1.6, 8);
-  const want = new Map(C.front.map((i) => [i, Math.min(wantOf(S, n, C, i), capW)]));
-  const need = [];
-  for (const i of C.front) {
-    const R = reg(i), w = want.get(i), h = C.have[i];
-    if (S.ctrl[i] === n && !friends(i)) need.push({ i, k: `cover`, n: 1, pr: 200 + regVal(R) });
-    else if (h < w) need.push({ i, k: `def`, amt: w - h, pr: Math.min(150, (w - h) * regVal(R)) });
+  C.used = C.used || new Set();
+  C.thr = threat(S, n);
+  C.sup = supply(S, n);
+  const nd = needs(S, n, C), nat = S.nat[n];
+  const free = () => S.units.filter((u) => u.n === n && !u.fr && !u.at && u.mv > 0 && !C.used.has(u.id));
+  // окружённые — к своим
+  for (const u of free()) {
+    if (C.sup[u.r] >= 0) continue;
+    let best = null, bv = -1;
+    for (const m of moves(S, u).values()) if (m.k === `move` && C.sup[m.r] >= 0 && nd[m.r] > bv) (bv = nd[m.r]), (best = m);
+    best && (moveTo(S, u, best.r, best), C.used.add(u.id));
   }
-  // сосредоточение для наступления у целей
-  for (const i of C.front) {
-    let off = 0;
-    for (const T of reg(i).nb) {
-      if (!C.en[T]) continue;
-      const P = postFor(S, n, C, T);
-      if (!P || P.p !== `A`) continue;
-      let dsum = 0;
-      for (const u of landIn(S, T)) dsum += defPow(S, u, reg(T));
-      off = Math.max(off, dsum * 1.4 * (P.objD && P.objD[T] <= 2 ? 1.3 : 1));
+  const slots = [];
+  for (let i = 1; i <= G.R.length; i++) nd[i] > 0.5 && !unitAt(S, i) && slots.push(i);
+  slots.sort((a, b) => nd[b] - nd[a]);
+  for (const b of slots.slice(0, 40)) {
+    if (unitAt(S, b)) continue;
+    const dist = landDist(S, n, b);
+    let best = null, bs = -1e9;
+    for (const u of free()) {
+      const cur = nd[u.r];
+      if (cur + 0.6 >= nd[b]) continue;
+      const d = dist[u.r];
+      if (d >= 99) continue;
+      const mvMax = UT[u.t].mv;
+      const s = -Math.ceil(d / mvMax) * 2 - cur + (d <= mvMax ? 3 : 0) + (MECH(u) && C.thr[b] > 4 ? -0.5 : 0);
+      s > bs && ((bs = s), (best = u));
     }
-    const h = C.have[i];
-    // цели, которые по истории уже должны быть взяты, — в первую очередь
-    let due = 0;
-    for (const T of reg(i).nb) C.en[T] && gate(S, n, T) < 0 && (due = 1);
-    off > h && need.push({ i, k: `off`, amt: Math.min(off - h, capW * 1.5), pr: Math.min(60, (off - h) * 0.6) + due * 45 });
-  }
-  // эшелонирование: крупные города в одном переходе за фронтом не оставлять пустыми
-  for (const i of C.front)
-    for (const j of reg(i).nb) {
-      const R = reg(j);
-      if (!C.fr[j] || C.thr[j] > 0 || R.vp < 2 || S.ctrl[j] !== n || cnt(j) > 0 || need.some((x) => x.i === j)) continue;
-      need.push({ i: j, k: `depth`, n: 1, pr: 6 + R.vp });
-    }
-  for (const [k, c] of Object.entries(C.D.gar)) {
-    const i = idOf(k);
-    // гарнизон столицы — сразу после прикрытия пустого фронта
-    i && C.fr[i] && cnt(i) < c && need.push({ i, k: `gar`, n: c - cnt(i), pr: reg(i).cap ? 190 : 90 });
-  }
-  for (const [k, c] of Object.entries(C.D.stage)) {
-    const i = idOf(k);
-    i && C.fr[i] && cnt(i) < c && need.push({ i, k: `stage`, n: c - cnt(i), pr: 8 + c });
-  }
-  if (!need.length) return;
-  need.sort((a, b) => b.pr - a.pr);
-  const gar = new Map(Object.entries(C.D.gar).map(([k, c]) => [idOf(k), c]));
-  const stage = new Map(Object.entries(C.D.stage).map(([k, c]) => [idOf(k), c]));
-  // свободные войска: сверх нужного для обороны своего региона
-  const free = new Set();
-  const regs = new Map();
-  for (const u of S.units) if (u.n === n && LAND(u) && u.mv > 0 && !u.at) (regs.get(u.r) || regs.set(u.r, []).get(u.r)).push(u);
-  for (const [i, us] of regs) {
-    const R = reg(i), all = my(i);
-    const keepPow = want.get(i) || 0, keepN = Math.max(gar.get(i) || 0, stage.get(i) || 0, C.thr[i] > 0 && S.ctrl[i] === n ? 1 : 0);
-    let pow = 0, num = 0;
-    for (const u of all) us.includes(u) || ((pow += defPow(S, u, R)), num++);
-    for (const u of landIn(S, i)) u.n !== n && ally(S, u.n, n) && ((pow += defPow(S, u, R)), num++);
-    us.sort((a, b) => (a.t === `inf` ? 0 : 1) - (b.t === `inf` ? 0 : 1) || defPow(S, b, R) - defPow(S, a, R));
-    for (const u of us) {
-      if (pow < keepPow || num < keepN) (pow += defPow(S, u, R)), num++;
-      else free.add(u);
-    }
-  }
-  const NAT = S.nat[n];
-  for (const nd of need) {
-    if (!free.size) break;
-    const d = bfsFrom(S, n, C, nd.i);
-    const list = [...free].map((u) => ({ u, d: d.has(u.r) ? d.get(u.r) : 99 })).sort((a, b) => a.d - b.d || (nd.k === `off` ? MOBILE(b.u) - MOBILE(a.u) : MOBILE(a.u) - MOBILE(b.u)));
-    let amt = nd.amt || 0, num = nd.n || 0;
-    for (const { u, d: du } of list) {
-      if ((nd.amt !== undefined && amt <= 0) || (nd.n !== undefined && num <= 0)) break;
-      // нет пути по суше — только морем (если есть тоннаж и порт)
-      if (du === 0 || (du > 24 && !(du === 99 && NAT.navl > 0 && reg(u.r).sea.length))) continue;
-      if (XC && XC.full && XC.east(nd.i) && !XC.east(u.r)) continue;
-      if (pinned(S, u, nd.i)) continue;
-      if (go(S, u, nd.i, d, NAT)) {
-        free.delete(u);
-        amt -= defPow(S, u, reg(nd.i)), num--;
+    if (best) {
+      const u = best, d = dist[u.r];
+      const ms = moves(S, u);
+      if (ms.has(b) && ms.get(b).k === `move`) {
+        moveTo(S, u, b, ms.get(b));
+        C.used.add(u.id);
+        continue;
       }
-    }
-  }
-  // остальные свободные — ближе к фронту
-  if (C.front.length) {
-    const d = new Map(), q = [];
-    for (const i of C.front) (!XC || !XC.full || !XC.east(i)) && (d.set(i, 0), q.push(i));
-    for (let k = 0; k < q.length; k++) for (const b of reg(q[k]).nb) !d.has(b) && C.fr[b] && (d.set(b, d.get(q[k]) + 1), q.push(b));
-    for (const u of free) {
-      if (XC && XC.full && !XC.east(u.r) && [...reg(u.r).nb].some((b) => XC.east(b))) continue;
-      const du = d.get(u.r);
-      if (u.mv <= 0) continue;
-      // отрезаны от фронта морем (Британия, Африка) — перевозка в порт ближе к фронту
-      if (du === undefined || du >= 6) {
-        if (NAT.navl > 0 && reg(u.r).sea.length && free.has(u)) {
-          let best = 0, bd = du === undefined ? 99 : du - 3;
-          for (const j of seaTargets(S, u)) d.has(j) && d.get(j) < bd && !pinned(S, u, j) && ((bd = d.get(j)), (best = j));
-          if (best) {
-            seaMove(S, u, best);
-            continue;
-          }
-        }
-        if (du === undefined) continue;
-      }
-      if (du <= 1) continue;
-      if (du >= 4 && NAT.rail > 0) {
-        let best = 0, bd = du - 2;
-        for (const j of railTargets(S, u)) d.has(j) && d.get(j) >= 1 && d.get(j) < bd && ((bd = d.get(j)), (best = j));
-        if (best) {
-          railMove(S, u, best);
+      // далеко — по железной дороге
+      if (d >= 3 && (nat.rail || 0) > 0) {
+        const rt = railTargets(S, u);
+        let rb = 0, rd = d;
+        for (const j of rt) dist[j] < rd && ((rd = dist[j]), (rb = j));
+        if (rb && rd <= Math.max(1, d - 3)) {
+          railMove(S, u, rb);
+          C.used.add(u.id);
           continue;
         }
       }
-      const nx = reg(u.r).nb.filter((b) => d.has(b) && d.get(b) < du && passable(S, n, b)).sort((a, b) => d.get(a) - d.get(b))[0];
-      nx && moveUnit(S, u, nx, 1);
+      // шаг навстречу
+      let mb = null, md = d;
+      for (const m of ms.values()) m.k === `move` && dist[m.r] < md && ((md = dist[m.r]), (mb = m));
+      if (mb) {
+        moveTo(S, u, mb.r, mb);
+        C.used.add(u.id);
+      }
+      continue;
+    }
+    // по суше не добраться — морем
+    if ((nat.navl || 0) > 0 && reg(b).sea.some((z) => navZones(S, n).includes(z))) {
+      let su = null, sv = 1e9;
+      for (const u of free()) {
+        if (nd[u.r] + 1 >= nd[b] || !reg(u.r).sea.length) continue;
+        const v = nd[u.r] + (MECH(u) ? 0 : 0.2);
+        v < sv && seaTargets(S, u).includes(b) && ((sv = v), (su = u));
+      }
+      su && (seaMove(S, su, b), C.used.add(su.id));
     }
   }
 }
-const passable = (S, n, b) => {
-  const us = landIn(S, b);
-  return us.length < STACK && !us.some((v) => atWar(S, v.n, n));
-};
-// перемещение отряда к цели: шагом, по железной дороге или морем
-function go(S, u, T, d, NAT) {
-  const du = d.has(u.r) ? d.get(u.r) : 99;
-  if (du <= u.mv) {
-    // шагаем по убыванию расстояния
-    let cur = u.r, steps = 0;
-    while (cur !== T && steps < u.mv) {
-      const nx = reg(cur).nb.find((b) => d.get(b) === d.get(cur) - 1 && passable(S, u.n, b));
-      if (!nx) break;
-      cur = nx, steps++;
-    }
-    if (cur === u.r) return false;
-    moveUnit(S, u, cur, steps);
-    return true;
+// ——— пополнение: слабые дивизии вне боя ———
+function aiReinforce(S, n, C) {
+  const nat = S.nat[n];
+  let budget = Math.max(0, nat.pp) * 0.5;
+  const us = S.units.filter((u) => u.n === n && u.s <= 6 && !C.used?.has(u.id)).sort((a, b) => a.s - b.s);
+  for (const u of us) {
+    if (!canReinforce(S, u)) continue;
+    const c = UT[u.t].re.pp * Math.min(3, MAXS - u.s);
+    if (c > budget) break;
+    budget -= c;
+    reinforce(S, u);
   }
-  if (NAT.rail > 0 && du < 99) {
-    const rt = railTargets(S, u);
-    let best = 0, bd = du - u.mv - 1;
-    for (const j of rt) d.has(j) && d.get(j) < bd && ((bd = d.get(j)), (best = j));
-    if (best) return railMove(S, u, best), true;
-  }
-  if (du === 99 || du > 6) {
-    if (NAT.navl > 0) {
-      const st = seaTargets(S, u);
-      let best = 0, bd = du;
-      for (const j of st) d.has(j) && d.get(j) < bd && ((bd = d.get(j)), (best = j));
-      if (best) return seaMove(S, u, best), true;
-    }
-  }
-  if (du < 99) {
-    let cur = u.r, steps = 0;
-    while (steps < u.mv) {
-      const nx = reg(cur).nb.find((b) => d.has(b) && d.get(b) < d.get(cur) && passable(S, u.n, b));
-      if (!nx) break;
-      cur = nx, steps++;
-    }
-    if (cur !== u.r) return moveUnit(S, u, cur, steps), true;
-  }
-  return false;
 }
-
 // ——— производство и наука ———
-// желаемые доли типов войск (по числу соединений)
+// желаемые доли типов дивизий (по числу)
 const MIX = {
-  GER: { inf: 0.62, arm: 0.17, mot: 0.09, air: 0.12 }, SOV: { inf: 0.7, arm: 0.15, mot: 0.03, air: 0.12 }, UK: { inf: 0.5, arm: 0.26, air: 0.24 },
-  USA: { inf: 0.46, arm: 0.3, air: 0.24 }, ITA: { inf: 0.8, arm: 0.09, air: 0.11 }, FRA: { inf: 0.76, arm: 0.12, air: 0.12 }, _: { inf: 0.92, air: 0.08 },
+  GER: { inf: 0.56, arm: 0.2, mot: 0.12, art: 0.12 }, SOV: { inf: 0.6, arm: 0.15, cav: 0.1, art: 0.12, mot: 0.03 }, UK: { inf: 0.48, arm: 0.3, mot: 0.1, art: 0.12 },
+  USA: { inf: 0.45, arm: 0.33, mot: 0.1, art: 0.12 }, ITA: { inf: 0.78, arm: 0.1, art: 0.12 }, FRA: { inf: 0.72, arm: 0.12, mot: 0.06, art: 0.1 }, _: { inf: 0.88, art: 0.12 },
 };
+const AIR_T = { GER: 12, UK: 12, USA: 10, SOV: 12, ITA: 5, FRA: 5, FIN: 2, ROM: 2, HUN: 2, _: 0 };
 const RES = { GER: [`arm`, `ind`, `air`, `inf`], SOV: [`ind`, `arm`, `inf`, `air`], UK: [`air`, `arm`, `ind`, `inf`], USA: [`ind`, `air`, `arm`, `inf`], ITA: [`inf`, `air`, `arm`, `ind`], _: [`inf`, `ind`, `air`, `arm`] };
 function aiResearch(S, n) {
   const nat = S.nat[n];
@@ -670,56 +574,58 @@ function aiResearch(S, n) {
   });
   best && (nat.res = best);
 }
-function aiBuild(S, n, war) {
+// где формировать: своя провинция в 1–3 переходах от фронта (или у сосредоточения)
+function pickSite(S, n, t, C, war) {
+  const fr = new Int16Array(G.R.length + 1).fill(99), q = [];
+  for (const R of G.R) if (friendly(S, R.i, n) && R.nb.some((j) => hostile(S, j, n))) (fr[R.i] = 0), q.push(R.i);
+  for (const k of Object.keys(C?.D.stage || {})) {
+    const i = idOf(k);
+    i && fr[i] > 0 && ((fr[i] = 0), q.push(i));
+  }
+  for (let k = 0; k < q.length; k++) for (const b of reg(q[k]).nb) fr[b] > fr[q[k]] + 1 && friendly(S, b, n) && ((fr[b] = fr[q[k]] + 1), q.push(b));
+  let best = 0, bv = -1e9;
+  for (const R of G.R) {
+    if (!buildSite(S, n, R.i, t)) continue;
+    const d = fr[R.i];
+    let v = war ? (d === 0 ? 1 : d <= 2 ? 4 - d * 0.3 : d <= 4 ? 2.5 - d * 0.2 : 1 - Math.min(1, d * 0.02)) : 1 + R.vp * 0.1;
+    v += R.vp * 0.05 + rnd(S) * 0.2;
+    v > bv && ((bv = v), (best = R.i));
+  }
+  return best;
+}
+function aiBuild(S, n, war, C) {
   const nat = S.nat[n];
-  const inc = nat.inc || income(S, n);
-  let pend = nat.q.reduce((s, q) => s + q.need - q.paid, 0);
   const mine = S.units.filter((u) => u.n === n);
-  if (!war && mine.length >= Math.max(3, G.R.filter((R) => S.ctrl[R.i] === n).length * (n === `SOV` ? 1.2 : 0.6))) return;
-  const cap = inc.pp * (war ? 2.6 : 1.6) + 10;
+  const provs = G.R.filter((R) => S.ctrl[R.i] === n).length;
+  const staging = C && Object.keys(C.D.stage).length;
+  if (!war && !staging && mine.length >= Math.max(2, Math.ceil(provs * 0.6))) return;
+  const inc = nat.inc || income(S, n);
+  const reserve = war ? 6 + inc.pp * 0.2 : 20;
   const y = tDate(S.t).y, mix = { ...(MIX[n] || MIX._) };
-  y >= 1943 && mix.arm && ((mix.arm += 0.04), (mix.inf -= 0.04));
+  y >= 1943 && mix.arm && ((mix.arm += 0.05), (mix.inf -= 0.05));
   const oilOK = nat.oil > 25 || (inc.oil || 0) - upkeep(S, n) > 1.5;
   const have = {};
   let tot = 0;
   for (const u of mine) (have[u.t] = (have[u.t] || 0) + 1), tot++;
-  for (const q of nat.q) ITEMS[q.k].u && ((have[q.k] = (have[q.k] || 0) + 1), tot++);
-  for (let g = 0; g < 4 && pend < cap; g++) {
+  for (let g = 0; g < 5; g++) {
     let k = null, bv = -9;
     for (const [t, w] of Object.entries(mix)) {
-      const c = itemCost(t);
+      const c = buildCost(S, n, t);
       if (c.oil && !oilOK) continue;
-      if (nat.mp - c.mp < 6 || !canBuy(S, n, t)) continue;
+      if (nat.pp - c.pp < reserve || nat.mp - c.mp < 3 || (c.oil && nat.oil < c.oil + 10)) continue;
       const v = w - (have[t] || 0) / Math.max(1, tot);
       v > bv && ((bv = v), (k = t));
     }
     if (!k) break;
-    // оборонительные рубежи: Германия с конца 1943 г., СССР в 1941–1942 гг.
-    if (war && g === 0 && ((n === `GER` && S.t >= 96) || (n === `SOV` && S.t >= 44 && S.t < 80)) && rnd(S) < 0.5) {
-      const fr = aiFortSite(S, n);
-      if (fr && canBuy(S, n, `fort`)) {
-        buy(S, n, `fort`, fr);
-        pend += itemCost(`fort`).pp;
-        continue;
-      }
-    }
-    buy(S, n, k, war ? aiDeploy(S, n) : 0);
+    let site = pickSite(S, n, k, C, war);
+    if (!site && MECH({ t: k })) (k = `inf`), (site = pickSite(S, n, k, C, war));
+    if (!site || nat.pp - buildCost(S, n, k).pp < reserve) break;
+    build(S, n, k, site, { log: false });
     have[k] = (have[k] || 0) + 1, tot++;
-    pend += itemCost(k).pp;
   }
-}
-
-// где строить укрепрайон: свой регион у фронта (или во втором эшелоне) с крупным городом, где укреплений ещё мало
-function aiFortSite(S, n) {
-  let best = 0, bv = 0;
-  for (const R of G.R) {
-    if (S.ctrl[R.i] !== n || (S.fort[R.i] || 0) >= 2 || S.nat[n].q.some((q) => q.k === `fort` && q.r === R.i)) continue;
-    const adj = R.nb.some((j) => S.ctrl[j] && atWar(S, S.ctrl[j], n)), adj2 = !adj && R.nb.some((j) => reg(j).nb.some((q) => S.ctrl[q] && atWar(S, S.ctrl[q], n)));
-    if (!adj && !adj2) continue;
-    const v = (R.vp + R.ic * 0.5 + (R.cap ? 4 : 0)) * (adj2 ? 1.2 : 1) * (R.t === `mo` || R.t === `fo` ? 1.2 : 1);
-    v > bv && ((bv = v), (best = R.i));
-  }
-  return bv >= 2.5 ? best : 0;
+  // авиаполки
+  const at = AIR_T[n] ?? AIR_T._;
+  war && (nat.airMax || 0) < at && canBuyAir(S, n) && nat.pp - AIR.cost.pp > reserve + 10 && buyAir(S, n);
 }
 // ——— ход державы под управлением ИИ ———
 export function aiTurn(S, n) {
@@ -727,13 +633,16 @@ export function aiTurn(S, n) {
   const D = dirFor(S, n);
   const war = Object.keys(S.nat).some((e) => alive(S, e) && atWar(S, n, e));
   aiResearch(S, n);
-  aiBuild(S, n, war);
-  if (!war && !Object.keys(D.stage).length && !Object.keys(D.gar).length) return;
-  const C = ctx(S, n, D);
-  airMoves(S, n, C);
-  attacks(S, n, C);
-  captures(S, n, C);
-  redeploy(S, n, C);
-  void rnd;
+  const active = war || Object.keys(D.stage).length || Object.keys(D.gar).length;
+  const C = active ? ctx(S, n, D) : null;
+  if (war) {
+    attacks(S, n, C);
+    captures(S, n, C);
+    airRest(S, n, C);
+    aiReinforce(S, n, C);
+  }
+  active && redeploy(S, n, C);
+  aiBuild(S, n, war, C);
+  touch(S);
 }
-export const _dbg = { ctx, dirFor, postFor, pickAttack, attackValue, gate };
+export const _dbg = { ctx, dirFor, postFor, plan, gate, needs };

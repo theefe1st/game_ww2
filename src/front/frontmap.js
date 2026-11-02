@@ -56,7 +56,7 @@ export class FrontMap {
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
-    document.fonts?.load?.(`10px Tiny5`).then(() => ((this.fontOk = 1), (this.dirty = 1))).catch(() => {});
+    document.fonts?.load?.(`500 12px Rubik`).then(() => ((this.fontOk = 1), (this.dirty = 1))).catch(() => {});
   }
   destroy() {
     this.dead = 1;
@@ -67,6 +67,7 @@ export class FrontMap {
     c.removeEventListener(`pointerup`, h.up);
     c.removeEventListener(`pointercancel`, h.up);
     c.removeEventListener(`wheel`, h.wheel);
+    c.removeEventListener(`touchend`, h.touchend);
     window.removeEventListener(`resize`, h.resize);
   }
   // ——— ввод ———
@@ -124,7 +125,10 @@ export class FrontMap {
         this.zoomAt(x, y, Math.exp(-clamp(e.deltaY, -120, 120) * 0.0022));
       },
       resize: () => this.resize(),
+      // без «призрачного» click по кнопкам, появившимся под пальцем после касания карты
+      touchend: (e) => e.cancelable && e.preventDefault(),
     };
+    c.addEventListener(`touchend`, this.h.touchend, { passive: false });
     c.addEventListener(`pointerdown`, this.h.down);
     c.addEventListener(`pointermove`, this.h.move);
     c.addEventListener(`pointerup`, this.h.up);
@@ -408,7 +412,7 @@ export class FrontMap {
   drawCities(ctx) {
     const { z } = this, minR = z >= 2.7 ? 1 : z >= 1.6 ? 2 : 3;
     const boxes = [];
-    ctx.font = `12px Tiny5, "Trebuchet MS", monospace`;
+    ctx.font = `600 13px Rubik, sans-serif`;
     for (const m of this.marks) {
       const [x, y] = this.toScr(m.x, m.y), hot = m.st === `next` || m.st === `choice` || m.st === `sel`;
       boxes.push([x - 14, y - 14, x + 14, y + 22]);
@@ -425,8 +429,8 @@ export class FrontMap {
     for (const c of list) {
       const [x, y] = this.toScr(c.x, c.y);
       if (x < -60 || y < -20 || x > this.W + 60 || y > this.H + 20) continue;
-      const fs = c.r >= 3 ? 12 : 10;
-      ctx.font = `${fs}px Tiny5, "Trebuchet MS", monospace`;
+      const fs = c.r >= 3 ? 13 : 11;
+      ctx.font = `500 ${fs}px Rubik, sans-serif`;
       const tw = ctx.measureText(c.n).width, d = c.r >= 3 ? 5 : 4;
       const b = [x - d / 2 - 1, y - fs / 2 - 1, x + d / 2 + 4 + tw + 2, y + fs / 2 + 1];
       if (hit(b, c.r)) continue;
@@ -476,7 +480,7 @@ export class FrontMap {
       ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
       ctx.fillStyle = gold ? `#f3e3b0` : `#7b838c`;
       ctx.fillRect(x - sz / 2, y - sz / 2, sz, 2);
-      ctx.font = `12px Tiny5, "Trebuchet MS", monospace`;
+      ctx.font = `600 13px Rubik, sans-serif`;
       ctx.textAlign = `center`;
       ctx.textBaseline = `middle`;
       ctx.fillStyle = m.st === `next` || m.st === `sel` || m.st === `choice` ? `#1d1606` : `#f3e3b0`;
@@ -484,7 +488,7 @@ export class FrontMap {
       ctx.textAlign = `left`;
       if (m.st === `done` || m.st === `skip`) for (let i = 0; i < 3; i++) this.star(x - 13 + i * 9, y + sz / 2 + 4, 1, i < (m.stars || 0));
       if (m.label && (hot || this.z >= 2.2)) {
-        ctx.font = `12px Tiny5, "Trebuchet MS", monospace`;
+        ctx.font = `600 13px Rubik, sans-serif`;
         const tw = ctx.measureText(m.label).width, lx = Math.round(x - tw / 2 - 5), ly = y - sz / 2 - 22;
         ctx.fillStyle = hot ? `rgba(29,22,6,.92)` : `rgba(11,13,15,.82)`;
         ctx.fillRect(lx, ly, tw + 10, 16);

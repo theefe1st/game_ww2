@@ -1,11 +1,16 @@
-// «Европа 1939–1945»: исторические события, капитуляции, разделы, ленд-лиз, мобилизация.
+// «Европа 1939–1945» (v0.6.1): исторические события, капитуляции, разделы, ленд-лиз, мобилизация.
+// В провинции — одна дивизия: новые части ставятся в свободные провинции рядом с указанными.
 import { NATIONS } from './regions.js';
-import { G, reg, UT, LAND, STACK, alive, ally, atWar, addWar, declareWar, makePeace, joinSide, pairKey, side, members, landIn, unitsIn, spawn, kill, touch, vpState, capitalLost, battle, supply } from './rules.js';
+import { G, reg, MAXS, alive, ally, atWar, addWar, declareWar, makePeace, joinSide, pairKey, side, members, spawn, kill, touch, unitAt, orgMax, capture, attack, capitalLost, supply, UT } from './rules.js';
 
 const I = (k) => G.byKey[k]?.i || 0;
 const W = (s) => s.split(` `);
+// целочисленное ослабление дивизии
+const sc = (u, k) => (u.s = Math.max(1, Math.round(u.s * k)));
+// сила «армии» из исторических событий (2…10) → сила дивизии (4…10)
+const dv = (s) => Math.max(4, Math.min(MAXS, Math.round(4 + s * 0.7)));
 export const news = (S, ttl, txt, k = `ev`) => S.news.push({ t: S.t, ttl, txt, k });
-// передать регионы (ключи) державе; core — сменить и «исконного» владельца
+// передать провинции (ключи) державе; core — сменить и «исконного» владельца
 export function give(S, keys, to, core = false) {
   for (const k of typeof keys === `string` ? W(keys) : keys) {
     const i = I(k);
@@ -16,37 +21,70 @@ export function give(S, keys, to, core = false) {
   S._ver++;
   relocate(S);
 }
-// войска в чужих (не союзных) регионах уходят к своим или гибнут
-export function relocate(S, loss = 0.85) {
-  for (const u of [...S.units]) {
-    const c = S.ctrl[u.r];
-    if (c && ally(S, c, u.n)) continue;
-    const seen = new Set([u.r]), q = [u.r];
-    let to = 0;
-    for (let k = 0; k < q.length && !to && k < 400; k++) {
-      const R = reg(q[k]);
-      for (const b of [...R.nb, ...R.sea2.map((s) => s[0])]) {
-        if (seen.has(b)) continue;
-        seen.add(b), q.push(b);
-        const cb = S.ctrl[b];
-        if (cb && ally(S, cb, u.n) && landIn(S, b).length < STACK && !landIn(S, b).some((v) => !ally(S, v.n, u.n))) {
-          to = b;
-          break;
-        }
-      }
+// ближайшая свободная союзная провинция (по суше и морю)
+function spot(S, n, from, taken) {
+  const seen = new Set([from]), q = [from];
+  for (let k = 0; k < q.length && k < 400; k++) {
+    const R = reg(q[k]);
+    for (const b of [...R.nb, ...R.sea2.map((s) => s[0])]) {
+      if (seen.has(b)) continue;
+      seen.add(b), q.push(b);
+      const c = S.ctrl[b];
+      if (c && ally(S, c, n) && !unitAt(S, b) && !taken.has(b)) return b;
     }
-    if (to) ((u.r = to), (u.s *= loss), (u.o = Math.min(u.o, 40)), (u.ent = 0), touch(S));
+  }
+  return 0;
+}
+// войска в чужих (не союзных) провинциях и «лишние» дивизии уходят к своим или гибнут
+export function relocate(S, loss = 0.85) {
+  const at = new Map();
+  for (const u of [...S.units]) {
+    const c = S.ctrl[u.r], dup = at.has(u.r);
+    if (c && ally(S, c, u.n) && !dup) {
+      at.set(u.r, u);
+      continue;
+    }
+    const to = spot(S, u.n, u.r, at);
+    if (to) (u.r = to), sc(u, loss), (u.o = Math.min(u.o, 40)), (u.e = 0), (u.mv = 0), at.set(to, u), touch(S);
     else kill(S, u);
   }
 }
-// поставить войска в первый подходящий регион из списка
+// поставить дивизию в первую свободную провинцию из списка (или рядом с ними — до 3 переходов)
 export function place(S, n, keys, t, s, nm, o = 55) {
-  for (const k of typeof keys === `string` ? W(keys) : keys) {
-    const i = I(k), c = S.ctrl[i];
-    if (!i || !c || !ally(S, c, n) || landIn(S, i).length >= STACK || landIn(S, i).some((v) => atWar(S, v.n, n))) continue;
-    return spawn(S, n, t, i, s, { nm, o, x: 10 });
+  if (!alive(S, n)) return null;
+  const ks = (typeof keys === `string` ? W(keys) : keys).map(I).filter(Boolean);
+  const ok = (i) => !!S.ctrl[i] && ally(S, S.ctrl[i], n) && !unitAt(S, i);
+  let at = ks.find(ok) || 0;
+  if (!at) {
+    const seen = new Set(ks), q = ks.map((i) => [i, 0]), sup = supply(S, n);
+    let alt = 0;
+    for (let k = 0; k < q.length && !at; k++) {
+      const [a, d] = q[k];
+      if (d >= 3) continue;
+      for (const b of reg(a).nb) {
+        if (seen.has(b)) continue;
+        seen.add(b);
+        if (!S.ctrl[b] || !ally(S, S.ctrl[b], n)) continue;
+        if (ok(b)) {
+          if (sup[b] >= 0) {
+            at = b;
+            break;
+          }
+          alt = alt || b;
+        }
+        q.push([b, d + 1]);
+      }
+    }
+    at = at || alt;
   }
-  return null;
+  const om = orgMax(S, n), sv = dv(s);
+  if (!at) {
+    // мест нет — пополнение своей дивизии в указанных провинциях
+    const u = ks.map((i) => unitAt(S, i)).find((v) => v && v.n === n);
+    if (u) (u.s = Math.min(MAXS, u.s + Math.ceil(sv / 2))), (u.o = Math.max(u.o, Math.round((om * o) / 100))), touch(S);
+    return u || null;
+  }
+  return spawn(S, n, t, at, sv, { nm: nm || undefined, o: Math.round((om * o) / 100), x: 4 });
 }
 // смена стороны: мир со всеми, вступление в блок с наследованием войн лидера
 export function switchSide(S, n, s) {
@@ -54,6 +92,19 @@ export function switchSide(S, n, s) {
   if (s) joinSide(S, n, s);
   else ((S.nat[n].side = null), S._ver++);
   relocate(S);
+}
+// Норвегия, 9 апреля: армия отходит к Тронхейму
+function norMerge(S) {
+  const tr = I(`trondheim`);
+  let base = unitAt(S, tr);
+  for (const u of S.units.filter((v) => v.n === `NOR` && [`oslo`, `bergen`, `narvik`].includes(reg(v.r).k))) {
+    if (!base || base.n !== `NOR`) {
+      if (!unitAt(S, tr)) (u.r = tr), (base = u), touch(S);
+      continue;
+    }
+    base.s = Math.min(MAXS, base.s + Math.ceil(u.s / 2));
+    kill(S, u);
+  }
 }
 // ——— капитуляции ———
 const PART = {
@@ -86,7 +137,6 @@ function victor(S, n) {
   let best = null, bv = 0;
   for (const [c, v] of Object.entries(m)) v > bv && ((bv = v), (best = c));
   if (!best) best = Object.keys(S.nat).find((e) => alive(S, e) && atWar(S, e, n)) || null;
-  // марионеточные союзники отдают захваченное лидеру блока
   return best;
 }
 export function checkCapitulations(S) {
@@ -112,7 +162,7 @@ export function capitulate(S, n) {
   if (n === `FRA`) return vichy(S, by);
   const foes = new Set(Object.keys(S.nat).filter((e) => alive(S, e) && atWar(S, e, n)));
   nat.dead = true;
-  const exile = n === `POL` && alive(S, `FRA`) ? [`FRA`, `paris`, `Польская армия во Франции`] : null;
+  const exile = n === `POL` && alive(S, `FRA`) ? [`FRA`, `paris orleans normandy`, `Польская армия во Франции`] : null;
   for (const u of S.units.filter((u) => u.n === n)) kill(S, u);
   S.wars = S.wars.filter((k) => !k.split(`|`).includes(n));
   const P = PART[n] || {};
@@ -130,11 +180,12 @@ export function capitulate(S, n) {
 }
 // Компьенское перемирие: оккупированная зона, Виши, эвакуация англичан
 const OCC = `paris lille normandy brittany nantes bordeaux orleans reims metz strasbourg dijon`;
+const HOME = W(`london portsmouth birmingham norwich bristol manchester cardiff newcastle glasgow inverness belfast`);
 function vichy(S, by) {
   const occ = new Set(W(OCC));
   S.nat.FRA.dead = true;
   const vic = S.nat.VIC;
-  vic.pp = 10, (vic.mp = 10), (vic.st = 5), (vic.oil = 10);
+  vic.pp = 10, (vic.mp = 10), (vic.oil = 10);
   for (const R of G.R) {
     const c = S.ctrl[R.i];
     if (c !== `FRA`) continue;
@@ -143,20 +194,24 @@ function vichy(S, by) {
     S.ctrl[R.i] === `VIC` && (S.core[R.i] = `VIC`);
   }
   for (const u of S.units.filter((u) => u.n === `FRA`)) {
-    if (S.ctrl[u.r] === `VIC`) ((u.n = `VIC`), (u.s = Math.max(1, u.s * 0.5)), (u.o = 40));
+    if (S.ctrl[u.r] === `VIC`) (u.n = `VIC`), sc(u, 0.5), (u.o = Math.min(u.o, 40)), (u.e = 0);
     else kill(S, u);
   }
   S.wars = S.wars.filter((k) => !k.split(`|`).includes(`FRA`));
   S._ver++;
-  // Дюнкерк: британцы эвакуируются с потерей техники
-  for (const u of S.units) if (u.n === `UK` && S.ctrl[u.r] && !ally(S, S.ctrl[u.r], `UK`)) ((u.r = 0), (u.s *= 0.6));
-  for (const u of S.units) if (u.r === 0) {
-    const i = [`london`, `portsmouth`, `birmingham`, `norwich`, `bristol`, `manchester`].map(I).find((j) => landIn(S, j).length < STACK);
-    i ? ((u.r = i), (u.o = 30)) : (u.r = I(`london`));
-  }
   touch(S);
+  // Дюнкерк: британцы эвакуируются с потерей техники
+  for (const u of S.units.filter((u) => u.n === `UK` && S.ctrl[u.r] && !ally(S, S.ctrl[u.r], `UK`))) {
+    const i = HOME.map(I).find((j) => j && S.ctrl[j] === `UK` && !unitAt(S, j));
+    if (!i) {
+      kill(S, u);
+      continue;
+    }
+    u.r = i, sc(u, 0.6), (u.o = 30), (u.e = 0), (u.mv = 0);
+    touch(S);
+  }
   relocate(S);
-  place(S, `UK`, `london portsmouth bristol`, `inf`, 2, `Свободные французы (де Голль)`);
+  place(S, `UK`, `london portsmouth bristol norwich`, `inf`, 2, `Свободные французы (де Голль)`);
   news(S, `Компьенское перемирие`, `Франция капитулировала. Север и запад страны оккупированы Германией, на юге — режим Виши, ему подчиняются колонии. Британские войска эвакуированы из Дюнкерка, в Лондоне — «Свободная Франция» де Голля.`, `cap`);
   S.caps.push({ t: S.t, cap: `FRA`, by });
 }
@@ -177,28 +232,36 @@ export function itaSurrender(S) {
   if (alive(S, `GER`)) {
     place(S, `GER`, `naples rome florence`, `inf`, 6, `10-я армия (Фитингоф)`, 70);
     place(S, `GER`, `rome florence bologna`, `inf`, 5, `14-я армия (Макензен)`, 70);
-    place(S, `GER`, `naples rome`, `arm`, 3, `XIV танковый корпус`, 70);
+    place(S, `GER`, `naples rome bari`, `arm`, 3, `XIV танковый корпус`, 70);
+    place(S, `GER`, `genoa milan turin`, `inf`, 3, `87-я пехотная дивизия`, 60);
   }
   news(S, `Италия капитулировала`, `8 сентября Италия подписала перемирие. Германия разоружила итальянскую армию и заняла север и центр страны; Муссолини возглавил марионеточную Республику Сало.`, `cap`);
   S.caps.push({ t: S.t, cap: `ITA`, by: ally0 });
 }
-// ——— высадка: морской бой с подготовкой ———
+// ——— высадка: последовательные удары десанта с моря ———
 export function landing(S, units, Tk, mod) {
   const T = I(Tk);
-  if (!T || !units.length) return null;
-  const att = units.filter(Boolean).map((u) => ({ u, src: u.r, amph: true }));
-  if (!att.length) return null;
-  for (const a of att) (a.u.mv = Math.max(1, a.u.mv)), (a.u.o = Math.max(a.u.o, 70));
-  if (!landIn(S, T).length) {
-    S.ctrl[T] = att[0].u.n, (S.held[T] = S.t), (S._ver++);
-    for (const a of att) (a.u.r = T), (a.u.mv = 0);
-    touch(S);
-    relocate(S);
-    return { win: true };
+  const us = units.filter((u) => u && S.units.includes(u));
+  if (!T || !us.length) return null;
+  let win = false;
+  for (const u of us) {
+    u.o = Math.max(u.o, Math.round(orgMax(S, u.n) * 0.8)), (u.at = 0), (u.fr = 0), (u.mv = Math.max(1, UT[u.t].mv));
+    if (!S.units.includes(u)) continue;
+    const d = unitAt(S, T);
+    if (!d) {
+      if (S.ctrl[T] && !ally(S, S.ctrl[T], u.n)) (u.r = T), capture(S, T, u.n), (u.mv = 0), (u.at = 1), (win = true), touch(S);
+      break;
+    }
+    if (!atWar(S, d.n, u.n)) break;
+    const rep = attack(S, u, T, { amph: true, mod, free: true });
+    if (rep?.adv) {
+      win = true;
+      break;
+    }
   }
-  const r = battle(S, att, T, { mod });
-  for (const a of att) a.u.mv = 0;
-  return r;
+  for (const u of us) S.units.includes(u) && (u.mv = 0);
+  relocate(S);
+  return { win };
 }
 const own = (S, k, n) => S.ctrl[I(k)] === n;
 const AFRK = new Set(`tripoli sirte benghazi tobruk sollum matruh alamein tunis gabes`.split(` `));
@@ -225,7 +288,7 @@ export const EV = [
     txt: `12 марта 1940 года Финляндия уступила Карельский перешеек с Выборгом. Война стоила обеим сторонам больших потерь.`,
     fx: (S) => {
       makePeace(S, `SOV`, `FIN`);
-      S.nat.SOV.qmul = 0.92;
+      S.nat.SOV.qmul = 0.95;
       for (const R of G.R) if (S.core[R.i] === `FIN` && S.ctrl[R.i] === `SOV` && R.k !== `viipuri`) S.ctrl[R.i] = `FIN`;
       give(S, `viipuri`, `SOV`);
     },
@@ -240,7 +303,7 @@ export const EV = [
         give(S, `denmark`, `GER`);
         joinSide(S, `NOR`, `allies`);
         addWar(S, `GER`, `NOR`);
-        for (const u of S.units.filter((u) => u.n === `NOR` && [`oslo`, `bergen`, `narvik`].includes(reg(u.r).k))) u.r = I(`trondheim`), touch(S);
+        norMerge(S);
         give(S, `oslo bergen narvik`, `GER`);
         place(S, `GER`, `oslo`, `inf`, 3, `XXI группа (Фалькенхорст)`, 70);
         place(S, `GER`, `bergen`, `inf`, 1, `69-я пехотная дивизия`, 60);
@@ -317,7 +380,7 @@ export const EV = [
     id: `sonnenblume`, t: 38, if: (S) => alive(S, `GER`) && alive(S, `UK`) && [`tripoli`, `sirte`].some((k) => ownSide(S, k, `GER`)) && own(S, `benghazi`, `UK`), ttl: `Роммель в Киренаике`,
     txt: `Апрель 1941 года: лучшие британские части ушли в Грецию. Роммель, не дожидаясь подкреплений, атаковал у Эль-Агейлы и погнал англичан к египетской границе; Тобрук осаждён.`,
     fx: (S) => {
-      for (const u of S.units) u.n === `UK` && [`benghazi`, `sirte`, `tobruk`, `sollum`].includes(reg(u.r).k) && ((u.o = Math.min(u.o, 45)), (u.s *= 0.8));
+      for (const u of S.units) u.n === `UK` && [`benghazi`, `sirte`, `tobruk`, `sollum`].includes(reg(u.r).k) && ((u.o = Math.min(u.o, 45)), sc(u, 0.8));
       for (const u of S.units) u.n === `GER` && AFRK.has(reg(u.r).k) && (u.o = 100);
     },
   },
@@ -330,11 +393,11 @@ export const EV = [
       alive(S, `ITA`) && (place(S, `ITA`, k, `arm`, 4, `Танковая дивизия «Ариете»`, 85), place(S, `ITA`, k, `inf`, 6, `XXI корпус`, 85));
       for (const u of S.units) [`GER`, `ITA`].includes(u.n) && AFRK.has(reg(u.r).k) && (u.o = Math.max(u.o, 90));
       // британские дивизии ушли на Дальний Восток
-      for (const u of S.units) u.n === `UK` && [`benghazi`, `sirte`, `tobruk`, `sollum`].includes(reg(u.r).k) && ((u.o = Math.min(u.o, 55)), (u.s *= 0.85));
+      for (const u of S.units) u.n === `UK` && [`benghazi`, `sirte`, `tobruk`, `sollum`].includes(reg(u.r).k) && ((u.o = Math.min(u.o, 55)), sc(u, 0.85));
     },
   },
   { id: `bul41`, t: 36, if: (S) => alive(S, `BUL`) && alive(S, `GER`) && !side(S, `BUL`), ttl: `Болгария в Тройственном пакте`, txt: `1 марта 1941 года Болгария присоединилась к пакту; через неё германские войска выходят к границе Греции.`, fx: (S) => joinSide(S, `BUL`, `axis`) },
-  { id: `lend`, t: 37, if: (S) => alive(S, `UK`), ttl: `Ленд-лиз`, txt: `Март 1941 года: США начинают поставки Великобритании по ленд-лизу.`, fx: (S) => { const m = S.nat.UK.imp; m.pp = (m.pp || 0) + 4, (m.st = (m.st || 0) + 2), (m.oil = (m.oil || 0) + 3); } },
+  { id: `lend`, t: 37, if: (S) => alive(S, `UK`), ttl: `Ленд-лиз`, txt: `Март 1941 года: США начинают поставки Великобритании по ленд-лизу.`, fx: (S) => { const m = S.nat.UK.imp; m.pp = (m.pp || 0) + 5, (m.oil = (m.oil || 0) + 3); } },
   {
     id: `marita`, t: 38, until: 44, if: (S) => alive(S, `GER`) && alive(S, `YUG`) && !atWar(S, `GER`, `YUG`), ask: `GER`, ttl: `Югославия и Греция`,
     txt: `Переворот в Белграде разорвал союз с Германией. 6 апреля 1941 года вермахт вторгся в Югославию и Грецию с территорий Австрии, Венгрии, Румынии и Болгарии.`,
@@ -350,7 +413,7 @@ export const EV = [
   {
     id: `crete`, t: 41, until: 46, if: (S) => own(S, `athens`, `GER`) && S.ctrl[I(`crete`)] && atWar(S, S.ctrl[I(`crete`)], `GER`), ttl: `Операция «Меркурий»`,
     txt: `Май 1941 года: германские парашютисты захватили Крит ценой тяжёлых потерь. Британский флот эвакуировал часть гарнизона.`,
-    fx: (S) => { for (const u of landIn(S, I(`crete`))) u.s *= 0.5; give(S, `crete`, `GER`); place(S, `GER`, `crete`, `inf`, 1, `7-я авиадесантная дивизия`, 40); },
+    fx: (S) => { const d = unitAt(S, I(`crete`)); d && sc(d, 0.5); give(S, `crete`, `GER`); place(S, `GER`, `crete`, `inf`, 1, `7-я авиадесантная дивизия`, 40); },
   },
   // Газала: обход британских позиций и падение Тобрука (май — июнь 1942)
   {
@@ -358,7 +421,7 @@ export const EV = [
     txt: `26 мая 1942 года танковая армия «Африка» обошла британские позиции у Газалы с юга. 8-я армия отступает к границе Египта, гарнизон Тобрука в окружении.`,
     if: (S) => S.histOn !== false && ![`UK`, `GER`, `ITA`].includes(S.player) && own(S, `tobruk`, `UK`) && ownSide(S, `benghazi`, `GER`),
     fx: (S) => {
-      for (const u of S.units) u.n === `UK` && [`tobruk`, `sollum`].includes(reg(u.r).k) && ((u.o = Math.min(u.o, 20)), (u.s *= 0.8));
+      for (const u of S.units) u.n === `UK` && [`tobruk`, `sollum`].includes(reg(u.r).k) && ((u.o = Math.min(u.o, 20)), sc(u, 0.8));
       for (const u of S.units) [`GER`, `ITA`].includes(u.n) && AFRK.has(reg(u.r).k) && (u.o = 100);
     },
   },
@@ -381,6 +444,12 @@ export const EV = [
     id: `barb`, t: 43, until: 48, ph: (S) => (S.player === `SOV` ? `pre` : `start`), if: (S) => alive(S, `GER`) && alive(S, `SOV`) && !atWar(S, `GER`, `SOV`), ask: `GER`, ttl: `22 июня 1941 года`,
     txt: `Германия и её союзники без объявления войны напали на Советский Союз. Удар наносят три группы армий — на Ленинград, Москву и Киев. Советская авиация понесла огромные потери на аэродромах.`,
     opts: [{ l: `Начать «Барбароссу»`, fx: (S) => barbarossa(S) }, { l: `Отложить на две недели`, fx: (S) => (S.done.barb = 0, (S.barbDelay = (S.barbDelay || 0) + 1)) }],
+  },
+  {
+    // «Барбароссу» отложили насовсем — весной 1942 года удар наносит СССР
+    id: `sovstrike`, t: 60, if: (S) => alive(S, `GER`) && alive(S, `SOV`) && !atWar(S, `GER`, `SOV`) && S.done.barb !== undefined, ttl: `Удар на Запад`,
+    txt: `Германия так и не напала. Ставка решила ударить первой, пока вермахт скован войной на Западе. Советские армии перешли границу.`,
+    fx: (S) => sovStrike(S),
   },
   {
     id: `iran`, t: 47, until: 50, if: (S) => alive(S, `IRN`) && alive(S, `UK`) && alive(S, `SOV`) && atWar(S, `GER`, `SOV`), ask: `UK`, ttl: `Иранская операция`,
@@ -412,7 +481,7 @@ export const EV = [
     fx: (S) => {
       joinSide(S, `USA`, `allies`);
       const m = S.nat.USA;
-      m.imp = { pp: 14, st: 10, oil: 14, mp: 4, co: 10 };
+      m.imp = { pp: 14, oil: 14, mp: 4 };
       alive(S, `SOV`) && !S.coop.includes(pairKey(`SOV`, `USA`)) && S.coop.push(pairKey(`SOV`, `USA`));
       S._ver++;
     },
@@ -420,13 +489,13 @@ export const EV = [
   { id: `usa2`, t: 62, if: (S) => side(S, `USA`) === `allies`, fx: (S) => (S.nat.USA.imp.pp = 22, (S.nat.USA.imp.mp = 6), place(S, `USA`, `belfast glasgow manchester bristol`, `inf`, 6, `V корпус`, 70)) },
   { id: `usa3`, t: 76, if: (S) => side(S, `USA`) === `allies`, fx: (S) => ((S.nat.USA.imp.pp = 30), (S.nat.USA.imp.mp = 8)) },
   { id: `usa4`, t: 92, if: (S) => side(S, `USA`) === `allies`, fx: (S) => ((S.nat.USA.imp.pp = 36), (S.nat.USA.imp.mp = 9)) },
-  { id: `speer`, t: 62, if: (S) => alive(S, `GER`), fx: (S) => (S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.35)) },
-  { id: `twar`, t: 82, if: (S) => alive(S, `GER`), ttl: `«Тотальная война»`, txt: `После Сталинграда Геббельс провозгласил тотальную войну: промышленность рейха и людские ресурсы мобилизуются полностью.`, fx: (S) => ((S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.42)), (S.nat.GER.mpk = 0.1)) },
-  { id: `ger44`, t: 104, if: (S) => alive(S, `GER`), fx: (S) => (S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.48)) },
-  { id: `sov42`, t: 58, if: (S) => alive(S, `SOV`), fx: (S) => ((S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.4)), (S.nat.SOV.qmul = 1)) },
-  { id: `sov44`, t: 104, if: (S) => alive(S, `SOV`), fx: (S) => (S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.46)) },
-  { id: `sov43`, t: 80, if: (S) => alive(S, `SOV`), fx: (S) => (S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.48)) },
-  { id: `uk41`, t: 40, if: (S) => alive(S, `UK`), fx: (S) => (S.nat.UK.eco = Math.max(S.nat.UK.eco, 0.34)) },
+  { id: `speer`, t: 62, if: (S) => alive(S, `GER`), fx: (S) => (S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.42)) },
+  { id: `twar`, t: 82, if: (S) => alive(S, `GER`), ttl: `«Тотальная война»`, txt: `После Сталинграда Геббельс провозгласил тотальную войну: промышленность рейха и людские ресурсы мобилизуются полностью.`, fx: (S) => ((S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.5)), (S.nat.GER.mpk = 0.25)) },
+  { id: `ger44`, t: 104, if: (S) => alive(S, `GER`), fx: (S) => (S.nat.GER.eco = Math.max(S.nat.GER.eco, 0.56)) },
+  { id: `sov42`, t: 58, if: (S) => alive(S, `SOV`), fx: (S) => ((S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.42)), (S.nat.SOV.qmul = 1), (S.nat.SOV.orgMax = Math.max(S.nat.SOV.orgMax, 85))) },
+  { id: `sov44`, t: 104, if: (S) => alive(S, `SOV`), fx: (S) => ((S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.5)), (S.nat.SOV.orgMax = 100)) },
+  { id: `sov43`, t: 80, if: (S) => alive(S, `SOV`), fx: (S) => ((S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.5)), (S.nat.SOV.orgMax = Math.max(S.nat.SOV.orgMax, 95))) },
+  { id: `uk41`, t: 40, if: (S) => alive(S, `UK`), fx: (S) => (S.nat.UK.eco = Math.max(S.nat.UK.eco, 0.48)) },
   {
     id: `monty`, t: 70, if: (S) => alive(S, `UK`) && [`alexandria`, `cairo`, `alamein`].some((k) => own(S, k, `UK`)), ttl: `8-я армия Монтгомери`,
     txt: `В Египет прибывают «Шерманы» и свежие дивизии; командование 8-й армией принимает генерал Монтгомери.`,
@@ -446,7 +515,7 @@ export const EV = [
       // удар по флангам: румынские, итальянские и венгерские армии на Дону
       const don = new Set(W(`millerovo elista voronezh voroshilovgrad rostov stalingrad`).map(I));
       for (const i of [...don]) for (const j of reg(i).nb) don.add(j);
-      for (const u of S.units) if ([`ROM`, `ITA`, `HUN`].includes(u.n) && don.has(u.r) && u.t !== `nav`) (u.o = Math.min(u.o, 25)), (u.s *= 0.75);
+      for (const u of S.units) if ([`ROM`, `ITA`, `HUN`].includes(u.n) && don.has(u.r)) (u.o = Math.min(u.o, 25)), sc(u, 0.75);
     },
   },
   {
@@ -483,7 +552,7 @@ export const EV = [
     id: `rom44`, t: 117, if: (S) => alive(S, `ROM`) && side(S, `ROM`) === `axis` && [`kishinev`, `iasi`, `chernovtsy`, `odessa`].some((k) => ownSide(S, k, `SOV`)), ttl: `Румыния переходит на сторону союзников`,
     txt: `23 августа 1944 года король Михай арестовал Антонеску; Румыния объявила войну Германии. Немецкая группа армий «Южная Украина» окружена.`,
     fx: (S) => {
-      for (const u of S.units) u.n === `GER` && S.ctrl[u.r] === `ROM` && (u.s *= 0.5);
+      for (const u of S.units) u.n === `GER` && S.ctrl[u.r] === `ROM` && sc(u, 0.5);
       switchSide(S, `ROM`, `comintern`);
       own(S, `cluj`, `HUN`) || give(S, `cluj`, `ROM`);
     },
@@ -510,32 +579,38 @@ function barbarossa(S) {
   declareWar(S, `GER`, `SOV`);
   for (const n of [`ROM`, `HUN`, `SVK`, `ITA`, `FIN`]) alive(S, n) && side(S, n) === `axis` && addWar(S, n, `SOV`);
   S.nat.GER.surp = S.t + 1;
+  const sov = S.nat.SOV;
   for (const u of S.units) {
-    if (u.n !== `SOV`) continue;
-    const R = reg(u.r);
-    if (R.lon > 34) continue;
-    u.o = Math.min(u.o, 45);
-    u.t === `air` && (u.s *= 0.45);
+    if (u.n !== `SOV` || reg(u.r).lon > 34) continue;
+    u.o = Math.min(u.o, Math.round(orgMax(S, `SOV`) * 0.55));
+    u.e = 0;
   }
-  S.nat.SOV.mob = 9;
+  // советская авиация понесла огромные потери на аэродромах
+  sov.airMax = Math.max(1, Math.round((sov.airMax || 0) * 0.45));
+  sov.mob = 9;
   // Можайская и Лужская линии обороны, Севастополь
   for (const [k, f] of [[`moscow`, 3], [`leningrad`, 3], [`crimea`, 1], [`tula`, 1]]) own(S, k, `SOV`) && ((S.fort[I(k)] = Math.max(S.fort[I(k)] || 0, f)), (S.fortN[I(k)] = `SOV`));
-  // люфтваффе перебрасываются на восток
-  const east = [`konigsberg`, `warsaw`, `lublin`, `krakow`].map(I).filter((i) => S.ctrl[i] === `GER`);
-  let k = 0;
-  for (const u of S.units) if (u.n === `GER` && u.t === `air` && east.length && reg(u.r).lon < 15 && reg(u.r).lat > 43 && k < 4) (u.r = east[k % east.length]), k++;
-  S.nat.SOV.qmul = 0.9; // хаос первых месяцев; с 1942 г. — 1
-  S.nat.SOV.eco = Math.max(S.nat.SOV.eco, 0.3);
+  sov.qmul = 0.9; // хаос первых месяцев; с 1942 г. — 1
+  sov.eco = Math.max(sov.eco, 0.33);
+  alive(S, `UK`) && !S.coop.includes(pairKey(`SOV`, `UK`)) && S.coop.push(pairKey(`SOV`, `UK`));
+  S._ver++;
+}
+function sovStrike(S) {
+  declareWar(S, `SOV`, `GER`);
+  for (const n of [`ROM`, `HUN`, `SVK`, `ITA`, `FIN`]) alive(S, n) && side(S, n) === `axis` && addWar(S, n, `SOV`);
+  S.done.barb = S.done.barb > 0 ? S.done.barb : S.t + 1;
+  S.nat.SOV.mob = Math.max(S.nat.SOV.mob || 0, 6);
   alive(S, `UK`) && !S.coop.includes(pairKey(`SOV`, `UK`)) && S.coop.push(pairKey(`SOV`, `UK`));
   S._ver++;
 }
 function torch(S) {
   const tk = [`casablanca`, `fes`, `oran`, `algiers`, `constantine`].filter((k) => own(S, k, `VIC`));
-  for (const u of S.units) u.n === `VIC` && tk.includes(reg(u.r).k) && ((u.n = `UK`), (u.nm = `Французская армия (Жиро)`), (u.s *= 0.6));
+  for (const u of S.units) u.n === `VIC` && tk.includes(reg(u.r).k) && ((u.n = `UK`), (u.nm = `Французская армия (Жиро)`), sc(u, 0.6));
   give(S, tk, `USA`);
   place(S, `USA`, `casablanca fes`, `inf`, 6, `Западная группа (Паттон)`, 80);
-  place(S, `USA`, `oran algiers`, `arm`, 4, `II корпус`, 80);
-  place(S, `UK`, `algiers constantine oran`, `inf`, 5, `1-я армия`, 80);
+  place(S, `USA`, `oran algiers`, `arm`, 4, `1-я бронетанковая дивизия США`, 80);
+  place(S, `UK`, `algiers constantine oran`, `inf`, 5, `78-я пехотная дивизия`, 80);
+  place(S, `UK`, `constantine algiers`, `arm`, 4, `6-я бронетанковая дивизия`, 80);
   // «Антон» и Тунис
   if (alive(S, `GER`)) {
     give(S, [`tunis`, `gabes`].filter((k) => own(S, k, `VIC`)), `GER`);
@@ -552,7 +627,7 @@ function torch(S) {
 }
 function husky(S) {
   const us = [
-    place(S, `UK`, `malta tunis`, `inf`, 7, `8-я армия (Монтгомери)`, 85), place(S, `UK`, `tunis malta`, `arm`, 4, `XIII корпус`, 85),
+    place(S, `UK`, `malta tunis`, `inf`, 7, `8-я армия (Монтгомери)`, 85), place(S, `UK`, `tunis malta gabes`, `arm`, 4, `XIII корпус`, 85),
     place(S, `USA`, `tunis gabes`, `inf`, 6, `7-я армия (Паттон)`, 85), place(S, `USA`, `tunis gabes`, `arm`, 3, `2-я бронетанковая дивизия`, 85),
   ].filter(Boolean);
   landing(S, us, `sicily`, { r: 2.0, a: 0.7 });
@@ -560,15 +635,15 @@ function husky(S) {
 function overlord(S, k) {
   const near = { normandy: `portsmouth bristol cardiff london`, lille: `london portsmouth norwich birmingham`, brittany: `bristol portsmouth cardiff` }[k];
   const us = [
-    place(S, `UK`, near, `inf`, 9, `2-я британская армия`, 90), place(S, `UK`, near, `arm`, 4, `XXX корпус`, 90),
-    place(S, `USA`, near, `inf`, 9, `1-я армия США`, 90), place(S, `USA`, near, `arm`, 4, `VII корпус`, 90),
+    place(S, `UK`, near, `inf`, 9, `2-я британская армия`, 90), place(S, `USA`, near, `inf`, 9, `1-я армия США`, 90),
+    place(S, `UK`, near, `arm`, 4, `XXX корпус`, 90), place(S, `USA`, near, `arm`, 4, `VII корпус`, 90),
   ].filter(Boolean);
   const r = landing(S, us, k, { r: k === `lille` ? 1.6 : 2.3, a: 0.7 });
   if (r && !r.win) S.done.overlord = 0;
   S.over44 = k;
 }
 // ——— регулярные эффекты хода ———
-// регионы державы в 1–3 переходах от фронта, по убыванию ценности (для новых армий)
+// провинции державы в 1–3 переходах от фронта, по убыванию ценности (для новых армий)
 export function nearFront(S, n, d0 = 1, d1 = 3) {
   const d = new Map(), q = [];
   for (const R of G.R) {
@@ -586,8 +661,6 @@ export function tick(S) {
     const near = nearFront(S, `SOV`, 1, 3);
     for (let k = 0; k < (S.t <= 48 ? 3 : 2); k++) {
       if (sov.mp < 8) break;
-      // в самые слабые из ближних к фронту регионов
-      near.sort((a, b) => landIn(S, I(a)).length - landIn(S, I(b)).length);
       const u = place(S, `SOV`, near.length ? near : `moscow`, `inf`, 5, null, 55);
       u && (sov.mp -= 8);
     }
@@ -600,15 +673,15 @@ export function tick(S) {
     const north = own(S, `murmansk`, `SOV`) || own(S, `arkhangelsk`, `SOV`);
     const south = S.t >= 60 && ownSide(S, `tehran`, `SOV`) && own(S, `baku`, `SOV`);
     const k = (north ? 1 : 0) + (south ? 1.2 : 0);
-    sov.imp = { pp: 2 * k * y, st: 1.5 * k * y, oil: 1.5 * k * y, co: 8 };
+    sov.imp = { pp: 3 * k * y, oil: 1.5 * k * y };
   }
   // торговля Германии: шведская руда, румынская нефть, советские поставки до войны
   if (alive(S, `GER`)) {
-    const sov = alive(S, `SOV`) && !atWar(S, `GER`, `SOV`) && S.t >= 4;
+    const sv = alive(S, `SOV`) && !atWar(S, `GER`, `SOV`) && S.t >= 4;
     const rom = alive(S, `ROM`) && side(S, `ROM`) === `axis` && own(S, `ploiesti`, `ROM`);
     // стратегические бомбардировки союзников с середины 1943 года
     const air = [`UK`, `USA`].some((a) => alive(S, a) && atWar(S, a, `GER`)) ? (S.t >= 84 ? 3 : 0) + (S.t >= 100 ? 3 : 0) + (S.t >= 112 ? 3 : 0) : 0;
-    S.nat.GER.imp = { pp: -air, st: (alive(S, `SWE`) && !atWar(S, `GER`, `SWE`) ? 5 : 0) + (sov ? 1 : 0), oil: 3 + (sov ? 2 : 0) + (rom ? 4 : 0) + (S.t >= 60 ? 2 : 0) - (S.t >= 112 ? 3 : 0) };
+    S.nat.GER.imp = { pp: -air + (alive(S, `SWE`) && !atWar(S, `GER`, `SWE`) ? 2 : 0) + (sv ? 1 : 0), oil: 3 + (sv ? 2 : 0) + (rom ? 4 : 0) + (S.t >= 60 ? 2 : 0) - (S.t >= 112 ? 3 : 0) };
   }
 }
 // ——— запуск событий ———
@@ -653,4 +726,4 @@ export function resolveEvent(S, id, k) {
   e.opts[k]?.fx(S);
   e.ttl && news(S, e.ttl, `${e.txt} Решение: ${e.opts[k]?.l || `—`}.`);
 }
-export { supply, UT, LAND, members, unitsIn };
+export { members };
