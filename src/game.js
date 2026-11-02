@@ -11,6 +11,7 @@ import __MAP_rzhev42 from "./data/map_rzhev42.json";
 import { kharkov42 as __mkKH } from "./ops/kharkov42.js";
 import { rzhev42 as __mkRZ } from "./ops/rzhev42.js";
 import { FrontMap, frontState } from "./front/frontmap.js";
+import { EuropeUI } from "./europe/ui.js";
 import { FRONT_STAGES, FRONT_OPS, FRONT_TEXT, FRONT_RESULT } from "./front/stages.js";
 var e = Object.defineProperty,
   t = (e, t, n) => () => {
@@ -9237,7 +9238,7 @@ function Eo(e) {
 var Do = `wf_save_v1`,
   Oo = (e) =>
     `${e} ${e % 10 == 1 && e % 100 != 11 ? `приказ` : e % 10 >= 2 && e % 10 <= 4 && (e % 100 < 12 || e % 100 > 14) ? `приказа` : `приказов`}`,
-  ko = `v0.5 · прототип`,
+  ko = `v0.6 · прототип`,
   Ao = {
     smolensk41: Ua,
     moscow41: Wa,
@@ -9348,6 +9349,7 @@ var Do = `wf_save_v1`,
         this.view.setGame(this.G),
         this.updateSupply(),
         this.menuCamera(),
+        this.euRestore(),
         this.showMenu(),
         document.addEventListener(`visibilitychange`, () => {
           document.hidden && this.save();
@@ -9383,6 +9385,7 @@ var Do = `wf_save_v1`,
 <div id="banner" class="panel hidden"></div>
 <div id="menu" class="hidden"></div>
 <div id="front" class="hidden"></div>
+<div id="eu" class="hidden"></div>
 <div id="modal" class="hidden"></div>`;
       for (let e of this.ui.querySelectorAll(`[id]`)) this.$[e.id] = e;
       (this.$[`b-obj`].prepend(_o(`star`)),
@@ -9441,6 +9444,7 @@ var Do = `wf_save_v1`,
       ((this.$.modal.className = `hidden`), (this.$.modal.innerHTML = ``));
     }
     onBack() {
+      if (this.eu && !this.$.eu.classList.contains(`hidden`)) return this.eu.back();
       return this.modalOpen
         ? (this.$.modal.dataset.nodismiss !== `1` &&
             (Z.click(), this.closeModal()),
@@ -9559,6 +9563,9 @@ var Do = `wf_save_v1`,
     }
     showMenu() {
       this.closeFront();
+      this.closeEurope();
+      let euAbort = this.euDeep;
+      euAbort && ((this.euDeep = null), this.euRestore());
       ((this.menuBack = null),
         (this.inGame = !1),
         (this.playerTurn = !1),
@@ -9591,7 +9598,8 @@ var Do = `wf_save_v1`,
 <div class="mbtns">
 ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</small></button>` : ``}
 <button class="btn ${e ? `` : `gold`}" id="m-new">Новая кампания</button>
-<button class="btn" id="m-car"><span class="newtag">новое</span>Карьера генерала<small>${$(o)}</small></button>
+<button class="btn" id="m-car">Карьера генерала<small>${$(o)}</small></button>
+<button class="btn" id="m-eu"><span class="newtag">новое</span>Европа 1939–1945<small>${$(EuropeUI.menuLabel())}</small></button>
 <div class="mrow"><button class="btn" id="m-help">Как играть</button><button class="btn" id="m-snd">Звук: ${co.on ? `вкл` : `выкл`}</button></div>
 </div>
 <div class="ver">${ko}</div>`;
@@ -9605,12 +9613,67 @@ ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</
         s(`m-car`).addEventListener(`click`, () => {
           (Z.click(), this.showCareerHub());
         }),
+        s(`m-eu`).addEventListener(`click`, () => {
+          (Z.click(), this.openEurope());
+        }),
         s(`m-help`).addEventListener(`click`, () => {
           (Z.click(), this.showHelp());
         }),
         s(`m-snd`).addEventListener(`click`, () => {
           ((co.on = !co.on), Z.click(), this.showMenu());
         }));
+      euAbort && (this.openEurope(), euAbort.cb(null));
+    }
+    // ——— «Европа 1939–1945»: стратегический режим и тактические битвы из него ———
+    openEurope() {
+      (this.closeFront(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
+      this.eu ||
+        (this.eu = new EuropeUI(this.$.eu, {
+          icon: (e, t) => Q(e, t),
+          sfx: Z,
+          diff: this.diff,
+          exit: () => this.showMenu(),
+          deep: (e, t, n, r) => this.euDeepStart(e, t, n, r),
+        }));
+      (this.$.eu.classList.remove(`hidden`), this.eu.open());
+    }
+    closeEurope() {
+      this.eu && !this.$.eu.classList.contains(`hidden`) && this.eu.close();
+      this.$.eu.classList.add(`hidden`);
+    }
+    euDeepStart(e, t, n, r) {
+      let i = ma[e];
+      if (!i) return r(null);
+      try {
+        let e = localStorage.getItem(Do);
+        localStorage.setItem(`wf_eu_bak`, e === null ? `` : e);
+      } catch {}
+      ((this.euDeep = { cb: r, op: e }), this.$.eu.classList.add(`hidden`), (this.G = null), this.startNew(t, n, i));
+    }
+    euRestore() {
+      try {
+        let e = localStorage.getItem(`wf_eu_bak`);
+        e !== null && (e ? localStorage.setItem(Do, e) : localStorage.removeItem(Do), localStorage.removeItem(`wf_eu_bak`));
+      } catch {}
+    }
+    euDeepResult() {
+      let e = this.G.s.result,
+        t = e.win ? e.stars || 1 : 0;
+      ((this.playerTurn = !1), (this.busy = !0), this.renderAIWait(null), localStorage.removeItem(Do), e.win ? Z.win() : Z.lose(), this.hud());
+      let n = [0, 1, 2].map((t) => Q(e.win && t < e.stars ? `star` : `star_off`, 4)).join(``),
+        r = this.openModal(
+          `<h2 class="${e.win ? `good` : `warn`}">${e.win ? `Победа!` : `Поражение`}</h2><h3>${$(e.title)}</h3>
+<div class="stars">${n}</div><p>${$(e.text || ``)}</p>
+<p class="date">Итог битвы решит исход удара на карте «Европа 1939–1945»: ★★★ — разгром обороны, ★★ — перевес, ★ — обычный бой, поражение — атака отбита.</p>
+<div class="row"><button class="btn gold" id="e-eu">Вернуться к карте Европы</button></div>`,
+          { dismiss: !1 },
+        );
+      r.querySelector(`#e-eu`).addEventListener(`click`, () => {
+        Z.click();
+        let n = this.euDeep;
+        ((this.euDeep = null), this.euRestore(), this.showMenu(), this.openEurope(), n && n.cb({ win: !!e.win, stars: t }));
+      });
     }
     showSetup() {
       let e = this.$.menu,
@@ -11414,6 +11477,7 @@ ${a.mods.length ? `<div class="mods">${a.mods.map((e) => `<span>${$(e.l)}</span>
       (await this.play(r, n, !0), this.alive(t) && this.loop(t));
     }
     showResult() {
+      if (this.euDeep) return this.euDeepResult();
       let e = this.G,
         t = e.s.result,
         n = e.s.player,
