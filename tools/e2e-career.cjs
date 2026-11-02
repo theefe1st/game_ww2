@@ -4,7 +4,7 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   const W = +(process.env.W || 844), H = +(process.env.H || 390);
   const browser = await chromium.launch({ executablePath: '/usr/local/bin/chromium', args: ['--no-sandbox'] });
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, isMobile: true, hasTouch: true });
-  await ctx.addInitScript(() => { if (!sessionStorage.getItem('x')) { localStorage.clear(); sessionStorage.setItem('x', 1); } });
+  await ctx.addInitScript(() => { if (!localStorage.getItem('__e2e')) { localStorage.clear(); localStorage.setItem('__e2e', '1'); } });
   const page = await ctx.newPage();
   const errs = [];
   page.on('console', (m) => ['error', 'warning'].includes(m.type()) && errs.push(m.type() + ': ' + m.text()));

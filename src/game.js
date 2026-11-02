@@ -1024,6 +1024,8 @@ var Le = class {
     }
     bindInput() {
       let e = this.canvas;
+      // v0.6.1: без «призрачного» click по кнопкам панели, появившимся под пальцем после касания карты
+      e.addEventListener(`touchend`, (t) => t.cancelable && t.preventDefault(), { passive: !1 });
       (e.addEventListener(`pointerdown`, (t) => {
         if (
           (e.setPointerCapture(t.pointerId),
@@ -1469,7 +1471,7 @@ var Le = class {
             s = r + a.x * n,
             c = i + (a.y - 14 - o * 10) * n;
           ((t.globalAlpha = o > 0.7 ? (1 - o) / 0.3 : 1),
-            (t.font = `${Math.round(16 * this.dpr)}px "Tiny5", monospace`),
+            (t.font = `600 ${Math.round(16 * this.dpr)}px Rubik, sans-serif`),
             (t.textAlign = `center`),
             (t.lineWidth = 4 * this.dpr),
             (t.strokeStyle = `#111`),
@@ -1481,7 +1483,7 @@ var Le = class {
     }
     drawLabels(e, t, n, r) {
       let i = t / this.dpr,
-        a = Math.round(Math.max(9, Math.min(14, 4.2 * i)) * this.dpr);
+        a = Math.round(Math.max(11, Math.min(15, 4.4 * i)) * this.dpr);
       ((e.textAlign = `center`), (e.textBaseline = `bottom`));
       for (let s of this.m.cities) {
         if ((s.vp < 3 && i < 1.7) || (s.vp < 2 && i < 2.4)) continue;
@@ -1495,7 +1497,7 @@ var Le = class {
           d > this.canvas.height + 20
         )
           continue;
-        ((e.font = `${s.vp >= 3 ? a + Math.round(2 * this.dpr) : a}px "Tiny5", monospace`),
+        ((e.font = `${s.vp >= 3 ? 600 : 500} ${s.vp >= 3 ? a + Math.round(2 * this.dpr) : a}px Rubik, sans-serif`),
           (e.lineWidth = 3 * this.dpr),
           (e.strokeStyle = `rgba(15,18,22,0.9)`),
           e.strokeText(s.name, u, d));
@@ -9238,7 +9240,7 @@ function Eo(e) {
 var Do = `wf_save_v1`,
   Oo = (e) =>
     `${e} ${e % 10 == 1 && e % 100 != 11 ? `приказ` : e % 10 >= 2 && e % 10 <= 4 && (e % 100 < 12 || e % 100 > 14) ? `приказа` : `приказов`}`,
-  ko = `v0.6 · прототип`,
+  ko = `v0.6.1 · прототип`,
   Ao = {
     smolensk41: Ua,
     moscow41: Wa,
@@ -12688,7 +12690,7 @@ var vs = v(r),
   (window.__aiCmd = (e) => {
     for (let t of Qa(e, { filter: (t) => P(e, t), spend: !1, air: !1 }));
   }),
-  document.fonts?.load(`16px "Tiny5"`).finally(() => (ys.view.dirty = !0)),
+  document.fonts?.load(`500 16px Rubik`).finally(() => (ys.view.dirty = !0)),
   qo.isNativePlatform() &&
     (_s.addListener(`backButton`, () => {
       ys.onBack() || _s.exitApp();
