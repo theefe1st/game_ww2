@@ -7,7 +7,7 @@ const { chromium } = require('playwright');
   const errs = [];
   page.on('console', m => { if (['error', 'warning'].includes(m.type())) errs.push(m.type() + ': ' + m.text()); });
   page.on('pageerror', e => errs.push('pageerror: ' + e.message));
-  await page.goto(process.env.URL || 'file:///data/game/dist-single/index.html'); await page.waitForTimeout(1200);
+  await page.goto(process.env.URL || 'file:///data/game/dist-single/index.html#arch'); await page.waitForTimeout(1200);
   const clickText = async t => page.evaluate(t => { const b = [...document.querySelectorAll('button,.btn,[role=button],div,li')].find(e => e.offsetParent && e.innerText && e.innerText.trim().startsWith(t) && e.children.length < 6); if (b) { b.click(); return true; } return false; }, t);
   await page.click('#m-car'); await page.waitForTimeout(500);
   await page.getByText(process.env.CARD || 'Отдельные операции').first().click(); await page.waitForTimeout(800);

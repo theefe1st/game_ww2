@@ -80,7 +80,7 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
     }
   };
 
-  await page.goto('file:///data/game_ww2/dist-single/index.html');
+  await page.goto('file:///data/game_ww2/dist-single/index.html#arch');
   await page.waitForTimeout(1200);
   console.log('font Rubik:', await page.evaluate(async () => { await document.fonts.ready; return document.fonts.check('700 14px Rubik'); }));
   ok(await has('#m-st'), 'menu button #m-st');
