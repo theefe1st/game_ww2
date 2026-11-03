@@ -254,7 +254,9 @@ export const isPlayer = (S, side) => S.side === side;
 const cellOf = (S, p) => (Array.isArray(p) ? cellAt(S.G, p[0], p[1]) : p);
 export function mkDir(S, F, d) {
   const at2 = d.at2 == null ? null : Array.isArray(d.at2) ? cellOf(S, Array.isArray(d.at2[0]) ? d.at2[0] : d.at2) : d.at2;
-  const o = { k: d.k, obj: (d.obj || []).map((p) => cellOf(S, p)).filter((c) => c >= 0), oi: 0, at: d.at ?? null, sub: {}, at2, why: d.why || '' };
+  // obj: 'cor' — клетки коридора, через который деблокировали котёл (иначе запасные цели alt)
+  const obj = d.obj === 'cor' ? (S.flags.cor && S.flags.cor.length ? S.flags.cor : d.alt || []) : d.obj || [];
+  const o = { k: d.k, obj: obj.map((p) => cellOf(S, p)).filter((c) => c >= 0), oi: 0, at: d.at ?? null, sub: {}, at2, why: d.why || '' };
   if (d.pk) o.pk = d.pk; // «добивать котёл» (с часа d.pk): по достижении целей — новые цели по остаткам окружённых
   if (d.sub)
     for (const [key, pts] of Object.entries(d.sub)) {
@@ -335,6 +337,9 @@ function applyOrder(S, u, ord) {
 // ——— исторический план: директивы ИИ и «рекомендации Ставки/ОКХ» игроку ———
 export function planReady(S, P) {
   if (P.when === 'pocket' && !S.flags.pocket) return false;
+  // кольцо разорвано деблокадой — Ставка снова требует замкнуть окружение (через 12 ч, если оно не восстановилось само)
+  if (P.when === 'relieved' && !(S.flags.relieved && S.t >= S.flags.relieved + 12 && !(S.pk && S.pk.on))) return false;
+  if (P.until != null && S.t > P.until) return false;
   if (P.t != null && S.t < P.t) return false;
   return true;
 }
@@ -906,9 +911,9 @@ function sweep(S) {
     }
     if (tot < 2) continue;
     if (!oU && ((eU && en >= 3) || en >= Math.min(5, tot))) flips.push(c);
-    // брошенные клочки: небольшой кусок без снабжения, своих войск ближе двух клеток нет — отходит к противнику
-    // (большие отрезанные районы не «тают» сами — их надо занять войсками)
-    else if (en >= 1 && osz[c] > 0 && osz[c] <= 20 && !ownNear(S, c, SNAME[o], 2)) flips.push(c);
+    // брошенная земля: клетка без снабжения, своих войск ближе двух клеток нет — отходит к противнику (с края внутрь);
+    // так отрезанные районы «тают» до занятых войсками клеток, и окружённые не расползаются по пустой степи
+    else if (en >= 1 && osz[c] > 0 && (o === 2 || osz[c] <= 20) && !ownNear(S, c, SNAME[o], 2)) flips.push(c);
   }
   for (const c of flips) {
     own[c] = 3 - own[c];
@@ -945,32 +950,99 @@ export function computeSupply(S) {
       if (!e || e.t === 1) Z[j] = 1;
     }
   }
-  for (const side of ['SOV', 'AX']) {
-    const sid = SID[side], d = S.dist[side], h = new Heap(), ea = S.eadj[side], za = zoc[side];
-    d.fill(Infinity);
-    for (const [c, k] of S.D.src[side]) if (S.own[c] === sid && k < d[c]) (d[c] = k), h.push(c, k);
-    while (h.size) {
-      const k = h.topKey(), c = h.pop();
-      if (k > d[c]) continue;
-      for (let q = 0; q < 6; q++) {
-        const j = nb[c * 6 + q];
-        if (j < 0 || S.own[j] !== sid) continue;
-        if (za[j] && !(S.cellU[j].length && S.cellU[j][0].side === side)) continue;
-        let w = isRail(S, c) && isRail(S, j) ? 0.4 : 1;
-        const e = S.edge.get(ekey(c, j));
-        if (e) w += supEdgeCost(S, e, side);
-        if (ea[j]) w += 0.6;
-        const nd = k + w;
-        if (nd < d[j]) (d[j] = nd), h.push(j, nd);
-      }
-    }
-  }
+  for (const side of ['SOV', 'AX']) supDist(S, side, zoc[side], null);
+  // котёл держится, пока окружённые не соединились со своими войсками извне — дыра в кольце
+  // посреди пустой степи снабжения не даёт (иначе котёл «растекается» по незанятой земле)
+  const B = S.pk && S.pk.on ? sealCells(S) : null;
+  if (B) supDist(S, 'AX', zoc.AX, B);
   for (const u of S.units) {
     if (u.dead) continue;
     const dd = S.dist[u.side][u.c];
     u.sd = isFinite(dd) ? Math.round(dd * 10) / 10 : -1;
     u.sup = isFinite(dd) ? supLevel(dd) : 0;
   }
+}
+function supDist(S, side, za, blk) {
+  const sid = SID[side], d = S.dist[side], h = new Heap(), ea = S.eadj[side], nb = S.G.nb;
+  d.fill(Infinity);
+  for (const [c, k] of S.D.src[side]) if (S.own[c] === sid && !(blk && blk[c]) && k < d[c]) (d[c] = k), h.push(c, k);
+  while (h.size) {
+    const k = h.topKey(), c = h.pop();
+    if (k > d[c]) continue;
+    for (let q = 0; q < 6; q++) {
+      const j = nb[c * 6 + q];
+      if (j < 0 || S.own[j] !== sid || (blk && blk[j])) continue;
+      if (za[j] && !(S.cellU[j].length && S.cellU[j][0].side === side)) continue;
+      let w = isRail(S, c) && isRail(S, j) ? 0.4 : 1;
+      const e = S.edge.get(ekey(c, j));
+      if (e) w += supEdgeCost(S, e, side);
+      if (ea[j]) w += 0.6;
+      const nd = k + w;
+      if (nd < d[j]) (d[j] = nd), h.push(j, nd);
+    }
+  }
+}
+// клетки котла, закрытые для снабжения: вокруг окружённых частей, которые не соединились со своими.
+// Связь — соприкосновение: соседняя клетка или через одну свободную клетку Оси вне ЗОК противника
+// (не через советские войска). Опора извне — снабжаемая часть Оси с не слишком длинным путём подвоза
+// (а не такая же «висящая» в пустой степи). От опоры связь идёт по цепочке частей котла.
+export const LINK_R = 2, ANCHOR_D = 22;
+function touch(S, a, b) {
+  const k = hexDist(S.G, a, b);
+  if (k <= 1) return true;
+  if (k > LINK_R) return false;
+  for (const j of nbs(S, a))
+    if (hexDist(S.G, j, b) === 1 && S.own[j] === 2 && !S.eadj.AX[j] && !S.cellU[j].some((v) => v.side === 'SOV')) return true;
+  return false;
+}
+function touchesOut(S, C) {
+  const d = S.dist.AX, OU = S.units.filter((v) => !v.dead && v.side === 'AX' && v.sup > 0 && d[v.c] <= ANCHOR_D);
+  return C.units.some((u) => OU.some((v) => touch(S, u.c, v.c)));
+}
+function sealCells(S) {
+  const P = S.pk, G = S.G, d = S.dist.AX, ids = pkSet(S), PU = [], OU = [];
+  for (const u of S.units) {
+    if (u.dead || u.side !== 'AX') continue;
+    if (ids.has(u.id)) PU.push(u);
+    else if (d[u.c] <= ANCHOR_D) OU.push(u);
+  }
+  if (!PU.length) return null;
+  const lk = new Set(), q = [], cor = [];
+  for (const u of PU)
+    for (const v of OU) {
+      if (!touch(S, u.c, v.c)) continue;
+      if (!lk.has(u)) lk.add(u), q.push(u);
+      // «коридор» — свободная клетка между ними или клетка части извне (цель для того, кто замыкает кольцо снова)
+      let c = v.c;
+      if (hexDist(G, u.c, v.c) === 2) for (const j of nbs(S, u.c)) if (hexDist(G, j, v.c) === 1 && S.own[j] === 2 && !S.eadj.AX[j]) c = j;
+      if (cor.length < 4 && !cor.includes(c)) cor.push(c);
+    }
+  P.cor = cor;
+  while (q.length) {
+    const a = q.pop();
+    for (const b of PU) if (!lk.has(b) && touch(S, a.c, b.c)) lk.add(b), q.push(b);
+  }
+  P.lk = lk.size;
+  if (lk.size === PU.length) return null;
+  const blk = S._blk || (S._blk = new Uint8Array(G.n));
+  blk.fill(0);
+  let any = 0;
+  for (const u of PU) {
+    if (lk.has(u)) continue;
+    const ring = [u.c];
+    for (let r = 0, a = [u.c]; r < LINK_R; r++) {
+      const nx = [];
+      for (const c of a) for (const j of nbs(S, c)) if (!ring.includes(j)) ring.push(j), nx.push(j);
+      a = nx;
+    }
+    for (const c of ring) {
+      if (S.own[c] !== 2 || blk[c]) continue;
+      if (OU.some((v) => hexDist(G, c, v.c) <= 1)) continue;
+      blk[c] = 1;
+      any = 1;
+    }
+  }
+  return any ? blk : null;
 }
 // отрезанные районы стороны: связные группы своих клеток без пути к источникам
 export function cutComps(S, side) {
@@ -1012,8 +1084,9 @@ function pocketCheck(S) {
     if (!big || k > big._k) (big = C), (big._k = k);
   }
   if (!P || !P.on) {
-    // «котёл» — это окружение главных сил (не меньше 9 дивизий и 90 тыс.); мелкие группы прорываются сами
-    if (big && big.men >= 90000 && big.divs >= 9) {
+    // «котёл» — это окружение главных сил (не меньше 9 дивизий и 90 тыс.); мелкие группы прорываются сами.
+    // Пока отрезанные соприкасаются со своими снабжаемыми частями (см. touch), кольцо не замкнуто
+    if (big && big.men >= 90000 && big.divs >= 9 && !touchesOut(S, big)) {
       S.pkPend = (S.pkPend || 0) + 1;
       if (S.pkPend >= 6) formPocket(S, big);
     } else S.pkPend = 0;
@@ -1023,15 +1096,17 @@ function pocketCheck(S) {
   if (big) for (const u of big.units) if (!ids.has(u.id) && P.fs && P.fs.includes(u.form)) P.ids.push(u.id), ids.add(u.id);
   let cut = 0, free = 0, men = 0, esc = 0;
   P.esc = P.esc || [];
+  P.lc = P.lc || {};
   const was = new Set(P.esc);
   for (const id of P.ids) {
     const u = S.uById.get(id);
     if (!u || u.dead) continue;
-    if (u.sup === 0) cut++, (men += u.men);
+    if (u.sup === 0) cut++, (men += u.men), (P.lc[id] = S.t);
     else {
       free++;
       if (!was.has(id)) P.esc.push(id), was.add(id);
-      if (u.sz >= 1) esc++;
+      // деблокада — это когда на свободу вышли дивизии, которые ещё недавно были в кольце (не те, что ушли давно)
+      if (u.sz >= 1 && P.lc[id] != null && S.t - P.lc[id] <= 36) esc++;
     }
   }
   P.cut = cut;
@@ -1039,18 +1114,40 @@ function pocketCheck(S) {
   P.men = men;
   P.cells = comps.reduce((s, C) => (C.units.some((u) => ids.has(u.id)) ? s + C.cells.length : s), 0);
   if (cut === 0 && free === 0) return eliminate(S, 0);
-  // нет больше отрезанного района: либо кольцо разорвано (деблокада/прорыв), либо остатки погибли
-  if (!big) {
+  // деблокада/прорыв: заметная часть окружённых дивизий соединилась со своими (связь — по соприкосновению,
+  // см. sealCells) и держится полсуток; иначе, если отрезанного района больше нет, остатки погибли или сдались
+  if (esc >= Math.max(3, (P.divs0 || 10) * 0.3)) {
     P.relT = (P.relT || 0) + 1;
-    // деблокада/прорыв — если на свободе заметная часть окружённых дивизий; иначе остатки погибли или сдались
-    if (esc < Math.max(3, (P.divs0 || 10) * 0.3)) return eliminate(S, 0);
+    if (P.relT === 1 && !(P.wT > S.t - 24)) {
+      P.wT = S.t;
+      msg(S, { k: 'ev', side: 'SOV', title: 'Разрыв в кольце', txt: 'Окружённые дивизии соединились со своими через брешь в кольце. Закройте коридор: если он продержится 12 часов, кольцо будет прорвано.', pause: 1 });
+      msg(S, { k: 'ev', side: 'AX', title: 'Есть связь с 6-й армией', txt: 'Окружённые дивизии соединились со своими через брешь в кольце. Удержите коридор 12 часов — и кольцо будет прорвано.', pause: 1 });
+    }
     if (P.relT >= 12) {
       P.on = 0;
       S.pkPend = 0;
-      if (!S.flags.relieved) relieve(S);
+      relieve(S);
       return;
     }
-  } else P.relT = 0;
+  } else {
+    P.relT = 0;
+    if (!big) {
+      // отрезанного района больше нет: если на свободе заметная часть окружённых дивизий — они вырвались (кольцо
+      // разорвано), иначе остатки погибли или сдались
+      let fd = 0;
+      for (const id of P.ids) {
+        const u = S.uById.get(id);
+        if (u && !u.dead && u.sup > 0 && u.sz >= 1) fd++;
+      }
+      if (fd >= Math.max(3, (P.divs0 || 10) * 0.3)) {
+        P.on = 0;
+        S.pkPend = 0;
+        relieve(S);
+        return;
+      }
+      return eliminate(S, 0);
+    }
+  }
   // рассечение: две части котла по 3+ дивизии, не раньше чем через трое суток
   const parts = comps.filter((C) => C.units.filter((u) => ids.has(u.id) && u.sz >= 1).length >= 3);
   if (parts.length >= 2 && S.t - P.t0 > 72) P.spT = (P.spT || 0) + 1;
@@ -1065,7 +1162,12 @@ function formPocket(S, C) {
   const again = !!S.flags.pocket;
   if (!again) S.flags.pocket = S.t;
   const fs = [...new Set(C.units.map((u) => u.form))];
-  S.pk = { on: 1, t0: S.t, ids: C.units.map((u) => u.id), men0: C.men, divs0: C.divs, cut: C.units.length, free: 0, men: C.men, n: (S.pk?.n || 0) + 1, fs, cells: C.cells.length, esc: [] };
+  // район котла при замыкании (центр и радиус в пикселях карты): ИИ окружённых держит оборону в нём, а не в пустой степи
+  let mx = 0, my = 0, r0 = 0;
+  for (const u of C.units) (mx += S.G.cx[u.c]), (my += S.G.cy[u.c]);
+  (mx /= C.units.length), (my /= C.units.length);
+  for (const u of C.units) r0 = Math.max(r0, Math.hypot(S.G.cx[u.c] - mx, S.G.cy[u.c] - my));
+  S.pk = { on: 1, t0: S.t, ids: C.units.map((u) => u.id), men0: C.men, divs0: C.divs, cut: C.units.length, free: 0, men: C.men, n: (S.pk?.n || 0) + 1, fs, cells: C.cells.length, esc: [], c0: [Math.round(mx), Math.round(my)], r0: Math.round(r0 + 30) };
   if (again) {
     msg(S, { k: 'ev', side: '*', title: 'Кольцо снова замкнулось', txt: `В окружении — ${fmtN(C.men)} человек.`, pause: 1 });
     logAdd(S, '*', `Кольцо снова замкнулось: ${fmtN(C.men)} человек.`, -1, 'pk');
@@ -1078,7 +1180,16 @@ function formPocket(S, C) {
   logAdd(S, '*', `Окружение: ${tw}`, -1, 'pk');
 }
 function relieve(S) {
+  const again = !!S.flags.relieved;
   S.flags.relieved = S.t;
+  S.flags.cor = (S.pk?.cor || []).slice(0, 3);
+  if (again) {
+    // повторный разрыв — без штрафа; Ставка снова требует перерезать коридор
+    for (let i = 0; i < PLAN.length; i++) if (PLAN[i].when === 'relieved' && S.planDone[i]) S.planDone[i] = 0;
+    msg(S, { k: 'ev', side: '*', title: 'Кольцо снова разорвано', txt: 'Окружённые соединились со своими. Чтобы уничтожить группировку, коридор нужно перерезать снова.', pause: 1 });
+    logAdd(S, '*', 'Кольцо снова разорвано.', -1, 'pk');
+    return;
+  }
   S.vpx -= 15;
   msg(S, { k: 'ev', side: '*', title: 'Коридор к 6-й армии пробит', txt: 'Деблокирующие войска соединились с окружённой группировкой. Кольцо разорвано.', pause: 1, big: 1 });
   logAdd(S, '*', 'Деблокада: кольцо разорвано (−15 очков СССР).', -1, 'pk');

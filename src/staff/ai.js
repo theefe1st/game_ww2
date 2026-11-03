@@ -100,13 +100,14 @@ export function think(S) {
     pool = planPocket(S, ctxFor(S, 'AX'));
     S.ai._pool = pool ? [...pool] : [];
   } else if (S.pk && S.pk.on) pool = new Set(S.ai._pool || []);
+  plugRing(S);
   for (const F of Object.values(S.forms)) {
     k++;
     if (!F.act) continue;
     if (pool && pool.has(F.id)) continue;
     const A = (S.ai[F.id] = S.ai[F.id] || { nx: S.t + (k % 3), stall: 0 });
     if (F.dir && F.dir.at != null && S.t === F.dir.at - 2) F.replan = 1;
-    const U = (byF[F.id] || []).filter((u) => !u.ovr && !u.pend);
+    const U = (byF[F.id] || []).filter((u) => !u.ovr && !u.pend && !(u.plug > S.t));
     const idle = U.some((u) => !u.ord || u.ord.done);
     if (!(F.replan || S.t >= A.nx || (idle && S.t >= A.last + 1))) continue;
     F.replan = 0;
@@ -116,6 +117,50 @@ export function think(S) {
     planForm(S, F, U, A);
   }
   if (S.t % 3 === 0) for (const side of ['SOV', 'AX']) if (!E.isPlayer(S, side)) command(S, side);
+}
+// кольцо (ИИ СССР): заткнуть разрыв, через который окружённые нащупали связь со своими (см. sealCells в engine.js)
+function plugRing(S) {
+  const P = S.pk;
+  if (!P || !P.on || !P.lk || !P.cor || !P.cor.length || E.isPlayer(S, 'SOV')) return;
+  const G = S.G, ids = new Set(P.ids), pl = (S.ai.plug = S.ai.plug || {});
+  for (const g of P.cor) {
+    if (pl[g] > S.t) continue;
+    const L = S.cellU[g], occ = L.length > 0 && L[0].side === 'AX';
+    // кандидаты: ближайшие снабжаемые части не в штурме; стоящих вплотную к котлу берём неохотно (откроют новую брешь)
+    const cand = [];
+    for (const u of S.units) {
+      if (u.dead || u.side !== 'SOV' || u.sup === 0 || u.ovr || u.pend || u.plug > S.t) continue;
+      if (u.ord && u.ord.k === 'atk' && !u.ord.done && u.ord.ph > 0) continue;
+      const k = hexDist(G, u.c, g);
+      if (k > (MOBILE(u) ? 7 : 4) || cv(S, u) < 10) continue;
+      let ring = 0;
+      for (const j of nbs(S, u.c)) if (S.cellU[j].some((v) => ids.has(v.id))) ring = 1;
+      cand.push([k + ring * 2.5 - (MOBILE(u) ? 0.5 : 0), u]);
+    }
+    cand.sort((a, b) => a[0] - b[0]);
+    // из ближайших — тот, кто дойдёт быстрее (по пути, а не по прямой); если брешь держится — ещё одна часть
+    const need = P.relT >= 4 ? 2 : 1;
+    let sent = 0;
+    for (const best of cand.slice(0, 6).map((x) => x[1]).filter((u) => hexDist(G, u.c, g) <= 1 && occ).slice(0, need)) {
+      issue(S, best, { k: 'atk', tgt: g, prep: 1 });
+      best.plug = S.t + 24;
+      sent++;
+    }
+    if (sent < need) {
+      const opts = [];
+      for (const [, u] of cand.slice(0, 6)) {
+        const p = findPath(S, u, (c) => hexDist(G, c, g) <= 1 && room(S, c, 'SOV') >= u.sz - 1e-6 && !S.cellU[c].some((v) => v.side === 'AX'), { max: MOBILE(u) ? 90 : 45 });
+        if (p) opts.push([p.km / (MOBILE(u) ? 1.6 : 1), u, p]);
+      }
+      opts.sort((a, b) => a[0] - b[0]);
+      for (const [, u, p] of opts.slice(0, need - sent)) {
+        issue(S, u, { k: 'move', to: p[p.length - 1], force: 1 });
+        u.plug = S.t + 36;
+        sent++;
+      }
+    }
+    if (sent) pl[g] = S.t + 3;
+  }
 }
 function planForm(S, F, U, A) {
   const C = ctxFor(S, F.side), d = F.dir || { k: 'def' };
@@ -347,8 +392,8 @@ function planPocket(S, C) {
     for (const u of L) U.push(u), comp && comp[u.c] >= 0 && cid.add(comp[u.c]);
   }
   if (forms.length < 2) return null;
-  const sec = [];
-  for (let c = 0; c < S.G.n; c++) if (C.fr[c] && (comp ? cid.has(comp[c]) : !isFinite(S.dist.AX[c]))) sec.push(c);
+  const sec = [], P = S.pk, near = (c) => !P.c0 || Math.hypot(S.G.cx[c] - P.c0[0], S.G.cy[c] - P.c0[1]) <= P.r0;
+  for (let c = 0; c < S.G.n; c++) if (C.fr[c] && (comp ? cid.has(comp[c]) : !isFinite(S.dist.AX[c])) && near(c)) sec.push(c);
   if (!sec.length) return null;
   defCore(S, forms[0], U, C, sec);
   for (const F of forms) {
@@ -465,7 +510,8 @@ function counterattack(S, F, U, A, C, sec, pocket) {
       let ownN = 0;
       for (const j of nbs(S, X)) if (S.own[j] === C.sid) ownN++;
       const pks = E.pkSet(S), pen = ownN >= 4, weak = L.every((e) => cv(S, e) < 22 || (e.sup === 0 && !(pks && pks.has(e.id))));
-      if (!pen && !weak) continue;
+      // из котла — только восстановить свой периметр (вклинившийся противник), а не «расползаться» по степи
+      if (pocket ? !pen : !pen && !weak) continue;
       const att = [];
       for (const j of nbs(S, X))
         for (const v of S.cellU[j]) if (v.side === F.side && !v.ovr && !v.pend && (!v.ord || v.ord.k === 'hold') && v.amm > 40 && cv(S, v) > 25) att.push(v);
