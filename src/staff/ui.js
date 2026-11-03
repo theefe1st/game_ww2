@@ -1,4 +1,5 @@
-// «Сталинград 1942–1943» (v0.7): интерфейс штабного режима «Операция «Уран»».
+// «Сталинград 1942–1943» (v0.7.1): интерфейс штабного режима «Операция «Уран»» (v0.7.1: большая кнопка «Ход»,
+// в карточке дивизии — лошади, зимнее снаряжение, боевой счёт и награды).
 // Игрок — представитель Ставки (или ОКХ): директивы армиям (у Оси — корпусам), при нужде — приказы отдельным дивизиям.
 // Движок считает по часам; кнопка «Ход ▶» прокручивает ход (12/24/48 ч) с анимацией марша и боёв и сама
 // останавливается на важных событиях (кольцо, решения, рассечение котла, конец операции).
@@ -8,7 +9,7 @@ import './staff.css';
 import * as E from './engine.js';
 import { think } from './ai.js';
 import { GENERALS, HIGH, TRAITS } from './scenario.js';
-import { NAT, TYPES, CAT, CAT_TXT, CAT_COL, TERR, SUP_TXT, MECH, ICE, weather, isDay } from './rules.js';
+import { NAT, TYPES, CAT, CAT_TXT, CAT_COL, TERR, SUP_TXT, MECH, ICE, weather, isDay, horseK, WIN_TXT } from './rules.js';
 import { hexDist } from './geo.js';
 import { StaffMap } from './map.js';
 import { portraitURL } from './portraits.js';
@@ -45,7 +46,11 @@ export function fullName(u) {
   const n = u.name || '';
   for (const [a, b] of ABBR) {
     const re = new RegExp(`(^|\\s)${a.replace(/\./g, '\\.')}(?=$|\\s)`);
-    if (re.test(n)) return n.replace(re, `$1${b}`);
+    if (re.test(n)) {
+      const r = n.replace(re, `$1${b}`);
+      // «2-й гв. Тацинский тк» → «2-й гвардейский Тацинский танковый корпус»
+      return r.replace(/(^|\s)гв\.(?=\s)/, (m, p) => p + (/(дивизия|бригада)/.test(r) ? 'гвардейская' : 'гвардейский'));
+    }
   }
   if (u.nat === 'ITA' && n.includes('«')) return n.replace(/\s«/, ' пехотная дивизия «');
   return n;
@@ -58,6 +63,9 @@ const MORW = (v) => (v >= 75 ? 'высокий' : v >= 60 ? 'твёрдый' : v
 const FATW = (v) => (v < 20 ? 'бодрые' : v < 40 ? 'лёгкая' : v < 60 ? 'заметная' : v < 80 ? 'сильная' : 'на пределе');
 const CTLW = (v) => (v >= 80 ? 'связь есть' : v >= 60 ? 'с перебоями' : v >= 40 ? 'слабая' : 'потеряна');
 const ENTW = ['в поле', 'наспех', 'окопы', 'подготовленная оборона', 'укреплённый рубеж', 'укреплённый район'];
+const WINW = (v) => (v >= 85 ? 'полное' : v >= 60 ? 'достаточное' : v >= 40 ? 'частичное' : v >= 25 ? 'скудное' : 'летнее');
+const HRSW = (v) => (v >= 0.9 ? 'в норме' : v >= 0.6 ? 'не хватает' : v >= 0.3 ? 'острая нехватка' : 'тянут на себе');
+const ABG = { rb: 'rb', gds: 'gds', kc: 'kc', ol: 'kc', mih: 'mih', oro: 'oro' };
 const CAT_ADV = ['', 'может наступать', 'наступать — на ограниченную глубину', 'атаковать — после пополнения', 'атака — с большим риском', 'нужны отвод и переформирование'];
 const OUT_S = ['отбита', 'держится', 'отходит', 'бежит'];
 const ORD_BTN = [['move', 'Марш'], ['atk', 'Атака'], ['hold', 'Держать'], ['wd', 'Отвод'], ['rest', 'Отдых']];
@@ -93,8 +101,8 @@ const TPL = `
   <button class="btn icon st-bmenu" data-a="menu" aria-label="Меню"><i class="st-burger"></i></button>
   <button class="panel st-chip st-date" data-a="journal"><img class="st-fl" data-r="dflag" alt=""><span><b data-r="dt"></b><small data-r="ds"></small></span></button>
   <div class="panel st-seg st-lod" data-r="lod"><button data-a="lod" data-v="div">Дивизии</button><button data-a="lod" data-v="army">Армии</button></div>
-  <button class="btn gold st-bturn" data-a="turn" data-r="turn">Ход <i class="st-ip"></i></button>
 </div>
+<button class="btn gold st-bturn" data-a="turn" data-r="turn">Ход <i class="st-ip"></i></button>
 <div class="st-toasts" data-r="toasts"></div>
 <div class="st-hint panel hidden" data-r="hint"></div>
 <div class="st-sugs" data-r="sugs"></div>
@@ -203,6 +211,8 @@ export class StaffUI {
       else b = Math.round(R.bottom - s.top);
     }
     this.map.setInset(0, this.$.hub.classList.contains('hidden') ? Math.round(top.bottom - R.top) : 0, r, b);
+    const sb = `${b}px`;
+    if (this.root.style.getPropertyValue('--sbh') !== sb) this.root.style.setProperty('--sbh', sb);
   }
   // ——— хаб: выбор стороны и параметров ———
   showHub() {
@@ -298,7 +308,12 @@ ${m ? `<button class="btn gold st-wide st-hc" data-a="cont">Продолжить
     this.$.dt.textContent = `Ход ${m.turn} • ${E.dateLabel(S.t, false)}`;
     this.$.ds.innerHTML = `${hh(S.t)} • ${minus(wx.temp)}°, ${esc(wx.n)}<span class="st-op"> • операция «Уран»</span>`;
     const b = this.$.turn;
-    b.innerHTML = this.running ? 'Стоп <i class="st-is"></i>' : S.over ? 'Итоги' : m.tEnd > S.t ? 'Далее <i class="st-ip"></i>' : 'Ход <i class="st-ip"></i>';
+    // v0.7.1: крупная кнопка внизу справа; под надписью — сколько часов прокрутит ход
+    const lenH = m.tEnd > S.t ? m.tEnd - S.t : Math.min(this.opt.len, E.T_END - S.t);
+    const bt = this.running ? 'Стоп <i class="st-is"></i>' : S.over ? 'Итоги' : `${m.tEnd > S.t ? 'Далее' : 'Ход'} <i class="st-ip"></i>`;
+    const bs = this.running ? 'до ' + hh(m.tEnd || S.t) : S.over ? 'операция' : `+${lenH} ч`;
+    const bh = `<span>${bt}</span><small>${bs}</small>`;
+    if (b.innerHTML !== bh) b.innerHTML = bh;
     b.classList.toggle('st-runb', !!this.running);
     this.root.classList.toggle('st-run', !!this.running);
     const st = this.statusHTML();
@@ -359,7 +374,7 @@ ${m ? `<button class="btn gold st-wide st-hc" data-a="cont">Продолжить
       m.seen = 1;
       if (m.side !== '*' && m.side !== side) continue;
       if (m.k === 'toast' || m.k === 'arr') {
-        const good = m.cap ? m.cap === side : m.kill ? m.kill !== side : m.k === 'arr';
+        const good = m.good || (m.cap ? m.cap === side : m.kill ? m.kill !== side : m.k === 'arr');
         this.toast(m.title, m.txt || '', m.c ?? -1, good ? 'good' : m.kill || m.cap ? 'bad' : '');
         if (m.cap) this.sfx('capture');
       } else if (m.k === 'sug') this.addSug(m);
@@ -578,16 +593,20 @@ ${m ? `<button class="btn gold st-wide st-hc" data-a="cont">Продолжить
   cardUnit(u, own) {
     const S = this.S, F = S.forms[u.form], Hh = E.highOf(S, F), v = E.cv(S, u), c = E.catOf(v), A = u.auth, T = TYPES[u.type];
     const cmd = u.cmd && GENERALS[u.cmd] ? `Командир — ${rankShort(GENERALS[u.cmd].rank)} ${GENERALS[u.cmd].n}` : '';
-    let h = this.head(this.unitIcon(u), esc(cap1(fullName(u))), [`${esc(F ? F.n : '')}${Hh ? ` • ${esc(Hh.n)}` : ''}`, esc(cmd), u.note ? `<i>${esc(u.note)}</i>` : '']);
+    let h = this.head(this.unitIcon(u), esc(cap1(fullName(u))), [`${esc(F ? F.n : '')}${Hh ? ` • ${esc(Hh.n)}` : ''}`, esc(cmd), u.was ? `бывш. ${esc(u.was)}` : '', u.note ? `<i>${esc(u.note)}</i>` : '']);
     h += `<div class="st-cat">${catBadge(c)}<div><b>${esc(cap1(CAT_TXT[c]))}</b><small>${esc(CAT_ADV[c])}</small></div><span><b>${v}</b><small>из 100</small></span></div>`;
     const men = u.men / Math.max(1, A.men);
     h += `<h4>Состав</h4><div class="st-line"><span>Люди в строю</span>${bar(men * 100, colHi(men * 100))}<span class="st-v">${f0(u.men)} / ${f0(A.men)}</span></div>`;
     const tiles = [[f0(u.bay), 'штыков'], [f0(u.guns), 'орудий и мином.']];
     if (A.tanks) tiles.push([`${f0(u.tanks)}`, `танков из ${f0(A.tanks)}`]);
     else tiles.push([f0(u.at), 'ПТО']);
-    tiles.push([pct((100 * u.trucks) / Math.max(1, A.trucks)), 'транспорт']);
-    h += `<div class="st-tiles">${tiles.map(([a, b]) => `<div><b>${a}</b><small>${b}</small></div>`).join('')}</div>`;
-    h += `<h4>Качество</h4><div class="st-g2">${this.kv('Подготовка', TRW(u.tr), u.tr, colHi(u.tr))}${this.kv('Боевой опыт', XPW(u.xp), u.xp, colHi(u.xp))}</div>`;
+    tiles.push([pct((100 * u.trucks) / Math.max(1, A.trucks)), 'машин']);
+    if (A.horses) tiles.push([f0(u.horses), 'лошадей']);
+    h += `<div class="st-tiles${tiles.length > 4 ? ' t5' : ''}">${tiles.map(([a, b]) => `<div><b>${a}</b><small>${b}</small></div>`).join('')}</div>`;
+    const hk = horseK(u), win = Math.round(u.win || 0);
+    h += `<h4>Качество и снаряжение</h4><div class="st-g2">${this.kv('Подготовка', TRW(u.tr), u.tr, colHi(u.tr))}${this.kv('Боевой опыт', XPW(u.xp), u.xp, colHi(u.xp))}
+${this.kv('Зимнее снаряжение', `${WINW(win)}, ${win}%`, win, colHi(win))}${A.horses ? this.kv('Конная тяга', HRSW(hk), hk * 100, colHi(hk * 100)) : ''}</div>`;
+    h += `<div class="st-dim st-small">Зима: ${esc(WIN_TXT[u.nat] || '')}${u.nat === 'GER' && win > NAT.GER.win + 1 ? ` — поступают зимние комплекты` : ''}${A.horses && hk < 0.6 ? '. Без лошадей пушки и обозы тянут на себе — марш медленнее' : ''}</div>`;
     const mech = MECH(u);
     h += `<h4>Состояние</h4><div class="st-g2">${this.kv('Боевой дух', MORW(u.mor), u.mor, colHi(u.mor))}${this.kv('Усталость', FATW(u.fat), u.fat, colLo(u.fat))}
 ${this.kv('Управление', CTLW(u.ctl), u.ctl, colHi(u.ctl))}${this.kv('Боеприпасы', `${f1(u.amm / 100)} б/к`, u.amm, colHi(u.amm))}
@@ -600,12 +619,38 @@ ${mech ? this.kv('Горючее', `${f1(u.fuel / 100)} запр.`, u.fuel, colH
     if (u.sup === 0) note.push('<span class="st-warn">без снабжения — окружение</span>');
     else if (u.ord?.k === 'rest') note.push('отдых: маршевые роты пополняют дивизию');
     h += `<div class="st-note">${note.join(' • ')}</div>`;
+    h += this.record(u, own);
     if (own) {
       const k = u.ovr ? u.pend?.ord.k || u.ord?.k : null;
       h += `<h4>Приказ дивизии</h4>`;
       if (u.ovr) h += `<button class="btn sm st-wide" data-a="u-army">Вернуть под управление армии</button>`;
       else h += `<div class="st-dim st-small">Дивизией управляет штаб армии. Ручной приказ выведет её из плана армии.</div>`;
       h += `<div class="st-btns st-b5">${ORD_BTN.map(([a, n]) => `<button class="btn sm ${k === a ? 'gold' : ''}" data-a="u-${a}">${n}</button>`).join('')}</div>`;
+    }
+    return h;
+  }
+  // боевой счёт и награды части
+  record(u, own) {
+    const r = u.rec, S = this.S;
+    let h = '';
+    if (r && (r.b || r.cap)) {
+      const t = [[f0(r.b), plural(r.b, 'бой', 'боя', 'боёв')], [f0(r.w), 'успешных'], [`≈${f0(Math.round(r.k / 100) * 100)}`, 'потери врага']];
+      if (r.p >= 50) t.push([`≈${f0(Math.round(r.p / 100) * 100)}`, 'пленных']);
+      if (r.tk >= 1) t.push([f0(r.tk), 'танков подбито']);
+      h += `<h4>Боевой счёт</h4><div class="st-tiles${t.length > 4 ? ' t5' : ''}">${t.map(([a, b]) => `<div><b>${a}</b><small>${b}</small></div>`).join('')}</div>`;
+      if (r.tw && r.tw.length) h += `<div class="st-dim st-small">${u.side === 'SOV' ? 'Освобождены' : 'Заняты'}: ${r.tw.map(esc).join(', ')}</div>`;
+    }
+    const aw = u.aw || [];
+    const nx = own ? E.awardNext(u) : null;
+    if (aw.length || nx) {
+      h += `<h4>Награды</h4><div class="st-aws">`;
+      for (const a of aw) {
+        const A = E.AWARD[a.k];
+        const n = a.k === 'gds' ? `Гвардейское звание${a.hon ? ` и наименование «${esc(E.HON[a.hon] || a.hon)}»` : ''}` : cap1(A.n);
+        h += `<div class="st-aw"><i class="aw-${ABG[a.k] || 'rb'}"></i><span>${esc(n)}${a.k === 'gds' && a.was ? `<small>бывш. ${esc(a.was)}</small>` : ''}</span><em>${E.shortDate(a.t)}</em></div>`;
+      }
+      if (nx) h += `<div class="st-aw next"><i></i><span>${esc(cap1(nx.n))}<small>заслуги ${f1(nx.cur)} из ${nx.m}: победы, потери врага, пленные, подбитые танки, города</small></span></div>`;
+      h += `</div>`;
     }
     return h;
   }
@@ -638,7 +683,7 @@ ${G.tr.length ? `<h4>Черты</h4>${G.tr.map((t) => `<div class="st-tr"><b>${e
   }
   genHead(g, title, sub) {
     const G = GENERALS[g];
-    return this.head(`<img class="st-por" src="${portraitURL(g, 2)}" alt="">`, title, [G ? `${esc(rankShort(G.rank))} ${esc(G.n)}` : '', sub]);
+    return this.head(`<img class="st-por" src="${portraitURL(g, 3)}" alt="">`, title, [G ? `${esc(rankShort(G.rank))} ${esc(G.n)}` : '', sub]);
   }
   cardForm(F) {
     const S = this.S, own = F.side === S.side, Hh = E.highOf(S, F), G = GENERALS[F.gen];
@@ -857,7 +902,9 @@ ${G.tr.length ? `<h4>Черты</h4>${G.tr.map((t) => `<div class="st-tr"><b>${e
       return;
     }
     this.sfx(m.big ? 'win' : 'tele');
-    this.modal(`<div class="st-mk">${esc(E.dateLabel(m.t ?? S.t))}</div><h3 class="${m.big ? 'st-bigt' : ''}">${esc(m.title)}</h3>${m.txt ? `<p>${esc(m.txt)}</p>` : ''}<div class="st-btns st-b1"><button class="btn gold" data-a="ev-ok">Продолжить</button></div>`, { cls: m.big ? 'st-big' : '' });
+    // событие с местом на карте (брешь в кольце и т. п.) — вторая кнопка «Показать» (камера к месту)
+    const go = m.c != null && m.c >= 0 ? `<button class="btn" data-a="ev-go" data-v="${m.c}">Показать</button>` : '';
+    this.modal(`<div class="st-mk">${esc(E.dateLabel(m.t ?? S.t))}</div><h3 class="${m.big ? 'st-bigt' : ''}">${esc(m.title)}</h3>${m.txt ? `<p>${esc(m.txt)}</p>` : ''}<div class="st-btns ${go ? 'st-b2' : 'st-b1'}">${go}<button class="btn gold" data-a="ev-ok">Продолжить</button></div>`, { cls: m.big ? 'st-big' : '' });
     this.afterModal = () => {
       this.modalQ.shift();
       this.saveGame();
@@ -985,6 +1032,12 @@ ${G.tr.length ? `<h4>Черты</h4>${G.tr.map((t) => `<div class="st-tr"><b>${e
       case 's-spd': this.opt.spd = +v; this.saveOpt(); return this.settings();
       case 'mclose': case 'ev-ok': return this.closeModal();
       case 'close': return this.clearSel();
+      case 'ev-go': {
+        const c = +v;
+        this.closeModal();
+        if (c >= 0) this.map.reveal(c, Math.max(this.map.z, 3), 420, true), this.map.addFx({ k: 'ping', c, ms: 1600 });
+        return;
+      }
       case 'j-go': {
         const c = +v;
         this.closeModal();

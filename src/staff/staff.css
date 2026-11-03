@@ -1,4 +1,4 @@
-/* «Сталинград 1942–1943» (v0.7): штабная карта «Операция «Уран»» — панели, карточки, окна */
+/* «Сталинград 1942–1943» (v0.7.1): штабная карта «Операция «Уран»» — панели, карточки, окна, кнопка «Ход», награды */
 #st{position:absolute;top:0;bottom:0;left:0;right:0;overflow:hidden;background:#3a2e27;pointer-events:auto;color:var(--txt);z-index:5;font-family:var(--px);font-size:15px;line-height:1.3;--sw:0px;--th:58px;-webkit-user-select:none;user-select:none}
 #st.st-land.st-open{--sw:min(390px,46vw)}
 #st .st-cv{position:absolute;top:0;left:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
@@ -34,7 +34,15 @@
 #st .st-seg button.on{background:#e3bb45;color:#1d1606;border-color:var(--line);box-shadow:inset 2px 2px #ffffff40}
 #st .st-seg button:active{transform:translateY(1px)}
 #st .st-lod{margin-left:auto;flex:none;min-height:46px}
-#st .st-bturn{flex:none;min-width:94px;min-height:46px;font-size:18px;font-weight:700;padding:0 14px;white-space:nowrap}
+/* v0.7.1: кнопка «Ход» — крупная, внизу справа (под большим пальцем); над панелью, если она открыта */
+#st .st-bturn{position:absolute;z-index:3;right:calc(10px + var(--sar));bottom:calc(10px + var(--sab));width:122px;min-width:0;min-height:66px;padding:4px 8px 5px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;line-height:1.05;white-space:nowrap;box-shadow:0 3px 0 #0b0d0f99,0 6px 18px #0008}
+#st .st-bturn>span{font-size:24px;font-weight:800;display:flex;align-items:center;gap:2px}
+#st .st-bturn>small{font-size:12.5px;font-weight:600;opacity:.82;margin-top:2px}
+#st .st-bturn .st-ip{border-width:10px 0 10px 15px;margin-left:7px;vertical-align:0}
+#st .st-bturn .st-is{margin-left:8px}
+#st:not(.st-land).st-open .st-bturn{bottom:calc(var(--sbh) + 10px)}
+#st.st-land.st-open .st-bturn{right:calc(var(--sw) + 14px + var(--sar))}
+#st.st-hubmode .st-bturn,#st.st-tgt .st-bturn{display:none}
 #st .st-bturn.st-runb{background:#b8443a;color:#fff;animation:stPulse .7s ease-in-out infinite alternate}
 @keyframes stPulse{to{background:#d65a4c}}
 /* узкий экран и альбом с панелью: переключатель уровня — вторым рядом справа */
@@ -45,10 +53,13 @@
 #st.st-narrow .st-date .st-fl,#st.st-narrow .st-op,#st.st-land.st-open .st-op{display:none}
 #st.st-narrow .st-date b{font-size:16px}
 /* статус и легенда */
-#st .st-legend{position:absolute;left:calc(6px + var(--sal));bottom:calc(6px + var(--sab));min-height:40px;gap:5px;font-size:14px;z-index:2}
+#st .st-legend{position:absolute;left:calc(6px + var(--sal));bottom:calc(10px + var(--sab));min-height:40px;gap:5px;font-size:14px;z-index:2}
+#st.st-narrow .st-legend{gap:4px;font-size:12.5px;padding:3px 8px}
+#st.st-narrow .st-legend .st-cb{min-width:21px}
+#st.st-narrow .st-sugs{bottom:calc(86px + var(--sab))}
 #st .st-legend span{margin-right:3px}
-#st .st-status{position:absolute;right:calc(6px + var(--sar));bottom:calc(6px + var(--sab));min-height:40px;max-width:calc(100% - 300px);font-size:14px;z-index:2;display:block;line-height:1.3;padding:6px 10px}
-#st.st-land.st-open .st-status{right:calc(var(--sw) + 12px + var(--sar));max-width:calc(100% - var(--sw) - 24px)}
+#st .st-status{position:absolute;right:calc(142px + var(--sar));bottom:calc(10px + var(--sab));min-height:40px;max-width:calc(100% - 440px);font-size:14px;z-index:2;display:block;line-height:1.3;padding:6px 10px}
+#st.st-land.st-open .st-status{right:calc(var(--sw) + 146px + var(--sar));max-width:calc(100% - var(--sw) - 160px)}
 #st.st-open .st-legend{display:none}
 #st:not(.st-land):not(.st-narrow).st-open .st-status{display:none}
 #st.st-narrow .st-status{top:calc(58px + var(--sat));bottom:auto;left:calc(6px + var(--sal));right:auto;max-width:calc(100% - 186px);min-height:42px;font-size:13px;padding:4px 9px;display:flex;align-items:center}
@@ -92,7 +103,7 @@
 #st .st-uico{position:relative;flex:none;width:48px;height:48px;background:#e9e3d2;border:2px solid var(--line);box-sizing:border-box;display:grid;place-items:center}
 #st .st-uico img:first-child{width:42px;height:42px;image-rendering:pixelated;image-rendering:crisp-edges}
 #st .st-uico .st-fl{position:absolute;right:-3px;bottom:-3px;border:1px solid var(--line)}
-#st .st-por{flex:none;width:48px;height:56px;image-rendering:pixelated;image-rendering:crisp-edges;border:2px solid var(--line);background:#cfcac0}
+#st .st-por{flex:none;width:60px;height:72px;image-rendering:pixelated;image-rendering:crisp-edges;border:2px solid var(--line);background:#cfcac0}
 #st .st-cat{display:flex;align-items:center;gap:10px;background:#14171a;border:2px solid var(--line);padding:6px 9px}
 #st .st-cat .st-cb{min-width:40px;height:32px;font-size:18px}
 #st .st-cat>div{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;line-height:1.2}
@@ -111,6 +122,20 @@
 #st .st-tiles>div{background:#14171a;border:2px solid var(--line);padding:4px 3px;text-align:center;display:flex;flex-direction:column;line-height:1.15;min-width:0}
 #st .st-tiles b{font-size:17px;font-weight:700;color:#f2f4f5;white-space:nowrap}
 #st .st-tiles small{font-size:11.5px;color:#b9c2ca;overflow:hidden;text-overflow:ellipsis}
+#st .st-tiles.t5{grid-template-columns:repeat(5,minmax(0,1fr))}
+#st .st-aws{display:flex;flex-direction:column;gap:4px}
+#st .st-aw{display:flex;align-items:center;gap:8px;background:#14171a;border:2px solid var(--line);padding:4px 8px;font-size:14px;line-height:1.2}
+#st .st-aw>i{flex:0 0 22px;height:22px;background:center/contain no-repeat}
+#st .st-aw>span{flex:1;min-width:0;display:flex;flex-direction:column}
+#st .st-aw small{color:#b9c2ca;font-size:12px}
+#st .st-aw>em{font-style:normal;color:#b9c2ca;font-size:12.5px;white-space:nowrap}
+#st .st-aw.next{border-style:dashed;color:#c9d0d6}
+#st .st-aw .aw-rb,#st .st-aw.x .aw-rb{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10.5' r='8.6' fill='%23d9b13b' stroke='%237a5a10' stroke-width='1'/%3E%3Ccircle cx='10' cy='10.5' r='6.2' fill='%23f3f0e6'/%3E%3Cpolygon points='10.0,5.2 11.4,8.9 15.3,9.1 12.2,11.5 13.3,15.3 10.0,13.1 6.7,15.3 7.8,11.5 4.7,9.1 8.6,8.9' fill='%23c62828' stroke='%237a1010' stroke-width='.5'/%3E%3Cpath d='M4 2.2h9l-2 2 2 2H4z' fill='%23c62828' stroke='%237a1010' stroke-width='.5'/%3E%3C/svg%3E")}
+#st .st-aw .aw-gds{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 19c-4.5-1.6-7.5-5-7.5-9.5V5.2h15v4.3c0 4.5-3 7.9-7.5 9.5z' fill='%23d9b13b' stroke='%237a5a10'/%3E%3Cpath d='M3.5 2h13v4.4h-13z' fill='%23c62828' stroke='%237a1010' stroke-width='.6'/%3E%3Cpolygon points='10.0,7.4 11.1,10.5 14.4,10.6 11.8,12.6 12.7,15.7 10.0,13.9 7.3,15.7 8.2,12.6 5.6,10.6 8.9,10.5' fill='%23c62828' stroke='%237a1010' stroke-width='.5'/%3E%3C/svg%3E")}
+#st .st-aw .aw-kc{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M7.2 1.5h5.6l-1.3 6.2 6 -1.3v5.6l-6-1.3 1.3 6.8H7.2l1.3-6.8-6 1.3V6.4l6 1.3z' fill='%2315171a' stroke='%23d8dde2' stroke-width='1.3' stroke-linejoin='round'/%3E%3C/svg%3E")}
+#st .st-aw .aw-mih{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M7.2 1.5h5.6l-1.3 6.2 6 -1.3v5.6l-6-1.3 1.3 6.8H7.2l1.3-6.8-6 1.3V6.4l6 1.3z' fill='%231f4aa8' stroke='%23d9b13b' stroke-width='1.3' stroke-linejoin='round'/%3E%3Ccircle cx='10' cy='9.6' r='2.3' fill='%23d9b13b'/%3E%3C/svg%3E")}
+#st .st-aw .aw-oro{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M6 1h8l-1.5 7h-5z' fill='%232c63c7' stroke='%23123a80' stroke-width='.6'/%3E%3Ccircle cx='10' cy='13' r='5.8' fill='%23e8c24a' stroke='%238a6712' stroke-width='1'/%3E%3Ccircle cx='10' cy='13' r='3.4' fill='none' stroke='%23a07a18' stroke-width='.8'/%3E%3C/svg%3E")}
+#st .st-aw.next>i{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Ccircle cx='10' cy='10' r='7.5' fill='none' stroke='%238b949c' stroke-width='1.6' stroke-dasharray='2.6 2'/%3E%3Cpath d='M10 6v4.5l3 2' fill='none' stroke='%238b949c' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E")}
 #st .st-g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px}
 #st .st-kv{display:flex;flex-direction:column;gap:3px;min-width:0}
 #st .st-kv>div{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 6px;font-size:14px;min-width:0}
@@ -227,7 +252,8 @@
 #st.st-land .st-hr{grid-area:r}
 /* низкий альбомный экран (телефон) */
 @media (max-height:430px){
-#st .st-bmenu,#st .st-chip,#st .st-bturn,#st .st-lod{min-height:42px}
+#st .st-bmenu,#st .st-chip,#st .st-lod{min-height:42px}
+#st .st-bturn{min-height:62px;width:116px}
 #st .st-bmenu{width:42px;height:42px}
 #st .st-date b{font-size:16px}
 #st .st-legend,#st .st-status{min-height:36px;font-size:13px}
@@ -240,9 +266,11 @@
 #st .st-hub .btn.st-wide{min-height:44px}
 }
 @media (max-width:400px){
+/* узкий телефон: легенда в две строки (подпись над значками), чтобы не заходить под кнопку «Ход» */
+#st.st-narrow .st-legend{display:grid;grid-template-columns:repeat(5,auto);gap:3px 4px;padding:4px 8px 5px;justify-content:start;justify-items:center;align-content:center}
+#st.st-narrow .st-legend span{grid-column:1/-1;justify-self:start;margin:0;font-size:12px;line-height:1.1}
 #st .st-date b{font-size:15.5px}
 #st .st-date small{font-size:12px}
-#st .st-bturn{min-width:80px;font-size:17px;padding:0 10px}
 #st .st-chip{padding:3px 8px;gap:6px}
 #st .st-sheet .st-btns .btn{font-size:13.5px;padding:5px 3px}
 #st .st-units{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -251,5 +279,7 @@
 }
 @media (max-width:380px){
 #st.st-narrow .st-date b{font-size:15px}
+/* окно атаки на узком экране: части — в один столбец, чтобы длинные названия не обрезались */
+#st .st-atk .st-units.st-u2{grid-template-columns:minmax(0,1fr)}
 #st .st-sheet .st-b4 .btn,#st .st-sheet .st-b5 .btn{font-size:12px;letter-spacing:-.02em}
 }

@@ -1,6 +1,6 @@
-// «Сталинград 1942–1943» (v0.7): спрайты штабной карты — флаги (у Германии чёрно-бело-красный с крестом, без свастики),
-// головы бойцов в касках своих армий (пиксель-арт 14×14), фишки дивизий (номер, флаг, знак величины, полоса категории I–V),
-// жетоны штабов (портрет генерала, крупный номер, XXXX, фамилия). Все спрайты кешируются в пикселях устройства.
+// «Сталинград 1942–1943» (v0.7.1): спрайты штабной карты — флаги (у Германии чёрно-бело-красный с крестом, без свастики),
+// головы бойцов в касках своих армий (пиксель-арт 14×14), фишки дивизий 48×38 (крупный номер, флаг, знак величины, полоса
+// категории I–V), жетоны штабов крупнее дивизий (портрет генерала 30×36, номер, XXXX, фамилия). Все спрайты кешируются в пикселях устройства.
 import { CAT_COL } from './rules.js';
 import { GENERALS } from './scenario.js';
 import { portraitCanvas, PW, PH } from './portraits.js';
@@ -124,8 +124,8 @@ export function headURL(nat, k = 3) {
 }
 
 // ——— фишка дивизии ———
-// базовый размер в CSS-пикселях; k — масштаб, d — плотность пикселей
-export const CW = 40, CH = 32;
+// базовый размер в CSS-пикселях (v0.7.1: крупнее — 48×38 вместо 40×32); k — масштаб, d — плотность пикселей
+export const CW = 48, CH = 38;
 const fitText = (x, s, max, size, w = 700) => {
   let f = size;
   x.font = FONT(f, w);
@@ -142,6 +142,7 @@ function rrect(x, X, Y, w, h, r) {
   x.closePath();
 }
 // o: {nat, num, ech, cat (0 — неизвестна), sym (inf|arm|mot|cav), gds, unk (номер неизвестен), sup0 (без снабжения), dim}
+// Раскладка: боец слева, номер — справа вверху (в стопке остаётся виден), флаг, знак величины, полоса категории I–V внизу.
 export function counter(o, k, d) {
   const key = `c|${o.nat}|${o.num}|${o.ech}|${o.cat}|${o.sym}|${o.gds ? 1 : 0}|${o.unk ? 1 : 0}|${o.sup0 ? 1 : 0}|${k}|${d}`;
   let c = cache.get(key);
@@ -150,80 +151,81 @@ export function counter(o, k, d) {
   c = mk(W + 2 * s, H + 2 * s);
   const x = c.getContext('2d');
   // тень
-  x.fillStyle = 'rgba(0,0,0,.35)';
-  rrect(x, 1.6 * s, 1.6 * s, W - 0.4 * s, H - 0.4 * s, 2.5 * s);
+  x.fillStyle = 'rgba(0,0,0,.38)';
+  rrect(x, 1.8 * s, 1.8 * s, W - 0.4 * s, H - 0.4 * s, 3 * s);
   x.fill();
   // поле
   x.fillStyle = o.unk ? '#d9d6cf' : '#f4f2ec';
-  rrect(x, 0.6 * s, 0.6 * s, W - 1.2 * s, H - 1.2 * s, 2.5 * s);
+  rrect(x, 0.6 * s, 0.6 * s, W - 1.2 * s, H - 1.2 * s, 3 * s);
   x.fill();
   // полоса боеспособности
   x.save();
   x.clip();
   x.fillStyle = o.cat ? CAT_COL[o.cat] : '#8f8c86';
-  x.fillRect(0, H - 4 * s, W, 4 * s);
+  x.fillRect(0, H - 5.2 * s, W, 5.2 * s);
+  x.fillStyle = 'rgba(0,0,0,.35)';
+  x.fillRect(0, H - 5.2 * s, W, Math.max(1, 0.7 * s));
   x.restore();
   x.strokeStyle = '#1a1a1a';
-  x.lineWidth = 1.2 * s;
-  rrect(x, 0.6 * s, 0.6 * s, W - 1.2 * s, H - 1.2 * s, 2.5 * s);
+  x.lineWidth = 1.3 * s;
+  rrect(x, 0.6 * s, 0.6 * s, W - 1.2 * s, H - 1.2 * s, 3 * s);
   x.stroke();
   // боец
-  const px = Math.max(1, Math.round(1.18 * s));
-  drawHead(x, o.nat, Math.round(2.4 * s), Math.round(H / 2 - 7.6 * px - 0.5 * s), px);
+  const px = Math.max(1, Math.round(1.36 * s));
+  drawHead(x, o.nat, Math.round(2.2 * s), Math.round((H - 5.2 * s) / 2 - 7.4 * px), px);
   // номер
   const num = o.unk ? '?' : String(o.num ?? '');
   x.fillStyle = '#141414';
   x.textAlign = 'right';
   x.textBaseline = 'alphabetic';
-  fitText(x, num, 21 * s, 12 * s, 700);
-  x.fillText(num, W - 2.6 * s, 11.6 * s);
+  fitText(x, num, 27 * s, 15.5 * s, 800);
+  x.fillText(num, W - 3 * s, 13.6 * s);
   // флаг
-  drawFlag(x, o.nat, 19.6 * s, 13.4 * s, 17.6 * s, 7.4 * s, Math.max(1, 0.9 * s));
+  drawFlag(x, o.nat, 22.6 * s, 16.4 * s, 22.4 * s, 9 * s, Math.max(1, 1 * s));
   // знак величины
   x.textAlign = 'center';
-  x.font = FONT(7 * s, 800);
+  x.font = FONT(8.6 * s, 800);
   x.fillStyle = '#161616';
-  x.fillText(o.ech || 'XX', 28.4 * s, 27.3 * s);
+  x.fillText(o.ech || 'XX', 33.8 * s, 31.6 * s);
   // род войск — значок в левом нижнем углу
   if (o.sym && o.sym !== 'inf') {
-    const bx = 5.6 * s, by = H - 6.6 * s, r = 4.3 * s;
+    const bx = 6.6 * s, by = H - 9.4 * s, r = 5.2 * s;
     x.beginPath();
     x.arc(bx, by, r, 0, Math.PI * 2);
     x.fillStyle = '#f4f2ec';
     x.fill();
-    x.lineWidth = 1 * s;
+    x.lineWidth = 1.1 * s;
     x.strokeStyle = '#1a1a1a';
     x.stroke();
-    x.strokeStyle = '#1a1a1a';
-    x.lineWidth = 1.1 * s;
+    x.lineWidth = 1.3 * s;
     if (o.sym === 'arm') {
-      rrect(x, bx - 2.7 * s, by - 1.5 * s, 5.4 * s, 3 * s, 1.5 * s);
+      rrect(x, bx - 3.3 * s, by - 1.8 * s, 6.6 * s, 3.6 * s, 1.8 * s);
       x.stroke();
     } else if (o.sym === 'mot') {
       x.beginPath();
-      x.arc(bx, by, 1.9 * s, 0, Math.PI * 2);
+      x.arc(bx, by, 2.3 * s, 0, Math.PI * 2);
       x.stroke();
       x.fillStyle = '#1a1a1a';
-      x.fillRect(bx - 0.6 * s, by - 0.6 * s, 1.2 * s, 1.2 * s);
+      x.fillRect(bx - 0.75 * s, by - 0.75 * s, 1.5 * s, 1.5 * s);
     } else if (o.sym === 'cav') {
       x.beginPath();
-      x.moveTo(bx - 2.4 * s, by + 2.4 * s);
-      x.lineTo(bx + 2.4 * s, by - 2.4 * s);
+      x.moveTo(bx - 2.9 * s, by + 2.9 * s);
+      x.lineTo(bx + 2.9 * s, by - 2.9 * s);
       x.stroke();
     }
   }
   // гвардия — звезда
   if (o.gds) {
-    star(x, 4.8 * s, 4.8 * s, 3.9 * s, '#1a1a1a');
-    star(x, 4.8 * s, 4.8 * s, 3.0 * s, '#e53935');
+    star(x, 5.6 * s, 5.6 * s, 4.7 * s, '#1a1a1a');
+    star(x, 5.6 * s, 5.6 * s, 3.6 * s, '#e53935');
   }
   // без снабжения — красная метка
   if (o.sup0) {
     x.beginPath();
-    x.arc(W - 3.2 * s, H - 9.4 * s, 2.6 * s, 0, Math.PI * 2);
+    x.arc(W - 4 * s, H - 11 * s, 3.1 * s, 0, Math.PI * 2);
     x.fillStyle = '#e53935';
     x.fill();
-    x.lineWidth = 0.9 * s;
+    x.lineWidth = 1 * s;
     x.strokeStyle = '#fff';
     x.stroke();
   }
@@ -238,58 +240,64 @@ export const surname = (g) => {
   const p = G.n.split(' ');
   return p[p.length - 1].toUpperCase();
 };
+// базовая высота жетона; ширина — по величине (фронт/группа армий шире: две строки названия)
+export const TH = 52;
+const TW = { XXXXX: 74, XXXX: 64, XXX: 62 };
 // o: {side, nat, num, sub, lab: [строка1, строка2] (вместо номера), ech, gen, hi (подсветка)}
 export function hqToken(o, k, d) {
   const key = `h|${o.side}|${o.nat}|${o.num}|${o.sub || ''}|${(o.lab || []).join('/')}|${o.ech}|${o.gen}|${k}|${d}`;
   let c = cache.get(key);
   if (c) return c;
-  const s = k * d, big = o.ech === 'XXXXX', W = (big ? 60 : o.ech === 'XXX' ? 50 : 54) * s, H = 46 * s;
+  const s = k * d, W = (TW[o.ech] || 64) * s, H = TH * s;
   const sov = o.side === 'SOV', fg = sov ? '#f2c230' : '#141414', bg = sov ? '#141414' : '#f4f2ec', tx = sov ? '#f4f2ec' : '#141414';
-  c = mk(W + 2 * s, H + 2 * s);
+  c = mk(W + 2.4 * s, H + 2.4 * s);
   const x = c.getContext('2d');
-  x.fillStyle = 'rgba(0,0,0,.4)';
-  x.fillRect(1.8 * s, 1.8 * s, W, H);
+  x.fillStyle = 'rgba(0,0,0,.42)';
+  x.fillRect(2.2 * s, 2.2 * s, W, H);
   x.fillStyle = bg;
   x.fillRect(0, 0, W, H);
   x.strokeStyle = sov ? '#000' : '#141414';
-  x.lineWidth = 1.4 * s;
-  x.strokeRect(0.7 * s, 0.7 * s, W - 1.4 * s, H - 1.4 * s);
-  // портрет
-  const pw = 19 * s, ph = (pw * PH) / PW;
-  x.imageSmoothingEnabled = false;
-  x.drawImage(portraitCanvas(o.gen), 2.6 * s, 2.6 * s, pw, ph);
-  x.strokeStyle = sov ? '#3a3a3a' : '#141414';
-  x.lineWidth = 0.9 * s;
-  x.strokeRect(2.6 * s, 2.6 * s, pw, ph);
-  const rx = 2.6 * s + pw + 2.2 * s, rw = W - rx - 2.4 * s;
+  x.lineWidth = 1.5 * s;
+  x.strokeRect(0.75 * s, 0.75 * s, W - 1.5 * s, H - 1.5 * s);
+  // портрет: крупный, без сглаживания при увеличении и со сглаживанием при уменьшении
+  const pw = 30 * s, ph = (pw * PH) / PW, px0 = 3 * s, py0 = 3 * s;
+  const P = portraitCanvas(o.gen);
+  x.imageSmoothingEnabled = pw / PW < 1.5;
+  if (x.imageSmoothingEnabled) x.imageSmoothingQuality = 'high';
+  x.drawImage(P, px0, py0, pw, ph);
+  x.imageSmoothingEnabled = true;
+  x.strokeStyle = sov ? '#4a4a4a' : '#141414';
+  x.lineWidth = 1 * s;
+  x.strokeRect(px0, py0, pw, ph);
+  const rx = px0 + pw + 2.6 * s, rw = W - rx - 2.6 * s;
   x.textBaseline = 'alphabetic';
   if (o.lab) {
     x.fillStyle = tx;
     x.textAlign = 'center';
     for (let i = 0; i < o.lab.length; i++) {
-      fitText(x, o.lab[i], rw, 7.4 * s, 800);
-      x.fillText(o.lab[i], rx + rw / 2, (9.6 + i * 7.6) * s);
+      fitText(x, o.lab[i], rw, 8.6 * s, 800);
+      x.fillText(o.lab[i], rx + rw / 2, (11 + i * 8.8) * s);
     }
   } else {
     x.fillStyle = fg;
     x.textAlign = 'right';
     const t = String(o.num);
-    const f = fitText(x, t, rw - (o.sub ? 10 * s : 0), 18 * s, 800);
-    x.fillText(t, W - 2.6 * s - (o.sub ? 11 * s : 0), 17.4 * s);
+    const f = fitText(x, t, rw - (o.sub ? 11 * s : 0), 21 * s, 800);
+    x.fillText(t, W - 2.8 * s - (o.sub ? 12 * s : 0), 20.5 * s);
     if (o.sub) {
-      x.font = FONT(Math.min(f, 8.4 * s), 800);
-      x.fillText(o.sub, W - 2.4 * s, 17.4 * s);
+      x.font = FONT(Math.min(f, 9.4 * s), 800);
+      x.fillText(o.sub, W - 2.6 * s, 20.5 * s);
     }
   }
-  drawFlag(x, o.nat, rx, 19.4 * s, rw, 7.2 * s, Math.max(1, 0.9 * s));
+  drawFlag(x, o.nat, rx, 23.6 * s, rw, 8.4 * s, Math.max(1, 1 * s));
   x.fillStyle = fg;
   x.textAlign = 'center';
-  fitText(x, o.ech, rw + 4 * s, 8 * s, 800);
-  x.fillText(o.ech, rx + rw / 2, 34 * s);
+  fitText(x, o.ech, rw + 3 * s, 9.4 * s, 800);
+  x.fillText(o.ech, rx + rw / 2, 41 * s);
   x.fillStyle = tx;
   const sn = surname(o.gen);
-  fitText(x, sn, W - 4 * s, 7.6 * s, 800);
-  x.fillText(sn, W / 2, 43.2 * s);
+  fitText(x, sn, W - 5 * s, 9 * s, 800);
+  x.fillText(sn, W / 2, 49.6 * s);
   cache.set(key, c);
   return c;
 }

@@ -1,4 +1,4 @@
-// «Сталинград 1942–1943» (v0.7): штабная карта на холсте. Территория двумя цветами со сглаженной белой линией фронта
+// «Сталинград 1942–1943» (v0.7.1): штабная карта на холсте (v0.7.1: стопки фишек каскадом, штабы раздвигаются с выносками). Территория двумя цветами со сглаженной белой линией фронта
 // (изолиния поля владения по скрытой гекс-сетке), затемнённый котёл, реки (лёд после ледостава), железные дороги,
 // город, населённые пункты; фишки дивизий и жетоны штабов; уровни «Дивизии» / «Армии» (меняются и при зуме);
 // подсветка целей, маршруты и стрелки приказов, «призраки» разведки, анимация марша, боёв, захватов и гибели частей.
@@ -11,7 +11,9 @@ import { cv } from './engine.js';
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const ease = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
 export const Z_DIV = 2.1; // с этого зума — уровень «Дивизии»
-export const Z_DIV0 = 3.4; // зум кнопки «Дивизии»
+export const Z_DIV0 = 3.7; // зум кнопки «Дивизии» (v0.7.1: крупнее — фишки 48×38)
+// размер жетона по величине: корпус < армия < фронт / группа армий
+const SC_ECH = { XXX: 0.84, XXXX: 1, XXXXX: 1.14 };
 const COL = { sov: '#c48970', ax: '#5a493e', pk: '#45372e', out: '#211c19', front: '#fbfaf7', river: '#8fc3db', riverE: '#5d9bc2', ice: '#d3e4ea', iceE: '#9db7c1' };
 // раскладка фишек в клетке (доли размера фишки)
 const SLOTS = [
@@ -23,6 +25,13 @@ const SLOTS = [
   [[-0.5, -0.32], [0, -0.32], [0.5, -0.32], [-0.5, 0.32], [0, 0.32], [0.5, 0.32]],
 ];
 const slot = (n, i) => (n <= SLOTS.length ? SLOTS[n - 1][i] : [((i % 3) - 1) * 0.5, (Math.floor(i / 3) - (Math.ceil(n / 3) - 1) / 2) * 0.62]);
+// v0.7.1: на уровне «Дивизии» — стопка «лесенкой» сверху-справа вниз-влево. Главная часть (i = 0) лежит сверху стопки
+// (внизу слева) и видна целиком; у нижних видны номер (правый верхний угол), край флага и цвет полосы категории.
+const stackSlot = (n, i) => {
+  if (n <= 1) return [0, 0];
+  const dx = n === 2 ? 0.3 : n === 3 ? 0.27 : 0.2, dy = n <= 3 ? 0.385 : 0.36, p = n - 1 - i, m = (n - 1) / 2;
+  return [(m - p) * dx, (p - m) * dy];
+};
 
 export class StaffMap {
   constructor(cv, D, o = {}) {
@@ -504,6 +513,19 @@ export class StaffMap {
       x.lineWidth = 2.3 / z;
       x.stroke(this.axP);
     }
+    // брешь в кольце: пока окружённые держат связь со своими (S.pk.relT > 0), клетки коридора подсвечены
+    const P = S.pk;
+    if (P && P.on && P.relT > 0 && P.cor && P.cor.length) {
+      x.beginPath();
+      for (const c of P.cor) this.hexPath(x, c);
+      x.fillStyle = 'rgba(255,196,40,.34)';
+      x.fill();
+      x.setLineDash([5 / z, 3 / z]);
+      x.strokeStyle = '#ffc428';
+      x.lineWidth = 2.4 / z;
+      x.stroke();
+      x.setLineDash([]);
+    }
     x.restore();
     // —— экранный слой ——
     x.setTransform(d, 0, 0, d, 0, 0);
@@ -590,7 +612,9 @@ export class StaffMap {
   }
   drawUnits(x, now, dt) {
     const S = this.S, z = this.z, G = this.G, div = this.lod === 'div';
-    const k = clamp(z / Z_DIV0, 0.62, 1.15), kq = k <= 0.7 ? 0.7 : k <= 0.85 ? 0.85 : k <= 1 ? 1 : 1.15;
+    const k = clamp(z / Z_DIV0, 0.85, 1.3);
+    // масштаб спрайта квантуется (кеш); бригады и боевые группы (sz < 1) — чуть мельче дивизий
+    const qk = (v) => (v <= 0.62 ? 0.6 : v <= 0.72 ? 0.7 : v <= 0.82 ? 0.8 : v <= 0.92 ? 0.9 : v <= 1.02 ? 1 : v <= 1.15 ? 1.12 : 1.3);
     const L = this.visibleUnits(), by = new Map();
     for (const e of L) {
       let g = by.get(e.c);
@@ -603,7 +627,7 @@ export class StaffMap {
     for (const [c, g] of by) {
       g.sort((a, b) => b.u.sz - a.u.sz || a.u.id - b.u.id);
       g.forEach((e, i) => {
-        const [sx0, sy0] = slot(g.length, i), tx = G.cx[c], ty = G.cy[c];
+        const [sx0, sy0] = div ? stackSlot(g.length, i) : slot(g.length, i), tx = G.cx[c], ty = G.cy[c];
         let a = this.an.get(e.u.id);
         if (!a) this.an.set(e.u.id, (a = { x: tx, y: ty, ox: sx0, oy: sy0 }));
         a.seen = now;
@@ -643,20 +667,21 @@ export class StaffMap {
       }
       x.globalAlpha = 1;
     } else {
-      const w = CW * k, h = CH * k;
+      const W0 = CW * k, H0 = CH * k;
       items.sort((p, q) => (p.e.u.id === this.sel) - (q.e.u.id === this.sel) || p.a.y + p.a.oy * 10 - (q.a.y + q.a.oy * 10));
       for (const { e, a } of items) {
-        const [sx, sy] = this.toScr(a.x, a.y), px = sx + a.ox * w, py = sy + a.oy * h;
-        if (px < -w || py < -h || px > this.W + w || py > this.H + h) continue;
+        const [sx, sy] = this.toScr(a.x, a.y), px = sx + a.ox * W0, py = sy + a.oy * H0;
+        if (px < -W0 || py < -H0 || px > this.W + W0 || py > this.H + H0) continue;
         const u = e.u, ty = TYPES[u.type], own = u.side === this.side || !this.side || !S.fog;
         const known = own || (!e.g && u.sna === 1);
+        const ku = u.sz < 1 ? k * 0.86 : k, kq = qk(ku), w = CW * ku, h = CH * ku;
         const spr = counter(
           { nat: u.nat, num: u.num, ech: ty.ech, cat: known ? catOf(cv(S, u)) : 0, sym: ty.sym, gds: u.gds, unk: e.q, sup0: own && u.sup === 0 },
           kq,
           this.dpr,
         );
         x.globalAlpha = e.g ? 0.55 : 1;
-        x.drawImage(spr, px - w / 2, py - h / 2, spr.width / this.dpr * (k / kq), spr.height / this.dpr * (k / kq));
+        x.drawImage(spr, px - w / 2, py - h / 2, spr.width / this.dpr * (ku / kq), spr.height / this.dpr * (ku / kq));
         x.globalAlpha = 1;
         if (selF && u.form === selF && u.id !== this.sel) {
           x.strokeStyle = 'rgba(242,194,48,.9)';
@@ -687,7 +712,7 @@ export class StaffMap {
       if (!mine && !seen(F.hq)) continue;
       // на уровне «Армии» у противника — только армии/фронты; корпуса Оси — мельче
       if (!div && !mine && F.ech === 'XXX') continue;
-      out.push({ k: 'f', id: F.id, c: F.hq, o: { side: F.side, nat: F.nat, num: F.num, sub: F.sub, ech: F.ech, gen: F.gen }, sc: F.ech === 'XXX' ? 0.86 : 1 });
+      out.push({ k: 'f', id: F.id, c: F.hq, o: { side: F.side, nat: F.nat, num: F.num, sub: F.sub, ech: F.ech, gen: F.gen }, sc: SC_ECH[F.ech] || 1 });
     }
     for (const [key, Hh] of Object.entries(HIGH)) {
       if (key === 'HGD' && !S.flags.hgd) continue;
@@ -696,19 +721,68 @@ export class StaffMap {
       const c = cellAt(this.G, Hh.hq[0], Hh.hq[1]);
       if (c < 0) continue;
       const big = Hh.ech === 'XXXXX', lab = big ? labOf(Hh) : null;
-      out.push({ k: 'h', id: key, c, o: { side: Hh.side, nat: Hh.nat || (Hh.side === 'SOV' ? 'SOV' : 'GER'), num: lab ? '' : Hh.short.replace(/[^0-9]/g, '') || Hh.short, lab, ech: Hh.ech, gen: Hh.gen }, sc: 1 });
+      out.push({ k: 'h', id: key, c, o: { side: Hh.side, nat: Hh.nat || (Hh.side === 'SOV' ? 'SOV' : 'GER'), num: lab ? '' : Hh.short.replace(/[^0-9]/g, '') || Hh.short, lab, ech: Hh.ech, gen: Hh.gen }, sc: SC_ECH[Hh.ech] || 1 });
     }
     return out;
   }
+  // v0.7.1: жетоны крупнее фишек дивизий и по иерархии (корпус < армия < фронт); перекрывающиеся жетоны
+  // раздвигаются, к настоящему месту штаба ведёт тонкая линия с точкой
   drawHQ(x) {
     const z = this.z, div = this.lod === 'div';
-    const kt = div ? clamp((z / Z_DIV0) * 0.86, 0.6, 1) : clamp(z / 1.5, 0.55, 0.95);
-    const kq = kt <= 0.66 ? 0.66 : kt <= 0.82 ? 0.82 : 1;
+    const kt = div ? clamp((z / Z_DIV0) * 1.08, 0.9, 1.45) : clamp(z / 1.3, 0.68, 1.08);
+    const qk = (v) => (v <= 0.62 ? 0.6 : v <= 0.72 ? 0.7 : v <= 0.82 ? 0.8 : v <= 0.92 ? 0.9 : v <= 1.02 ? 1 : v <= 1.15 ? 1.1 : v <= 1.3 ? 1.22 : v <= 1.48 ? 1.4 : 1.6);
+    const L = [];
     for (const T of this.hqList()) {
-      const [sx, sy] = this.scr(T.c), k = kt * T.sc;
+      const [sx, sy] = this.scr(T.c), k = kt * T.sc, kq = qk(k);
       const spr = hqToken(T.o, kq, this.dpr), w = (spr.width / this.dpr) * (k / kq), h = (spr.height / this.dpr) * (k / kq);
-      const px = sx - w / 2, py = sy - h / 2 - (div ? 0 : 0);
+      L.push({ T, spr, w, h, ax: sx, ay: sy, x: sx - w / 2, y: sy - h / 2 });
+    }
+    // раздвинуть перекрытия (несколько проходов; крупный жетон сдвигается меньше)
+    for (let it = 0; it < 10; it++) {
+      let mv = 0;
+      for (let i = 0; i < L.length; i++)
+        for (let j = i + 1; j < L.length; j++) {
+          const A = L[i], B = L[j];
+          const ox = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x) + 2, oy = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y) + 2;
+          if (ox <= 0 || oy <= 0) continue;
+          const sa = A.w * A.h, sb = B.w * B.h, wa = sb / (sa + sb);
+          if (ox < oy) {
+            const d = A.x + A.w / 2 <= B.x + B.w / 2 ? -ox : ox;
+            A.x += d * wa;
+            B.x -= d * (1 - wa);
+          } else {
+            const d = A.y + A.h / 2 <= B.y + B.h / 2 ? -oy : oy;
+            A.y += d * wa;
+            B.y -= d * (1 - wa);
+          }
+          mv = 1;
+        }
+      if (!mv) break;
+    }
+    for (const E of L) {
+      const { T, spr, w, h } = E, px = E.x, py = E.y;
       if (px > this.W || py > this.H || px + w < 0 || py + h < 0) continue;
+      const cx = px + w / 2, cy = py + h / 2;
+      if (Math.abs(cx - E.ax) + Math.abs(cy - E.ay) > 8) {
+        // выноска к месту штаба
+        const ex = clamp(E.ax, px, px + w), ey = clamp(E.ay, py, py + h);
+        x.strokeStyle = 'rgba(20,20,20,.85)';
+        x.lineWidth = 2.6;
+        x.beginPath();
+        x.moveTo(ex, ey);
+        x.lineTo(E.ax, E.ay);
+        x.stroke();
+        x.strokeStyle = T.o.side === 'SOV' ? '#f2c230' : '#f4f2ec';
+        x.lineWidth = 1.2;
+        x.stroke();
+        x.beginPath();
+        x.arc(E.ax, E.ay, 3.2, 0, Math.PI * 2);
+        x.fillStyle = T.o.side === 'SOV' ? '#f2c230' : '#f4f2ec';
+        x.fill();
+        x.lineWidth = 1.4;
+        x.strokeStyle = '#141414';
+        x.stroke();
+      }
       x.drawImage(spr, px, py, w, h);
       const on = (T.k === 'f' && this.selF === T.id) || (T.k === 'h' && this.selH === T.id);
       if (on) {

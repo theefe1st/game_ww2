@@ -1,4 +1,4 @@
-// E2E (v0.7): «Сталинград 1942–1943» — штабная карта «Операция «Уран»».
+// E2E (v0.7.1): «Сталинград 1942–1943» — штабная карта «Операция «Уран»».
 // Хаб → старт → уровни «Армии»/«Дивизии» → карточка дивизии → атака с прогнозом → карточка армии → директива
 // → ходы (анимация, решения, события) → журнал/очки/настройки/справка → «Назад» → выход и «Продолжить».
 // W/H — размер экрана, SIDE — SOV/AX, TURNS — сколько ходов сыграть, TAG — префикс скриншотов, SPD — скорость (0–3).
@@ -22,13 +22,23 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   const sheetOpen = () => page.evaluate(() => !document.querySelector('#st .st-sheet').classList.contains('hidden'));
   const overflow = () => page.evaluate(() => {
     const out = [], vw = innerWidth;
-    for (const e of document.querySelectorAll('#st .st-top *, #st .st-sheet *, #st .st-dlg *, #st .st-status, #st .st-legend, #st .st-hint *, #st .st-sug *')) {
+    for (const e of document.querySelectorAll('#st .st-top *, #st .st-sheet *, #st .st-dlg *, #st .st-status, #st .st-legend, #st .st-hint *, #st .st-sug *, #st .st-bturn')) {
       if (!e.getClientRects().length) continue;
       const r = e.getBoundingClientRect();
       if (r.width < 2) continue;
       if (r.right > vw + 1 || r.left < -1) out.push(`${e.className || e.tagName}: x ${Math.round(r.left)}..${Math.round(r.right)}`);
       const cs = getComputedStyle(e);
       if (e.scrollWidth > e.clientWidth && (cs.overflow === 'hidden' || cs.textOverflow === 'ellipsis') && cs.overflowY !== 'auto') out.push(`clip ${e.className || e.tagName}: "${e.innerText.slice(0, 40)}"`);
+    }
+    // v0.7.1: крупная кнопка «Ход» не должна наезжать на легенду, статус, подсказки и панель
+    const B = document.querySelector('#st .st-bturn');
+    if (B && B.getClientRects().length) {
+      const b = B.getBoundingClientRect();
+      for (const q of ['.st-legend', '.st-status', '.st-sheet', '.st-sug', '.st-hint']) for (const o of document.querySelectorAll('#st ' + q)) {
+        if (!o.getClientRects().length || getComputedStyle(o).display === 'none') continue;
+        const r = o.getBoundingClientRect();
+        if (r.width > 2 && r.left < b.right - 1 && r.right > b.left + 1 && r.top < b.bottom - 1 && r.bottom > b.top + 1) out.push(`turn button overlaps ${q} (кнопка x ${Math.round(b.left)}..${Math.round(b.right)} y ${Math.round(b.top)}..${Math.round(b.bottom)}, ${q} x ${Math.round(r.left)}..${Math.round(r.right)} y ${Math.round(r.top)}..${Math.round(r.bottom)})`);
+      }
     }
     return [...new Set(out)].slice(0, 14);
   });
@@ -104,12 +114,14 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
     // две вражеские клетки в видимой части карты, ближайшие к штабу армии
     // мало вражеских клеток на экране (альбомная раскладка, сторона Оси) — отдалить карту и искать снова
     const pickTg = () => st(() => {
-      const s = __app.st, S = s.S, m = s.map, F = S.forms[s.selF], sid = S.side === 'SOV' ? 1 : 2, { l, t, r, b } = m.inset, L = [];
+      const s = __app.st, S = s.S, m = s.map, F = S.forms[s.selF], sid = S.side === 'SOV' ? 1 : 2, { l, t, r, b } = m.inset, L = [], cr = m.cv.getBoundingClientRect();
       for (let c = 0; c < S.G.n; c++) {
         if (!S.own[c] || S.own[c] === sid) continue;
         const [x, y] = m.toScr(S.G.cx[c], S.G.cy[c]);
         if (x < l + 30 || x > m.W - r - 30 || y < t + 80 || y > m.H - b - 30) continue;
         if (m.hitAt(x, y)) continue;
+        // клетка не под подсказкой, тостом или кнопкой
+        if (document.elementFromPoint(cr.left + x, cr.top + y) !== m.cv) continue;
         L.push([Math.hypot(S.G.cx[c] - S.G.cx[F.hq], S.G.cy[c] - S.G.cy[F.hq]), c]);
       }
       L.sort((a, b) => a[0] - b[0]);

@@ -1,9 +1,10 @@
-// «Сталинград 1942–1943» (v0.7): движок — состояние, часовой такт, движение, штурмы, снабжение, котлы, авиамост, очки.
+// «Сталинград 1942–1943» (v0.7.1): движок — состояние, часовой такт, движение, штурмы, снабжение, котлы, авиамост, очки;
+// v0.7.1: лошади и конина в котле, зимние комплекты, боевой счёт частей, награды и гвардейские звания.
 // Чистый модуль без DOM. Данные карты (uranus42.json) передаются снаружи: newGame(D, …) / load(D, …).
 import { makeGrid, cellAt, hexDist, ekey, rng, clamp, inPoly } from './geo.js';
 import {
   T_START, T_END, weather, isDay, isDawn, dayIdx, dateLabel, shortDate, tOf, ICE, NAT, TYPES, TPL, MOBILE, MECH, sideOf, enemy,
-  combatValue, catOf, atkPower, defPower, antiTank, outcome, P_ART, ammoK, OUT_TXT, lossFrac, TERR, entK, speedOf, stepCost, supLevel, FAT_GAIN, fmtN,
+  combatValue, catOf, atkPower, defPower, antiTank, outcome, P_ART, ammoK, OUT_TXT, lossFrac, TERR, entK, speedOf, stepCost, supLevel, FAT_GAIN, fmtN, horseK,
 } from './rules.js';
 import { GENERALS, HIGH, FORMS, OOB, SOV_CITY, AXIS0, REINF, PLAN, EVENTS, TRAITS } from './scenario.js';
 
@@ -152,21 +153,25 @@ export function invalidateTraits(S) {
 }
 
 // ——— создание частей ———
+// боевой счёт: боёв, побед, нанесённые потери (чел.), пленные, подбитые танки, занятые города
+const newRec = () => ({ b: 0, w: 0, k: 0, p: 0, tk: 0, cap: 0, tw: [] });
+export const recOf = (u) => u.rec || (u.rec = newRec());
 function mkUnit(S, form, type, nat, num, name, o = {}) {
   const T = (TPL[nat] && TPL[nat][type]) || TPL[nat].inf, ty = TYPES[type];
   const mult = o.sz && o.sz !== ty.sz ? 3 : 1; // «7-й ск (3 бригады)»
-  const auth = { men: T[0] * mult, bay: T[1] * mult, guns: T[2] * mult, at: T[3] * mult, tanks: T[4] * mult, trucks: T[5] * mult };
+  const auth = { men: T[0] * mult, bay: T[1] * mult, guns: T[2] * mult, at: T[3] * mult, tanks: T[4] * mult, trucks: T[5] * mult, horses: (T[6] || 0) * mult };
   const p = o.p ?? 0.9, b = o.b ?? p, g = o.g ?? Math.min(1, p + 0.1);
   if (o.tk && o.tk > auth.tanks) auth.tanks = Math.max(auth.tanks, Math.round(o.tk / 0.95));
   const N = NAT[nat];
   const u = {
     id: S.nid++, form, type, nat, side: N.side, num, name, c: -1, pc: -1,
     auth, men: Math.round(auth.men * p), bay: Math.round(auth.bay * b), guns: Math.round(auth.guns * g), at: Math.round(auth.at * g),
-    tanks: o.tk ?? Math.round(auth.tanks * p), trucks: Math.round(auth.trucks * p), rep: 0,
+    tanks: o.tk ?? Math.round(auth.tanks * p), trucks: Math.round(auth.trucks * p), horses: Math.round(auth.horses * p * (o.hk ?? 1)), rep: 0,
     tr: o.tr ?? 50, xp: o.xp ?? 30, mor: o.mor ?? N.mor, win: N.win, gds: o.gds || type === 'gds' ? 1 : 0,
     amm: 100, fuel: 100, food: 100, fat: 15, ctl: 100, ent: o.ent ?? 0, dis: 0, sup: 1,
     cmd: o.cmd || null, note: o.note || null, sz: o.sz ?? ty.sz,
-    ord: null, pend: null, path: null, mp: 0, ovr: 0, still: 12, lc: -99, born: S.t, kills: 0,
+    ord: null, pend: null, path: null, mp: 0, ovr: 0, still: 12, lc: -99, born: S.t,
+    rec: newRec(), aw: [],
   };
   if (u.gds) u.mor = Math.min(95, u.mor + 6);
   const gt = GENERALS[o.cmd]?.tr || [];
@@ -225,6 +230,8 @@ export function newGame(D, o = {}) {
     // Думитреску предупреждал о наступлении: окопы 3-й румынской армии на уровень выше
     const F = S.forms[form];
     if (F && F.par === 'RA3' && (GENERALS.dum.tr || []).includes('warned') && u.nat === 'ROM') u.ent = Math.min(5, u.ent + 1);
+    // 6-я армия к зиме отправила бо́льшую часть конского состава в тыл, за Дон, — на зимние квартиры
+    if (F && F.par === 'A6') u.horses = Math.round(u.horses * 0.6);
     addUnit(S, u, x, y);
   }
   // исходные директивы — по историческому плану на утро 19 ноября
@@ -243,7 +250,9 @@ export function logAdd(S, side, txt, c = -1, k = 'ev') {
 }
 export function msg(S, m) {
   // сообщение игроку (модальное окно или всплывающая строка); side — кому показывать ('*' — всем)
-  m.id = m.id || `m${S.t}_${S.q.length}_${Math.floor(S.rnd() * 1e6)}`;
+  // счётчик, а не ГСЧ: сообщения (награды, тосты) не должны сдвигать случайности боя
+  S.mid = (S.mid || 0) + 1;
+  m.id = m.id || `m${S.t}_${S.mid}`;
   m.t = S.t;
   S.q.push(m);
   return m;
@@ -261,7 +270,7 @@ export function mkDir(S, F, d) {
   if (d.sub)
     for (const [key, pts] of Object.entries(d.sub)) {
       let u = /^\d+$/.test(key) ? S.uById.get(+key) : null;
-      if (!u) u = S.units.find((x) => !x.dead && x.name === key && x.form === F.id) || S.units.find((x) => !x.dead && x.name === key);
+      if (!u) u = S.units.find((x) => !x.dead && (x.name === key || x.was === key) && x.form === F.id) || S.units.find((x) => !x.dead && (x.name === key || x.was === key));
       if (u) o.sub[u.id] = pts.map((p) => cellOf(S, p)).filter((c) => c >= 0);
     }
   return o;
@@ -478,6 +487,11 @@ function capture(S, c, side, u) {
   S.own[c] = SID[side];
   const tw = S.townAt.get(c);
   if (tw && (tw.t <= 2 || tw.vp) && was) {
+    if (u) {
+      const r = recOf(u);
+      r.cap++;
+      if (!r.tw.includes(tw.n)) r.tw.push(tw.n);
+    }
     const L = side === 'SOV' ? `Наши войска заняли ${tw.n}` : `Противник занял ${tw.n}`;
     const A = side === 'AX' ? `Войска Оси заняли ${tw.n}` : `Русские заняли ${tw.n}`;
     S.log.push({ t: S.t, s: side, x: side === 'SOV' ? `${u ? u.name + ': ' : ''}освобождён ${tw.n}` : `${u ? u.name + ': ' : ''}занят ${tw.n}`, c, k: 'cap', L, A });
@@ -701,6 +715,7 @@ function lose(S, u, f, gk = 0.25, ak = 0.35) {
   u.guns = Math.max(0, u.guns * (1 - f * gk));
   u.at = Math.max(0, u.at * (1 - f * ak));
   u.trucks = Math.max(0, u.trucks * (1 - f * 0.2));
+  if (u.horses) u.horses = Math.max(0, u.horses * (1 - f * 0.6));
   S.st.lossM[u.side] += Math.max(0, ml);
   return ml;
 }
@@ -783,7 +798,10 @@ function assault(S, X, A, wx) {
   let out = outcome(R);
   if (out === 3 && defs.some((d) => traits(S, d).stern) && R < 3.6) out = 2;
   const L = lossFrac(R, night), city = S.D.terr[X] === '3';
-  let la = 0, ld = 0, ta = 0, td = 0;
+  let la = 0, ld = 0, ta = 0, td = 0, pr = 0;
+  // доли участников в боевом счёте — по силе до боя
+  const wOf = (u) => u.bay + u.tanks * 25 + u.guns * 4 + 1, wA = A.map(wOf), wD = defs.map(wOf);
+  const sA = wA.reduce((a, b) => a + b, 0), sD = wD.reduce((a, b) => a + b, 0);
   for (const u of A) {
     const tr = traits(S, u);
     const a = L.a * (tr.cautious || tr.methodic ? 0.85 : 1) * (city ? 1.25 : 1);
@@ -816,6 +834,7 @@ function assault(S, X, A, wx) {
       const ok = retreat(S, d, out === 3 ? 2 : 1, from);
       if (!ok) {
         if (R >= 2.2 && (d.mor < 35 || d.bay < 300)) {
+          pr += d.men;
           kill(S, d, 'pl');
           surr++;
         } else {
@@ -830,6 +849,18 @@ function assault(S, X, A, wx) {
     }
   for (const d of defs) if (!d.dead && d.bay < 120 && d.tanks < 8) kill(S, d, 'ds');
   for (const u of A) if (!u.dead && u.bay < 120 && u.tanks < 8) kill(S, u, 'ds');
+  A.forEach((u, i) => {
+    const r = recOf(u), k = wA[i] / sA;
+    r.b++;
+    if (out >= 2) r.w++;
+    (r.k += ld * k), (r.tk += td * k), (r.p += pr * k);
+  });
+  defs.forEach((d, i) => {
+    const r = recOf(d), k = wD[i] / sD;
+    r.b++;
+    if (out === 0) r.w++;
+    (r.k += la * k), (r.tk += ta * k);
+  });
   if (!S.cellU[X].length && out >= 2) advance(S, X, A);
   for (const u of A)
     if (!u.dead && u.ord && u.ord.k === 'atk' && u.ord.tgt === X) {
@@ -1120,8 +1151,10 @@ function pocketCheck(S) {
     P.relT = (P.relT || 0) + 1;
     if (P.relT === 1 && !(P.wT > S.t - 24)) {
       P.wT = S.t;
-      msg(S, { k: 'ev', side: 'SOV', title: 'Разрыв в кольце', txt: 'Окружённые дивизии соединились со своими через брешь в кольце. Закройте коридор: если он продержится 12 часов, кольцо будет прорвано.', pause: 1 });
-      msg(S, { k: 'ev', side: 'AX', title: 'Есть связь с 6-й армией', txt: 'Окружённые дивизии соединились со своими через брешь в кольце. Удержите коридор 12 часов — и кольцо будет прорвано.', pause: 1 });
+      // c — клетка бреши (см. sealCells): кнопка «Показать» в окне, а сама брешь подсвечена на карте
+      const c = P.cor && P.cor.length ? P.cor[0] : -1;
+      msg(S, { k: 'ev', side: 'SOV', title: 'Разрыв в кольце', txt: 'Окружённые дивизии соединились со своими через брешь в кольце (отмечена на карте). Закройте коридор: если он продержится 12 часов, кольцо будет прорвано.', pause: 1, c });
+      msg(S, { k: 'ev', side: 'AX', title: 'Есть связь с 6-й армией', txt: 'Окружённые дивизии соединились со своими через брешь в кольце (отмечена на карте). Удержите коридор 12 часов — и кольцо будет прорвано.', pause: 1, c });
     }
     if (P.relT >= 12) {
       P.on = 0;
@@ -1167,7 +1200,7 @@ function formPocket(S, C) {
   for (const u of C.units) (mx += S.G.cx[u.c]), (my += S.G.cy[u.c]);
   (mx /= C.units.length), (my /= C.units.length);
   for (const u of C.units) r0 = Math.max(r0, Math.hypot(S.G.cx[u.c] - mx, S.G.cy[u.c] - my));
-  S.pk = { on: 1, t0: S.t, ids: C.units.map((u) => u.id), men0: C.men, divs0: C.divs, cut: C.units.length, free: 0, men: C.men, n: (S.pk?.n || 0) + 1, fs, cells: C.cells.length, esc: [], c0: [Math.round(mx), Math.round(my)], r0: Math.round(r0 + 30) };
+  S.pk = { on: 1, t0: S.t, ids: C.units.map((u) => u.id), men0: C.men, divs0: C.divs, cut: C.units.length, free: 0, men: C.men, n: (S.pk?.n || 0) + 1, fs, cells: C.cells.length, esc: [], c0: [Math.round(mx), Math.round(my)], r0: Math.round(r0 + 30), hLog: S.pk?.hLog || 0, hEat: S.pk?.hEat || 0 };
   if (again) {
     msg(S, { k: 'ev', side: '*', title: 'Кольцо снова замкнулось', txt: `В окружении — ${fmtN(C.men)} человек.`, pause: 1 });
     logAdd(S, '*', `Кольцо снова замкнулось: ${fmtN(C.men)} человек.`, -1, 'pk');
@@ -1235,8 +1268,17 @@ function upkeep(S, u, wx, cnt) {
     if (mech) u.fuel = Math.min(100, u.fuel + 3 * s);
     u.food = Math.min(100, u.food + 2 * s);
   }
-  u.food = Math.max(0, u.food - 0.42 * (s === 0 ? 0.33 : 1));
+  // в котле паёк растягивают; пока есть конина — расход меньше (P.meat — доля суточной нормы из забитых лошадей)
+  const pk = s === 0 && S.pk && S.pk.on && pkSet(S).has(u.id);
+  u.food = Math.max(0, u.food - 0.42 * (s === 0 ? (pk ? 0.36 - 0.06 * (S.pk.meat ?? 1) : 0.33) : 1));
   if (mech) u.fuel = Math.max(0, u.fuel - 0.02);
+  // конский состав: без подвоза фуража лошади падают
+  if (u.horses > 0) {
+    if (s === 0) u.horses *= 1 - 0.0005;
+    else if (s < 0.5) u.horses *= 1 - 0.000125;
+  }
+  // немецкие зимние комплекты (сбор тёплых вещей в рейхе) приходят в войска с начала декабря — кроме окружённых (до 60 %)
+  if (u.nat === 'GER' && s >= 0.5 && u.win < 60 && dayIdx(S.t) >= 16) u.win = Math.min(60, u.win + 0.015);
   if (u.moved) u.fat = Math.min(100, u.fat + FAT_GAIN[TYPES[u.type].mob] * (u.kmh > 0 ? 1 : 0.5) * (tr.bold ? 1.2 : 1));
   else if (!contact) u.fat = Math.max(0, u.fat - (u.ord?.k === 'rest' ? 4 : 3));
   else u.fat = Math.max(0, u.fat - 1.2);
@@ -1263,6 +1305,7 @@ function upkeep(S, u, wx, cnt) {
     }
     if (u.guns < u.auth.guns) u.guns = Math.min(u.auth.guns, u.guns + u.auth.guns * k * 0.6);
     if (u.at < u.auth.at) u.at = Math.min(u.auth.at, u.at + u.auth.at * k * 0.6);
+    if (u.auth.horses && u.horses < u.auth.horses) u.horses = Math.min(u.auth.horses, u.horses + u.auth.horses * k * 0.5);
     if (u.rep > 0.5) {
       const r = Math.min(u.rep, Math.max(0.15, u.rep * 0.012));
       u.rep -= r;
@@ -1291,6 +1334,7 @@ function airlift(S) {
   const units = P.ids.map((id) => S.uById.get(id)).filter((u) => u && !u.dead && u.sup === 0);
   if (!units.length) return;
   const men = units.reduce((s, u) => s + u.men, 0), need = (men * 2.8) / 1000;
+  horseMeat(S, P, units, men);
   const days = (S.t - S.flags.pocket) / 24, ramp = clamp(0.35 + days * 0.09, 0.35, 1);
   const { base, bases } = airPotential(S);
   let pa = 0.12, fld = 'сброс контейнеров';
@@ -1314,6 +1358,124 @@ function airlift(S) {
   S.airTot = (S.airTot || 0) + del;
   S.airDays = (S.airDays || 0) + 1;
   logAdd(S, 'AX', `Воздушный мост: доставлено ${del} т при потребности ${Math.round(need)} т (${fld}).`, ac, 'air');
+}
+
+// конина: окружённые забивают лошадей (≈ 1 лошадь на 500 человек в сутки), пока они есть
+function horseMeat(S, P, units, men) {
+  const pool = units.reduce((s, u) => s + (u.horses || 0), 0), want = men * 0.002;
+  const cut = Math.min(pool, want);
+  if (cut > 0) for (const u of units) if (u.horses > 0) u.horses = Math.max(0, u.horses - (cut * u.horses) / pool);
+  P.meat = want > 0 ? Math.round((cut / want) * 100) / 100 : 0;
+  P.horses = Math.round(Math.max(0, pool - cut));
+  P.hEat = (P.hEat || 0) + Math.round(cut);
+  if (cut > 0 && !P.hLog) {
+    P.hLog = 1;
+    logAdd(S, 'AX', `В котле забивают лошадей: около ${fmtN(cut)} в сутки (осталось ≈ ${fmtN(P.horses)}). Конина растягивает паёк, но обозы и артиллерия теряют тягу.`, -1, 'pk');
+  }
+  if (P.hLog === 1 && P.horses < 200) {
+    P.hLog = 2;
+    logAdd(S, 'AX', `В котле съедены последние лошади (всего ${fmtN(P.hEat)}). Пушки и раненых тащат на руках.`, -1, 'pk');
+    msg(S, { k: 'toast', side: 'AX', title: 'Съедены последние лошади', txt: 'в котле — только воздушный мост' });
+  }
+}
+
+// ——— награды по боевому счёту (раз в сутки, в полдень) ———
+// СССР: орден Красного Знамени, затем гвардейское звание с новым номером (как в 1942–43: 304-я сд → 67-я гв. сд)
+// и почётным наименованием для корпусов (24-й тк за Тацинскую — 2-й гв. Тацинский тк); Ось — награды командирам дивизий
+const GDS_NUM = { inf: { 76: 51, 63: 52, 119: 54, 293: 66, 304: 67, 96: 68, 120: 69, 138: 70, 29: 72, 38: 73, 45: 74, 95: 75, 157: 76, 173: 77, 204: 78, 284: 79, 422: 81, 321: 82 },
+  tk: { 26: 1, 24: 2, 7: 3, 17: 4, 4: 5 }, mk: { 4: 3 }, cc: { 8: 7 } };
+const GDS_NEXT = { inf: 90, tk: 6, mk: 5, cc: 8 };
+const gCls = (t) => (t === 'gds' ? 'inf' : t);
+const GDS_USED = new Set([
+  ...OOB.filter((r) => r[2] === 'SOV' && (r[1] === 'gds' || r[7]?.gds)).map((r) => `${gCls(r[1])}:${r[3]}`),
+  ...REINF.flatMap((r) => r.units).filter((x) => x[1] === 'SOV' && (x[0] === 'gds' || x[4]?.gds)).map((x) => `${gCls(x[0])}:${x[2]}`),
+]);
+export const HON = { Тацинская: 'Тацинский', Котельниково: 'Котельниковский', Морозовск: 'Морозовский', Калач: 'Донской', Сталинград: 'Сталинградский', 'Нижне-Чирская': 'Нижнечирский', Обливская: 'Обливский', Суровикино: 'Суровикинский', Тормосин: 'Тормосинский', Абганерово: 'Абганеровский' };
+export const AWARD = {
+  rb: { n: 'орден Красного Знамени', m: 7, mor: 4 },
+  gds: { n: 'гвардейское звание', m: 12, mor: 5, day: 14, gap: 5 },
+  kc: { n: 'Рыцарский крест командиру', m: 7, mor: 2 },
+  ol: { n: 'Дубовые листья к Рыцарскому кресту', m: 14, mor: 2, gap: 10 },
+  mih: { n: 'орден Михая Храброго', m: 7, mor: 3 },
+  oro: { n: 'Золотая медаль «За воинскую доблесть»', m: 6, mor: 3 },
+};
+export function merit(u) {
+  const r = recOf(u);
+  return r.k / 1000 + r.p / 1500 + r.tk / 10 + 0.8 * r.w + 1.5 * r.cap;
+}
+const hasAw = (u, k) => (u.aw || []).some((a) => a.k === k);
+// можно ли вручить сейчас: представления идут не раньше 24.11, гвардия — с декабря, вторая награда — не сразу после первой
+function awardReady(S, u, k) {
+  const A = AWARD[k], last = (u.aw || []).reduce((m, a) => Math.max(m, a.t), -1e9);
+  return dayIdx(S.t) >= (A.day || 5) && S.t - last >= (A.gap || 0) * 24 && merit(u) >= A.m;
+}
+function nextAward(u) {
+  if (u.side === 'SOV') return !hasAw(u, 'rb') ? 'rb' : !u.gds && GDS_NUM[u.type] ? 'gds' : null;
+  if (u.nat === 'GER') return !hasAw(u, 'kc') ? 'kc' : !hasAw(u, 'ol') ? 'ol' : null;
+  if (u.nat === 'ROM') return !hasAw(u, 'mih') ? 'mih' : null;
+  if (u.nat === 'ITA') return !hasAw(u, 'oro') ? 'oro' : null;
+  return null;
+}
+// следующая награда части и её заслуги (для карточки)
+export function awardNext(u) {
+  const k = nextAward(u);
+  if (!k) return null;
+  const A = AWARD[k];
+  return { k, n: k === 'gds' ? 'гвардейское звание' : A.n, m: A.m, cur: Math.round(merit(u) * 10) / 10 };
+}
+function guardsName(S, u) {
+  const cls = gCls(u.type), used = new Set(GDS_USED);
+  for (const v of S.units) if (v.side === 'SOV' && v.gds) used.add(`${gCls(v.type)}:${v.num}`);
+  let n = GDS_NUM[cls]?.[u.num];
+  if (!n || used.has(`${cls}:${n}`)) for (n = GDS_NEXT[cls] || 90; used.has(`${cls}:${n}`); ) n++;
+  if (cls === 'inf') return { n, name: `${n}-я гв. сд` };
+  // почётное наименование корпусу — по самому важному занятому им городу
+  const tw = (u.rec?.tw || []).filter((x) => HON[x]).sort((a, b) => (S.D.towns.find((t) => t.n === b)?.vp || 0) - (S.D.towns.find((t) => t.n === a)?.vp || 0))[0];
+  return { n, name: `${n}-й гв.${tw ? ` ${HON[tw]}` : ''} ${cls === 'tk' ? 'тк' : cls === 'mk' ? 'мк' : 'кк'}`, hon: tw };
+}
+function giveAward(S, u, k) {
+  const A = AWARD[k], e = { k, t: S.t };
+  (u.aw = u.aw || []).push(e);
+  u.mor = Math.min(97, u.mor + A.mor);
+  u.mor0 = Math.min(95, (u.mor0 ?? u.mor) + A.mor);
+  let title, txt;
+  if (k === 'gds') {
+    const g = guardsName(S, u);
+    e.was = u.name;
+    e.n = g.name;
+    if (g.hon) e.hon = g.hon;
+    u.was = u.was || u.name;
+    u.num = g.n;
+    u.name = g.name;
+    u.gds = 1;
+    u.tr = Math.min(90, u.tr + 3);
+    title = `${e.was} → ${g.name}`;
+    txt = `приказ НКО: за отвагу и стойкость — гвардейское звание${g.hon ? `, почётное наименование «${HON[g.hon]}» — за ${g.hon}` : ''}`;
+  } else if (u.side === 'SOV') (title = `${u.name}: ${A.n}`), (txt = 'Указ Президиума Верховного Совета');
+  else if (k === 'kc' || k === 'ol') (title = `${A.n} — ${u.name}`), (txt = k === 'kc' ? 'командир дивизии награждён за бои на Дону и Волге' : 'вторая награда командиру дивизии');
+  else (title = `${u.name}: ${A.n}`), (txt = 'за стойкость в боях на Дону');
+  logAdd(S, u.side, `${title} (${txt}).`, u.c, 'aw');
+  msg(S, { k: 'toast', side: u.side, title, txt, c: u.c, good: 1 });
+}
+function awards(S) {
+  if (dayIdx(S.t) < 5) return;
+  for (const side of ['SOV', 'AX']) {
+    const L = [];
+    for (const u of S.units) {
+      if (u.dead || u.side !== side) continue;
+      const k = nextAward(u);
+      if (k && awardReady(S, u, k)) L.push([merit(u) - AWARD[k].m, u, k]);
+    }
+    // не больше двух наград в сутки на сторону (и одного гвардейского звания) — самые отличившиеся первыми
+    L.sort((a, b) => b[0] - a[0]);
+    let n = 0, g = 0;
+    for (const [, u, k] of L) {
+      if (n >= 2 || (k === 'gds' && g >= 1)) continue;
+      giveAward(S, u, k);
+      n++;
+      if (k === 'gds') g++;
+    }
+  }
 }
 
 // ——— штабы перемещаются за войсками ———
@@ -1614,6 +1776,7 @@ export function tick(S) {
   for (const u of L) if (!u.dead) cnt[u.form] = (cnt[u.form] || 0) + 1;
   for (const u of L) if (!u.dead) upkeep(S, u, wx, cnt);
   if (t % 24 === 18) airlift(S);
+  if (t % 24 === 12) awards(S);
   if (t % 6 === 0) moveHQs(S);
   scriptEvents(S);
   applyPlan(S, false);
@@ -1672,7 +1835,7 @@ export function cv(S, u) {
 export { catOf };
 
 // ——— сохранение ———
-const KEYS = ['v', 'side', 'diff', 'hist', 'fog', 'seed', 't', 'nid', 'units', 'forms', 'evDone', 'planDone', 'reDone', 'log', 'q', 'flags', 'vpx', 'vpl', 'st', 'air', 'airTot', 'airDays', 'pk', 'ai', 'over', 'both', 'decDone', 'decWait', 'vp0', 'pkPend', 'trv'];
+const KEYS = ['v', 'side', 'diff', 'hist', 'fog', 'seed', 't', 'nid', 'units', 'forms', 'evDone', 'planDone', 'reDone', 'log', 'q', 'flags', 'vpx', 'vpl', 'st', 'air', 'airTot', 'airDays', 'pk', 'ai', 'over', 'both', 'decDone', 'decWait', 'vp0', 'pkPend', 'trv', 'mid'];
 export function save(S) {
   const o = {};
   for (const k of KEYS) o[k] = S[k];
@@ -1687,6 +1850,17 @@ export function load(D, str) {
   const S = o;
   S.own = Uint8Array.from(o.own.split(''), Number);
   S.trail = new Map(o.trail || []);
+  // сохранения v0.7: у частей ещё нет лошадей, боевого счёта и наград
+  for (const u of S.units) {
+    if (u.auth.horses == null) {
+      const T = (TPL[u.nat] && TPL[u.nat][u.type]) || TPL[u.nat].inf, mult = u.sz !== TYPES[u.type].sz ? 3 : 1;
+      u.auth.horses = (T[6] || 0) * mult;
+      u.horses = Math.round(u.auth.horses * clamp(u.men / Math.max(1, u.auth.men), 0, 1));
+    }
+    if (!u.rec) u.rec = newRec();
+    if (!u.rec.tw) u.rec.tw = [];
+    if (!u.aw) u.aw = [];
+  }
   prepStatic(S, D);
   S.wx = weather(S.t);
   computeSupply(S);
