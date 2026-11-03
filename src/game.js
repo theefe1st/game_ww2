@@ -12,6 +12,7 @@ import { kharkov42 as __mkKH } from "./ops/kharkov42.js";
 import { rzhev42 as __mkRZ } from "./ops/rzhev42.js";
 import { FrontMap, frontState } from "./front/frontmap.js";
 import { EuropeUI } from "./europe/ui.js";
+import { StaffUI } from "./staff/ui.js";
 import { FRONT_STAGES, FRONT_OPS, FRONT_TEXT, FRONT_RESULT } from "./front/stages.js";
 var e = Object.defineProperty,
   t = (e, t, n) => () => {
@@ -9240,7 +9241,7 @@ function Eo(e) {
 var Do = `wf_save_v1`,
   Oo = (e) =>
     `${e} ${e % 10 == 1 && e % 100 != 11 ? `приказ` : e % 10 >= 2 && e % 10 <= 4 && (e % 100 < 12 || e % 100 > 14) ? `приказа` : `приказов`}`,
-  ko = `v0.6.1 · прототип`,
+  ko = `v0.7.1 · прототип`,
   Ao = {
     smolensk41: Ua,
     moscow41: Wa,
@@ -9388,6 +9389,7 @@ var Do = `wf_save_v1`,
 <div id="menu" class="hidden"></div>
 <div id="front" class="hidden"></div>
 <div id="eu" class="hidden"></div>
+<div id="st" class="hidden"></div>
 <div id="modal" class="hidden"></div>`;
       for (let e of this.ui.querySelectorAll(`[id]`)) this.$[e.id] = e;
       (this.$[`b-obj`].prepend(_o(`star`)),
@@ -9447,6 +9449,7 @@ var Do = `wf_save_v1`,
     }
     onBack() {
       if (this.eu && !this.$.eu.classList.contains(`hidden`)) return this.eu.back();
+      if (this.st && !this.$.st.classList.contains(`hidden`)) return this.st.back();
       return this.modalOpen
         ? (this.$.modal.dataset.nodismiss !== `1` &&
             (Z.click(), this.closeModal()),
@@ -9566,6 +9569,7 @@ var Do = `wf_save_v1`,
     showMenu() {
       this.closeFront();
       this.closeEurope();
+      this.closeStaff();
       let euAbort = this.euDeep;
       euAbort && ((this.euDeep = null), this.euRestore());
       ((this.menuBack = null),
@@ -9601,7 +9605,8 @@ var Do = `wf_save_v1`,
 ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</small></button>` : ``}
 <button class="btn ${e ? `` : `gold`}" id="m-new">Новая кампания</button>
 <button class="btn" id="m-car">Карьера генерала<small>${$(o)}</small></button>
-<button class="btn" id="m-eu"><span class="newtag">новое</span>Европа 1939–1945<small>${$(EuropeUI.menuLabel())}</small></button>
+<button class="btn" id="m-st"><span class="newtag">новое</span>Сталинград 1942–1943<small>${$(StaffUI.menuLabel())}</small></button>
+<button class="btn" id="m-eu">Европа 1939–1945<small>${$(EuropeUI.menuLabel())}</small></button>
 <div class="mrow"><button class="btn" id="m-help">Как играть</button><button class="btn" id="m-snd">Звук: ${co.on ? `вкл` : `выкл`}</button></div>
 </div>
 <div class="ver">${ko}</div>`;
@@ -9618,6 +9623,9 @@ ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</
         s(`m-eu`).addEventListener(`click`, () => {
           (Z.click(), this.openEurope());
         }),
+        s(`m-st`).addEventListener(`click`, () => {
+          (Z.click(), this.openStaff());
+        }),
         s(`m-help`).addEventListener(`click`, () => {
           (Z.click(), this.showHelp());
         }),
@@ -9628,7 +9636,7 @@ ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</
     }
     // ——— «Европа 1939–1945»: стратегический режим и тактические битвы из него ———
     openEurope() {
-      (this.closeFront(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      (this.closeFront(), this.closeStaff(), this.closeModal(), this.$.menu.classList.add(`hidden`));
       for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
       this.eu ||
         (this.eu = new EuropeUI(this.$.eu, {
@@ -9643,6 +9651,17 @@ ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</
     closeEurope() {
       this.eu && !this.$.eu.classList.contains(`hidden`) && this.eu.close();
       this.$.eu.classList.add(`hidden`);
+    }
+    // ——— «Сталинград 1942–1943»: штабной режим «Операция «Уран»» (v0.7) ———
+    openStaff() {
+      (this.closeFront(), this.closeEurope(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
+      this.st || (this.st = new StaffUI(this.$.st, { sfx: Z, exit: () => this.showMenu() }));
+      (this.$.st.classList.remove(`hidden`), this.st.open());
+    }
+    closeStaff() {
+      this.st && !this.$.st.classList.contains(`hidden`) && this.st.close();
+      this.$.st.classList.add(`hidden`);
     }
     euDeepStart(e, t, n, r) {
       let i = ma[e];
