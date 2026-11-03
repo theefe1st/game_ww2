@@ -526,3 +526,24 @@ export function portraitURL(id, k = 3) {
   urls.set(key, u);
   return u;
 }
+// v0.8: портрет по готовым параметрам (генералы глав «Барбароссы», не входящие в «Сталинград»)
+export function portraitURLP(key, por, nat, k = 3) {
+  const kk = `p:${key}|${k}`;
+  let u = urls.get(kk);
+  if (u) return u;
+  const s = document.createElement('canvas');
+  s.width = PW;
+  s.height = PH;
+  const sx = s.getContext('2d'), im = sx.createImageData(PW, PH);
+  im.data.set(draw(por, nat));
+  sx.putImageData(im, 0, 0);
+  const c = document.createElement('canvas');
+  c.width = PW * k;
+  c.height = PH * k;
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.drawImage(s, 0, 0, c.width, c.height);
+  u = c.toDataURL();
+  urls.set(kk, u);
+  return u;
+}
