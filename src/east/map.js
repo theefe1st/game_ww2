@@ -666,7 +666,7 @@ export class EastMap {
     return this.wxOn;
   }
   drawWx(c, t) {
-    const W = this.w, H = this.h, n = Math.round(clamp((W * H) / 2600, 70, 360));
+    const W = this.w, H = this.h, n = Math.round(clamp((W * H) / 1500, 90, 520));
     const P = (this.wxp ??= []);
     while (P.length < n) P.push({ x: Math.random() * W, y: Math.random() * H, k: Math.random(), ph: Math.random() * 6.28 });
     P.length = n;
@@ -679,20 +679,21 @@ export class EastMap {
         if (w === 'mud' && p.k > 0.45) { p.y += 300 * dt; } else {
           const vy = 560 + p.k * 220, vx = -110;
           p.x += vx * dt; p.y += vy * dt;
-          rain.moveTo(p.x, p.y); rain.lineTo(p.x - vx * 0.018, p.y - vy * 0.018); nr++;
+          rain.moveTo(p.x, p.y); rain.lineTo(p.x - vx * 0.026, p.y - vy * 0.026); nr++;
         }
       } else if (w === 'snow' || w === 'frost') {
         const fr = w === 'frost';
         if (fr && p.k > 0.6) { p.y += 30 * dt; } else {
           p.x += (Math.sin(t / 900 + p.ph) * 18 - (fr ? 46 : 8)) * dt; p.y += (fr ? 26 : 38 + p.k * 30) * dt;
-          const r = 0.9 + p.k * 1.5;
+          const r = 1.2 + p.k * 1.6;
           snow.moveTo(p.x + r, p.y); snow.arc(p.x, p.y, r, 0, Math.PI * 2); ns++;
         }
       } else p.y += 200 * dt;
       if (p.y > H + 12 || p.x < -12 || p.x > W + 12) { p.y = -8 - Math.random() * 20; p.x = Math.random() * (W + 60); }
     }
-    if (nr) { c.strokeStyle = 'rgba(212,226,242,0.5)'; c.lineWidth = 1; c.lineCap = 'round'; c.stroke(rain); }
-    if (ns) { c.fillStyle = 'rgba(255,255,255,0.82)'; c.fill(snow); }
+    // тёмно-синие штрихи и хлопья с тенью — видны и на светлой карте, и на снегу
+    if (nr) { c.strokeStyle = 'rgba(52,78,118,0.42)'; c.lineWidth = 1.2; c.lineCap = 'round'; c.stroke(rain); }
+    if (ns) { c.strokeStyle = 'rgba(64,76,98,0.38)'; c.lineWidth = 0.8; c.stroke(snow); c.fillStyle = 'rgba(255,255,255,0.92)'; c.fill(snow); }
   }
   arrow(c, x0, y0, x1, y1, col, w, dash) {
     const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
