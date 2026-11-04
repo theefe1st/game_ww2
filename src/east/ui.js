@@ -5,13 +5,15 @@
 // карточки событий. Ход игрока: beginPhase → свои приказы → «Ход» → генералы выполняют остальное (runSide).
 // Хост (game.js) даёт exit() — выход в архив прототипов.
 import J from './data/map.json';
+import JR from './data/rails.json';
 import './east.css';
-import { decodeMap, TER_N } from './mapdata.js';
+import { decodeMap, decodeRails, TER_N } from './mapdata.js';
 import { newGame } from './setup.js';
 import * as E from './engine.js';
 import { runSide, setPostures, autoTarget, nearTarget, zoneForce } from './ai.js';
 import { evCard, chooseEvent, boostsNow, pendingChoices } from './events.js';
-import { EastMap, drawCounter } from './map.js';
+import { EastMap } from './map.js';
+import { counterURL, divLabel, wmOf } from './counters.js';
 import { Sound } from './audio.js';
 import { icon } from './icons.js';
 import { fmtTurn, turnOf, SIDE_N, SIDE0, NAT_N, TYPES, TER, WX, DIFF, MODES, other, divW, plural } from './rules.js';
@@ -46,14 +48,6 @@ export function flagHTML(nat, cls = '') {
   const inner = nat === 'SOV' ? `<i class="fs">${ic('star')}</i>` : nat === 'GER' ? '<svg class="fx" viewBox="0 0 30 20"><path d="M11.6 2.4h6.8v5h5v5.2h-5v5h-6.8v-5h-5V7.4h5z" fill="#fff"/><path d="M13 3.8h4v5h5v2.4h-5v5h-4v-5H8V8.8h5z" fill="#141414"/></svg>' : nat === 'FIN' ? '' : '';
   return `<span class="e-flag ${cls}" style="${st}">${inner}</span>`;
 }
-const CURL = new Map();
-function counterURL(nat, t) {
-  const k = nat + t;
-  if (CURL.has(k)) return CURL.get(k);
-  const c = document.createElement('canvas'); c.width = 69; c.height = 48;
-  const x = c.getContext('2d'); x.scale(3, 3); drawCounter(x, nat, t, 23, 16);
-  const u = c.toDataURL(); CURL.set(k, u); return u;
-}
 const genURL = (k) => { const G = ALLG[k]; return G ? portraitURLP('w:' + k, G.por, POR_NAT[G.nat] || 'GER', 3) : ''; };
 const strCol = (s) => (s >= 70 ? '#6fb44e' : s >= 40 ? '#d9b23a' : '#d0583a');
 
@@ -62,7 +56,7 @@ export class EastUI {
   constructor(root, host = {}) {
     this.root = root; this.host = host;
     this.snd = new Sound();
-    this.opt = { trees: true, figures: true, tips: true };
+    this.opt = { trees: false, wxfx: true, tips: true };
     try { Object.assign(this.opt, JSON.parse(localStorage.getItem(OPTS) || '{}')); } catch {}
     try { this.tipsSeen = JSON.parse(localStorage.getItem(TIPS) || '{}'); } catch { this.tipsSeen = {}; }
     this.S = null; this.P = 'SOV'; this.mode = 'menu'; this.sel = null; this.pick = null;
@@ -105,9 +99,9 @@ export class EastUI {
   // карта создаётся при первом открытии (WebGL, рельеф — ~0,3 с)
   ensureMap() {
     if (this.map) return;
-    this.M = decodeMap(J);
+    this.M = decodeRails(decodeMap(J), JR);
     this.map = new EastMap(this.$('.e-map'), this.M);
-    this.map.opt.trees = this.opt.trees; this.map.opt.figures = this.opt.figures;
+    this.map.opt.trees = this.opt.trees; this.map.opt.wx = this.opt.wxfx;
     this.map.onTap = (r, x, y) => this.onTap(r, x, y);
     this.map.onLong = (r) => { if (r >= 0) { this.snd.play('select'); this.openRegion(r); } };
   }
@@ -164,7 +158,7 @@ export class EastUI {
       case 'evc': return this.pickChoice(b.dataset.id, +b.dataset.i);
       case 'evok': this.snd.play('click'); return this.nextCard();
       case 'rep': this.snd.play('click'); return this.nextCard();
-      case 'opt': { this.snd.play('click'); const k = b.dataset.k; this.opt[k] = !this.opt[k]; this.saveOpts(); if (this.map) { this.map.opt.trees = this.opt.trees; this.map.opt.figures = this.opt.figures; this.map.redraw(); } if (k === 'tips' && this.opt.tips) { this.tipsSeen = {}; try { localStorage.removeItem(TIPS); } catch {} } return this.showSettings(); }
+      case 'opt': { this.snd.play('click'); const k = b.dataset.k; this.opt[k] = !this.opt[k]; this.saveOpts(); if (this.map) { this.map.opt.trees = this.opt.trees; this.map.opt.wx = this.opt.wxfx; this.map.redraw(); } if (k === 'tips' && this.opt.tips) { this.tipsSeen = {}; try { localStorage.removeItem(TIPS); } catch {} } return this.showSettings(); }
       case 'tipok': this.snd.play('click'); return this.hideTip();
       case 'region': { const r = +b.dataset.r; this.snd.play('click'); this.map.flyTo(this.M.reg[r].x, this.M.reg[r].y, Math.max(this.map.view.sc, 0.8)); return this.openRegion(r); }
       case 'save': this.save(); this.toast(ic('save') + 'Игра сохранена'); return this.closeModal();
@@ -233,7 +227,7 @@ ${DIFF.map((d) => opt('diff', d.k, `${ic(['medal', 'star', 'skull'][d.k])}<b>${d
 <div class="e-set">
 <label class="e-row">${ic('music')}<span>Музыка</span><input type="range" min="0" max="100" value="${Math.round(s.music * 100)}" id="e-mus"></label>
 <label class="e-row">${ic('sound')}<span>Звуки</span><input type="range" min="0" max="100" value="${Math.round(s.sfx * 100)}" id="e-sfx"></label>
-${tg('trees', 'Деревья на карте', 'wheat')}${tg('figures', 'Фигурки войск вблизи', 'helmet')}${tg('tips', 'Подсказки новичку', 'info')}
+${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Анимация погоды', 'rain')}${tg('tips', 'Подсказки новичку', 'info')}
 </div>
 <div class="e-btns"><button class="e-btn gold" data-a="close">${ic('check')}<span>Готово</span></button></div>`, { cls: 'set' });
     m.querySelector('#e-mus').addEventListener('input', (e) => this.snd.setMusic(e.target.value / 100));
@@ -696,7 +690,7 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
     const name = g.city && g.city.n !== g.n ? `${esc(g.city.n)} <small>${esc(g.n)}</small>` : esc(g.n);
     const info = `<div class="e-tags"><span class="e-tag">${ic(g.t === 'for' ? 'wheat' : g.t === 'mnt' || g.t === 'hil' ? 'mtn' : 'compass')}${esc(TER[g.t].n)}</span><span class="e-tag">${ic(WX[S.wx[g.z]].ic)}${esc(WX[S.wx[g.z]].n)}</span><span class="e-tag">${esc(ZONES[g.z].n)}</span>${supT}${g.vp ? `<span class="e-tag gold">${ic('star')}${g.vp}</span>` : ''}</div>`;
     const blds = `<div class="e-bl">${S.fort[r] ? `<span title="Укрепления">${ic('fort')}<b>${S.fort[r]}</b></span>` : ''}${S.fac[r] ? `<span title="Заводы">${ic('factory')}<b>${S.fac[r]}</b></span>` : ''}${S.afd[r] ? `<span title="Аэродром">${ic('airfield')}</span>` : ''}${E.garOf(S, r) > 0 && sd ? `<span title="Гарнизон">${ic('rifle')}<small>гарнизон</small></span>` : ''}</div>`;
-    const ulist = us.length ? `<div class="e-units">${us.map((u) => `<div class="e-u ${u.s === P ? '' : 'en'}"><img src="${counterURL(u.nat, u.t)}" alt=""><div><b>${esc(u.n)}</b><small>${esc(TYPES[u.t].n)}${u.nat !== u.s ? ` · ${esc(NAT_N[u.nat])}` : ''}${u.man ? ' · приказ отдан' : ''}</small><i class="e-str"><em style="width:${Math.max(4, u.str)}%;background:${strCol(u.str)}"></em></i>${u.s === P && u.t !== 'sec' && u.rdy < 22 ? `<small class="e-nrdy">${ic('hourglass')}не готова к удару</small>` : ''}</div></div>`).join('')}</div>` : `<div class="e-note">${ic('info')}Войск нет</div>`;
+    const ulist = us.length ? `<div class="e-units">${us.map((u) => `<div class="e-u ${u.s === P ? '' : 'en'}"><img src="${counterURL(u.nat, u.t, divLabel(u), wmOf(u))}" alt=""><div><b>${esc(u.n)}</b><small>${esc(TYPES[u.t].n)}${u.nat !== u.s ? ` · ${esc(NAT_N[u.nat])}` : ''}${u.man ? ' · приказ отдан' : ''}</small><i class="e-str"><em style="width:${Math.max(4, u.str)}%;background:${strCol(u.str)}"></em></i>${u.s === P && u.t !== 'sec' && u.rdy < 22 ? `<small class="e-nrdy">${ic('hourglass')}не готова к удару</small>` : ''}</div></div>`).join('')}</div>` : `<div class="e-note">${ic('info')}Войск нет</div>`;
     let act = '';
     if (sd === P) {
       const mv = us.filter((u) => u.s === P && u.mp > 0.2 && !u.att);

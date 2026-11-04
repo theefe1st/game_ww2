@@ -1,6 +1,7 @@
-// «Мировой фронт» v0.10, «Восточный фронт»: отрисовка карты на WebGL — низкополигональный рельеф (terrain.js),
-// деревья, заливка областей по владельцам (текстура цветов), реки, берега, границы и линия фронта (полосы с
-// выдавливанием в шейдере — толщина в CSS-пикселях при любом масштабе). Подписи и фишки рисует map.js поверх (2D).
+// «Мировой фронт» v0.11, «Восточный фронт»: отрисовка карты на WebGL — рельеф с мягкой отмывкой (terrain.js),
+// заливка областей по владельцам (текстура цветов), реки, железные дороги, берега, границы и линия фронта (полосы с
+// выдавливанием в шейдере — толщина в CSS-пикселях при любом масштабе), сезонный покров (снег, распутица) по
+// погодным полосам. Деревья — по желанию (настройка). Подписи и фишки рисует map.js поверх (2D).
 import earcut from './earcut.js';
 import { buildTerrain } from './terrain.js';
 import { triHash } from './mesh.js';
@@ -18,6 +19,13 @@ void main(){ vec2 q = p + d * s * w / sc; gl_Position = vec4((q - o) * k + vec2(
 const FS_COL = `precision mediump float; uniform vec4 col; void main(){ gl_FragColor = col; }`;
 const VS_TREE = `attribute vec2 p; attribute vec2 q; attribute vec4 c; uniform vec2 o; uniform vec2 k; uniform float ts; varying vec4 v;
 void main(){ gl_Position = vec4((p + q * ts - o) * k + vec2(-1.0, 1.0), 0.0, 1.0); v = c; }`;
+// суша с сезонным покровом: W[z] = (снег, распутица, сырость) для погодной полосы вершины
+const VS_LAND = `attribute vec2 p; attribute vec4 c; attribute float z; uniform vec2 o; uniform vec2 k; uniform vec3 W[5]; varying vec4 v;
+void main(){ gl_Position = vec4((p - o) * k + vec2(-1.0, 1.0), 0.0, 1.0);
+ vec3 w = W[int(z + 0.5)]; vec3 col = c.rgb; float l = dot(col, vec3(0.3333));
+ col = mix(col, vec3(0.955, 0.962, 0.972) * clamp(l * 1.32, 0.74, 1.04), w.x);
+ col = mix(col, vec3(0.66, 0.57, 0.42) * clamp(l * 1.25, 0.7, 1.08), w.y);
+ col *= 1.0 - 0.09 * w.z; v = vec4(col, c.a); }`;
 const VS_POS = `attribute vec2 p; uniform vec2 o; uniform vec2 k; void main(){ gl_Position = vec4((p - o) * k + vec2(-1.0, 1.0), 0.0, 1.0); }`;
 
 function compile(gl, type, src) {
@@ -113,6 +121,7 @@ export class GLMap {
     if (!gl) throw new Error('нет WebGL');
     this.gl = gl; this.M = M; this.cv = canvas;
     this.regN = 512; this.regCol = new Uint8Array(this.regN * 4);
+    this.season = new Float32Array(15);
     this.dyn = {}; this.en = [];
     this.lost = false;
     canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.lost = true; });
@@ -122,7 +131,7 @@ export class GLMap {
   }
   init() {
     const gl = this.gl;
-    this.P = { tri: program(gl, VS_TRI, FS_TRI), reg: program(gl, VS_REG, FS_REG), lin: program(gl, VS_LIN, FS_COL), tree: program(gl, VS_TREE, FS_TRI), pos: program(gl, VS_POS, FS_COL) };
+    this.P = { tri: program(gl, VS_TRI, FS_TRI), reg: program(gl, VS_REG, FS_REG), lin: program(gl, VS_LIN, FS_COL), tree: program(gl, VS_TREE, FS_TRI), pos: program(gl, VS_POS, FS_COL), land: program(gl, VS_LAND, FS_TRI) };
     this.buildTerrain(); this.buildTrees(); this.buildLand(); this.buildRegions(); this.buildStaticLines();
     this.tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
@@ -133,23 +142,42 @@ export class GLMap {
   }
   buf(data) { const gl = this.gl, b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); return b; }
   buildTerrain() {
-    const { vx, vy, tri, NT, cl, cw, tf } = this.T;
+    const { vx, vy, tri, NT, vl, vw, tf } = this.T;
     const pw = new Float32Array(NT * 6), cwv = new Uint8Array(NT * 12);
     let nl = 0;
     for (let t = 0; t < NT; t++) if (tf[t] & 1) nl++;
-    const pl = new Float32Array(nl * 6), clv = new Uint8Array(nl * 12);
+    const pl = new Float32Array(nl * 6), clv = new Uint8Array(nl * 12), zl = new Float32Array(nl * 3);
+    const zv = this.zoneOfVert();
     let o = 0;
     for (let t = 0; t < NT; t++) {
+      const land = tf[t] & 1;
       for (let q = 0; q < 3; q++) {
         const v = tri[t * 3 + q];
         pw[t * 6 + q * 2] = vx[v]; pw[t * 6 + q * 2 + 1] = vy[v];
-        cwv.set([cw[t * 3], cw[t * 3 + 1], cw[t * 3 + 2], 255], t * 12 + q * 4);
-        if (tf[t] & 1) { pl[o * 6 + q * 2] = vx[v]; pl[o * 6 + q * 2 + 1] = vy[v]; clv.set([cl[t * 3], cl[t * 3 + 1], cl[t * 3 + 2], 255], o * 12 + q * 4); }
+        cwv.set([vw[v * 3], vw[v * 3 + 1], vw[v * 3 + 2], 255], t * 12 + q * 4);
+        if (land) { pl[o * 6 + q * 2] = vx[v]; pl[o * 6 + q * 2 + 1] = vy[v]; clv.set([vl[v * 3], vl[v * 3 + 1], vl[v * 3 + 2], 255], o * 12 + q * 4); zl[o * 3 + q] = zv[v]; }
       }
-      if (tf[t] & 1) o++;
+      if (land) o++;
     }
     this.bW = { p: this.buf(pw), c: this.buf(cwv), n: NT * 3 };
-    this.bL = { p: this.buf(pl), c: this.buf(clv), n: nl * 3 };
+    this.bL = { p: this.buf(pl), c: this.buf(clv), z: this.buf(zl), n: nl * 3 };
+  }
+  // погодная полоса вершины (0–4, по ближайшему центру области) — для сезонного покрова
+  zoneOfVert() {
+    const M = this.M, { vx, vy } = this.T, n = vx.length, out = new Float32Array(n), CS = 60;
+    const gw = Math.ceil(M.w / CS) + 1, gh = Math.ceil(M.h / CS) + 1, cell = Array.from({ length: gw * gh }, () => []);
+    for (const g of M.reg) { const i = Math.max(0, Math.min(gw - 1, Math.floor(g.x / CS))), j = Math.max(0, Math.min(gh - 1, Math.floor(g.y / CS))); cell[i + j * gw].push(g); }
+    for (let v = 0; v < n; v++) {
+      const ci = Math.floor(vx[v] / CS), cj = Math.floor(vy[v] / CS);
+      let best = null, bd = 1e18;
+      for (let rad = 1; rad <= 6 && !best; rad++)
+        for (let j = cj - rad; j <= cj + rad; j++) for (let i = ci - rad; i <= ci + rad; i++) {
+          if (i < 0 || j < 0 || i >= gw || j >= gh) continue;
+          for (const g of cell[i + j * gw]) { const d = (g.x - vx[v]) ** 2 + (g.y - vy[v]) ** 2; if (d < bd) (bd = d), (best = g); }
+        }
+      out[v] = best ? best.z : 2;
+    }
+    return out;
   }
   buildTrees() {
     const { vx, vy, tri, NT, tf, tc } = this.T;
@@ -209,6 +237,9 @@ export class GLMap {
     this.bRiv1 = this.lineBuf(stripOf(M.rivers.filter((r) => r.w !== 2).map((r) => ({ p: r.p }))));
     this.bBord = this.lineBuf(stripOf(M.arcs.filter((A) => A.t === 0).map((A) => ({ p: A.p }))));
     this.bNeut = this.lineBuf(stripOf(M.arcs.filter((A) => A.t === 2 || A.t === 3).map((A) => ({ p: A.p }))));
+    const rl = M.rails || [];
+    this.bRail = this.lineBuf(stripOf(rl.filter((l) => l.k === 1).map((l) => ({ p: l.p }))));
+    this.bRail0 = this.lineBuf(stripOf(rl.filter((l) => l.k !== 1).map((l) => ({ p: l.p }))));
   }
   lineBuf(data) { return { b: this.buf(data), n: data.length / 5 }; }
   // слой линий, перестраиваемый по ходу игры: polys — [{p, closed, k}], st — [{w, col: [r,g,b,a]}] (снизу вверх)
@@ -254,6 +285,18 @@ export class GLMap {
     this.attr(P, 's', L.b, 1, gl.FLOAT, false, 20, 16);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, L.n);
   }
+  // сезонный покров по погодным полосам: w — [[снег, распутица, сырость] × 5]
+  setSeason(w) { for (let z = 0; z < 5; z++) for (let k = 0; k < 3; k++) this.season[z * 3 + k] = w[z]?.[k] ?? 0; }
+  landFaces(view) {
+    const gl = this.gl, P = this.P.land, B = this.bL;
+    this.use(P, view);
+    gl.uniform1f(P.u.a, 1);
+    gl.uniform3fv(P.u['W[0]'] ?? P.u.W, this.season);
+    this.attr(P, 'p', B.p, 2, gl.FLOAT);
+    this.attr(P, 'c', B.c, 4, gl.UNSIGNED_BYTE, true);
+    this.attr(P, 'z', B.z, 1, gl.FLOAT);
+    gl.drawArrays(gl.TRIANGLES, 0, B.n);
+  }
   faces(view, B, a = 1) {
     const gl = this.gl, P = this.P.tri;
     this.use(P, view);
@@ -283,9 +326,9 @@ export class GLMap {
     { const P = this.P.pos; this.use(P, view); gl.uniform4f(P.u.col, 0, 0, 0, 0); this.attr(P, 'p', this.bLand.p, 2, gl.FLOAT); gl.drawArrays(gl.TRIANGLES, 0, this.bLand.n); }
     gl.colorMask(true, true, true, true);
     gl.stencilFunc(gl.NOTEQUAL, 0, 0xff); gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-    this.faces(view, this.bL);
-    // деревья
-    const ta = opt.trees ?? Math.max(0, Math.min(1, (sc - 0.32) / 0.3));
+    this.landFaces(view);
+    // деревья (по желанию; зимой — под снегом не видны)
+    const ta = opt.trees ? Math.max(0, Math.min(1, (sc - 0.32) / 0.3)) : 0;
     if (ta > 0.02) {
       const P = this.P.tree, B = this.bTree;
       this.use(P, view);
@@ -311,6 +354,10 @@ export class GLMap {
     }
     this.lines(view, this.bRiv, rw + 0.9, [236, 244, 240, 0.25 + 0.25 * ra]);
     this.lines(view, this.bRiv, rw * 0.55, [82, 136, 178, 1]);
+    // железные дороги: магистрали и прочие (тёмно-оливковые, как на штабной карте)
+    const la = Math.max(0, Math.min(1, (sc - 0.22) / 0.35)), lm = 0.45 + 0.55 * Math.max(0, Math.min(1, (sc - 0.12) / 0.3));
+    if (la > 0.02) this.lines(view, this.bRail0, 0.55 + Math.min(1.1, sc * 0.42), [112, 114, 78, 0.75 * la]);
+    this.lines(view, this.bRail, 0.8 + Math.min(1.6, sc * 0.62), [96, 98, 62, 0.85 * lm]);
     // берег
     this.lines(view, this.bCoast, 0.55, [84, 118, 136, 0.85]);
     // границы областей

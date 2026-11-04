@@ -129,3 +129,9 @@ export function nearestRegion(M, x, y, ok = () => true) {
   for (const g of M.reg) { if (!ok(g.id)) continue; const d = (g.x - x) ** 2 + (g.y - y) ** 2; if (d < bd) (bd = d), (best = g.id); }
   return best;
 }
+// железные дороги и посёлки (src/east/data/rails.json, tools/build-rails.mjs)
+export function decodeRails(M, J) {
+  M.rails = (J?.r || []).map(([k, s]) => ({ k, p: Float32Array.from(chaikin(decPts(s), 1)) }));
+  M.towns = Float32Array.from(J?.t ? decPts(J.t) : []);
+  return M;
+}

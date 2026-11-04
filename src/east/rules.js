@@ -20,7 +20,7 @@ export const NAT_N = { GER: 'Германия', SOV: 'СССР', FIN: 'Финл�
 export const SIDE0 = { GER: 'GER', FIN: 'GER', ROM: 'GER', HUN: 'GER', SVK: 'GER', CRO: 'GER', ITA: 'GER', BUL: 'GER', SOV: 'SOV' };
 // цвета наций: фишка (фон, кайма, знак) и заливка области (RGBA)
 export const NATC = {
-  GER: { bg: '#59656f', bd: '#2b3238', fg: '#f3f1ea', tint: [74, 86, 104, 52] },
+  GER: { bg: '#59656f', bd: '#2b3238', fg: '#f3f1ea', tint: [78, 96, 124, 40] },
   FIN: { bg: '#e9eef3', bd: '#5a7590', fg: '#23466b', tint: [236, 244, 252, 76] },
   ROM: { bg: '#c7a43a', bd: '#6c5614', fg: '#fffbe8', tint: [214, 176, 40, 56] },
   HUN: { bg: '#5f8a4c', bd: '#2f4a24', fg: '#fffbe8', tint: [96, 150, 70, 56] },
@@ -28,7 +28,7 @@ export const NATC = {
   CRO: { bg: '#7a6aa8', bd: '#3c3260', fg: '#fffbe8', tint: [120, 100, 170, 56] },
   ITA: { bg: '#6d8a62', bd: '#34462c', fg: '#fffbe8', tint: [110, 140, 96, 50] },
   BUL: { bg: '#8c7a54', bd: '#4a3e22', fg: '#fffbe8', tint: [140, 120, 80, 50] },
-  SOV: { bg: '#b23a2c', bd: '#5c1610', fg: '#fff4e4', tint: [176, 64, 44, 34] },
+  SOV: { bg: '#b23a2c', bd: '#5c1610', fg: '#fff4e4', tint: [200, 86, 58, 24] },
 };
 // рода войск: сила атаки/обороны, ходы (очки движения за неделю), стоимость (⚙ производство, 👥 люди)
 export const TYPES = {
