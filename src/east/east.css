@@ -388,3 +388,42 @@
 .e-gsel .e-traits{margin-top:1px}
 .e-gsel .e-trait{background:rgba(120,90,50,.16);color:#5a3a10}
 .e-gsel .e-stars{margin-left:0;color:#b07a10}
+/* v0.11: экономика — линии производства, очередь стройки, постройки области */
+.e-lines{display:flex;flex-direction:column;gap:5px}
+.e-line,.e-qi{display:flex;align-items:center;gap:6px;padding:5px 6px;border-radius:12px;background:rgba(255,240,210,.06)}
+.e-lic{width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:rgba(226,182,78,.14);flex:none}
+.e-lic .ic,.e-qi>.ic{width:20px;height:20px;color:var(--gold)}
+.e-qi>.ic{flex:none;margin:0 6px}
+.e-lm{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.e-lm b{font-size:13.5px}
+.e-lm small{font-size:11.5px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.e-lm .e-lnk{font-size:11.5px;padding:0!important;min-height:0;text-decoration:underline dotted}
+.e-eff{display:block;height:4px;border-radius:2px;background:rgba(0,0,0,.35);overflow:hidden}
+.e-eff em{display:block;height:100%;background:linear-gradient(90deg,#c8902a,#e9c867)}
+.e-eff.q em{background:linear-gradient(90deg,#5d9a3e,#9fd07a)}
+.e-lsh{min-width:40px;text-align:center;font-size:14px;color:#ffe8b0}
+.e-line .e-ib.sm,.e-qi .e-ib.sm{width:32px;height:32px;border-radius:10px}
+.e-ib.ph{visibility:hidden}
+.e-ib:disabled{opacity:.35}
+.e-eco.e4{grid-template-columns:repeat(4,1fr)}
+.e-eco.e4 b{font-size:14.5px}
+.e-miss{color:#f0a080!important;opacity:1!important}
+.e-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px;box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+.e-zc .ic{width:15px;height:15px;margin-right:3px;vertical-align:-2px;color:var(--gold)}
+.e-row span small{display:block;font-size:11.5px;opacity:.65}
+.e-bgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.e-bt{display:flex!important;flex-direction:column;align-items:center;gap:1px;padding:6px 3px 5px!important;border-radius:12px;background:rgba(255,240,210,.07)!important;border:1px solid rgba(255,240,210,.14)!important;position:relative;min-height:74px}
+.e-bt>.ic{width:24px;height:24px;color:var(--gold)}
+.e-bt>b{position:absolute;top:4px;right:7px;font-size:12px;color:#ffe8b0}
+.e-bt>b .ic{width:13px;height:13px;color:#9fd07a}
+.e-bt small{font-size:11px;line-height:1.15;text-align:center}
+.e-bt em{font-style:normal;font-size:11px;display:flex;align-items:center;gap:2px;color:#bfe6a0}
+.e-bt em .ic{width:12px;height:12px}
+.e-bt em.no{color:rgba(255,240,210,.5)}
+.e-bp{position:absolute;left:8px;right:8px;bottom:4px;height:4px;border-radius:2px;background:rgba(0,0,0,.4);overflow:hidden}
+.e-bp i{display:block;height:100%;background:#9fd07a}
+.e-bt.has{border-color:rgba(226,182,78,.45)!important}
+.e-bt:disabled{opacity:1}
+.e-bt:disabled>.ic,.e-bt:disabled small{opacity:.6}
+.e-bsub{font-size:11.5px;opacity:.65;display:flex;align-items:center;gap:5px}
+.e-bsub .ic{width:14px;height:14px}

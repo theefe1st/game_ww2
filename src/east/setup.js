@@ -3,6 +3,7 @@
 import { HQ0, ECH2, parseUnit } from '../war/oob41.js';
 import { makeProj, regionAt, nearestRegion } from './mapdata.js';
 import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, FN, SAVE_KEY, nameFor, assignFronts } from './engine.js';
+import { ensureEco } from './eco.js';
 import { weatherOf, SIDE0, turnOf, rnd } from './rules.js';
 import { GEN_HIST, PLAN, REINF, parseMix, FRONT_N } from './hist.js';
 import { runEvents } from './events.js';
@@ -115,7 +116,7 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
   runEvents(S);
   return S;
 }
-// поля новых версий (и для старых сохранений): фронты
+// поля новых версий (и для старых сохранений): фронты, хозяйство
 export function ensureState(S) {
   S.fr ??= {};
   for (const sd of ['GER', 'SOV']) {
@@ -129,6 +130,7 @@ export function ensureState(S) {
   while (S.pauto.length < FN) S.pauto.push(1);
   if (S.fcust && !S.fzo) S.fzo = Int8Array.from(S.M.reg, (g) => g.z);
   assignFronts(S);
+  ensureEco(S, (n) => placeR(S, n));
   return S;
 }
 export { SAVE_KEY };

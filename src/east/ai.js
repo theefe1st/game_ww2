@@ -9,6 +9,8 @@ import {
 } from './engine.js';
 import { other, isMech, yearF, turnOf, TYPES, SIDE0, dateOf, lerpT } from './rules.js';
 import { PLAN, GEN_HIST } from './hist.js';
+import { MIX, mixNow, eqTot, hasEq, cpPlanned, cpNow } from './eco.js';
+export { MIX, mixNow };
 import { placeR } from './setup.js';
 
 // ——— позиции и цели направлений ———
@@ -518,11 +520,6 @@ function fillGaps(S, C) {
   }
 }
 // ——— хозяйство ИИ: набор, постройки, эвакуация ———
-export const MIX = {
-  SOV: [[1941.4, { inf: 0.86, cav: 0.1, arm: 0.04 }], [1942.3, { inf: 0.78, cav: 0.06, arm: 0.12, mot: 0.04 }], [1943.2, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.0, { inf: 0.7, arm: 0.2, mot: 0.1 }]],
-  GER: [[1941.4, { inf: 0.8, arm: 0.12, mot: 0.08 }], [1943.0, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.5, { inf: 0.82, arm: 0.12, mot: 0.06 }]],
-};
-export function mixNow(side, turn) { let m = MIX[side][0][1]; for (const [y, x] of MIX[side]) if (yearF(turn) >= y) m = x; return m; }
 export function economyAI(S, side, isAI) {
   const M = S.M;
   // эвакуация заводов у фронта (СССР, 1941–1942)
@@ -540,8 +537,10 @@ export function economyAI(S, side, isAI) {
     fr.push([r, w * (1 + M.reg[r].vp * 0.15) - S.fort[r] * 4]);
   }
   fr.sort((a, b) => b[1] - a[1]);
-  // свободное производство — на укрепления (лишнее не копится)
-  let forts = isAI || S.auto.build ? Math.max(0, Math.min(3, Math.floor((S.pp[side] - 50) / 35))) : 0;
+  // свободная стройка (очки гражданских фабрик) — на укрепления
+  const freeCP = cpNow(S, side) - cpPlanned(S, side);
+  // (темп ИИ — как в v0.10: при скудных запасах снаряжения стройка идёт медленнее)
+  let forts = isAI || S.auto.build ? Math.max(0, Math.min(3, Math.floor(freeCP / BUILD.fort.cap), Math.floor((eqTot(S, side) - 50) / 35))) : 0;
   for (const [r, w] of fr) { if (forts <= 0 || w <= 0) break; if (S.post[side][fm[r]] === 'atk' && fdd[r] === 0 && w < 20) continue; if (build(S, side, r, 'fort')) forts--; }
   // набор дивизий: запас — на пополнение
   const reserve = { pp: 30, men: side === 'SOV' ? 40 : 30 };
@@ -552,12 +551,14 @@ export function economyAI(S, side, isAI) {
   while (k++ < 14 && queued + k < 40 && army + k <= capA) {
     let t = rndPick(S, mix);
     // по запасам: людей много, производства мало — пехота и кавалерия; наоборот — танки
-    const q = (S.pp[side] - reserve.pp) / Math.max(1, S.men[side] - reserve.men) / (newCost(side, 'inf').pp / newCost(side, 'inf').men);
+    const st = eqTot(S, side), q = (st - reserve.pp) / Math.max(1, S.men[side] - reserve.men) / (newCost(side, 'inf').pp / newCost(side, 'inf').men);
     if (q < 0.55 && (t === 'arm' || t === 'mot')) t = mix.cav ? 'cav' : 'inf';
     else if (q < 0.4 && t === 'inf' && mix.cav) t = 'cav';
     else if (q > 1.8 && t === 'inf') t = (mix.arm || 0) > 0.1 ? 'arm' : 'mot';
-    const c = newCost(side, t);
-    if (S.pp[side] - c.pp < reserve.pp || S.men[side] - c.men < reserve.men) break;
+    let c = newCost(side, t);
+    // нет нужного снаряжения (танков) — пехота
+    if (!hasEq(S, side, t, c.pp) && t !== 'inf') { t = 'inf'; c = newCost(side, t); }
+    if (st - c.pp < reserve.pp || S.men[side] - c.men < reserve.men || !hasEq(S, side, t, c.pp)) break;
     const z = needZone(S, side, thr, fm);
     const u = recruit(S, side, t, z);
     if (!u) break;
