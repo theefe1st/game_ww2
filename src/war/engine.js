@@ -11,12 +11,12 @@ import {
   forecast, attackers, canAttack, destroy, enemyAt, passable, genOf,
 } from './rules.js';
 import { runAI, frontDistance, railMove, posture } from './ai.js';
-import { ecoInit, ecoDay, mkUnit, rearSpot, assignArmy, hqHex, fortStock, strength } from './eco.js';
+import { ecoInit, ecoDay, mkUnit, rearSpot, assignArmy, hqHex, fortStock, strength, divCount } from './eco.js';
 import { EVENTS, dueEvents, evByK } from './events.js';
 
 export const VER = 1;
 // запасы крепостей (суток в кольце)
-const FORT0 = { Брест: 25, Киев: 10, Ленинград: 120, Москва: 40, Тула: 30, Одесса: 75, Севастополь: 90, Кёнигсберг: 60, Познань: 30, Бреслау: 80, Кюстрин: 30 };
+const FORT0 = { Брест: 25, Киев: 10, Ленинград: 120, Москва: 40, Тула: 30, Мурманск: 35, Одесса: 75, Севастополь: 90, Кёнигсберг: 60, Познань: 30, Бреслау: 80, Кюстрин: 30 };
 export const SAVE_KEY = 'wf_war_v1';
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 // мораль: цена городов, котлов, разгромленных армий; потери (человек на 1 очко)
@@ -455,6 +455,7 @@ export function endDay(S) {
   hqTick(S);
   arrivals(S);
   militia(S);
+  westReserve(S);
   armyDeaths(S);
   if (S.day % 7 === 6 || S.regroupSoon) regroup(S), (S.regroupSoon = 0);
   dedupeGens(S);
@@ -605,7 +606,7 @@ function axisArmy(S, [k, grp, , n, num, sub, gen, nat, city, codes, rn, gt]) {
 const MIL = {
   Ленинград: ['SOV', 10, 8000, 70, 'дивизия народного ополчения'], Москва: ['SOV', 10, 8000, 70, 'дивизия народного ополчения'],
   Киев: ['SOV', 3, 7000, 50, 'дивизия народного ополчения'], Одесса: ['SOV', 3, 6000, 40, 'бригада морской пехоты'], Севастополь: ['SOV', 3, 6000, 50, 'бригада морской пехоты'],
-  Сталинград: ['SOV', 4, 7000, 60, 'дивизия НКВД'], Тула: ['SOV', 3, 6000, 50, 'рабочий полк'], Харьков: ['SOV', 2, 6000, 40, 'дивизия народного ополчения'],
+  Сталинград: ['SOV', 6, 7000, 60, 'дивизия НКВД'], Тула: ['SOV', 4, 6000, 50, 'рабочий полк'], Харьков: ['SOV', 2, 6000, 40, 'дивизия народного ополчения'],
   'Ростов-на-Дону': ['SOV', 2, 6000, 40, 'дивизия народного ополчения'], Мурманск: ['SOV', 2, 5000, 40, 'бригада морской пехоты'], Новороссийск: ['SOV', 1, 5000, 40, 'бригада морской пехоты'],
   Воронеж: ['SOV', 1, 6000, 40, 'дивизия НКВД'], Грозный: ['SOV', 1, 6000, 40, 'дивизия НКВД'], Баку: ['SOV', 2, 7000, 50, 'дивизия НКВД'],
   Кёнигсберг: ['GER', 3, 9000, 80, 'фольксштурм'], Бреслау: ['GER', 3, 9000, 80, 'фольксштурм'], Познань: ['GER', 2, 8000, 70, 'фольксштурм'],
@@ -619,7 +620,7 @@ function militia(S) {
     if (!c || sideOfH(S, c.h) !== side || (S.mil[n] || 0) >= max) continue;
     if (side === 'GER' && S.day < dayOf('1944-07-01')) continue;
     const here = unitsAt(S, c.h).filter((u) => u.side === side).length;
-    if (here >= 3) continue;
+    if (here >= (c.hard ? stackCap(S, c.h) : 3)) continue; // города-крепости — до полной стопки
     let near = false;
     for (const h of M.ring(c.h, 2)) if (enemyAt(S, h, side)) { near = true; break; }
     if (!near) continue;
@@ -632,6 +633,37 @@ function militia(S) {
     placeAt(S, u, c.h);
     note(S, { k: 'form', side, t: `${n}: ${u.n} заняла оборону`, h: c.h });
   }
+}
+// резервы ОКВ: пока нет второго фронта, Германия снимает дивизии с Запада, если Восточный фронт «тает»
+// (зимой 1941/42 г. на восток ушло около 20 дивизий из Франции и с Балкан): раз в неделю до 3 пехотных дивизий
+// самым нагруженным армиям, не больше 40 за войну; после высадки в Нормандии резервов на Западе нет
+const WEST = [['1942-12-31', 130], ['1943-12-31', 120], ['1944-06-05', 105]];
+function westReserve(S) {
+  if (S.day % 7 !== 3) return;
+  const row = WEST.find(([d]) => S.day <= dayOf(d));
+  if (!row) return;
+  const used = S.wres || 0, k = Math.min(3, Math.ceil((row[1] - divCount(S, 'GER')) / 4), 40 - used);
+  if (k <= 0) return;
+  const arms = Object.values(S.hqs).filter((A) => A.side === 'GER' && A.nat === 'GER' && A.lv === 2 && !A.dead && !A.arr);
+  if (!arms.length) return;
+  arms.sort((a, b) => (b.pr || 0) - (a.pr || 0));
+  const E = S.eco.GER, T = TPL.GER.inf, got = [];
+  let h0 = -1;
+  for (let i = 0; i < k; i++) {
+    const A = arms[i % arms.length], h = rearSpot(S, 'GER', hqHex(S, A));
+    if (h < 0) break;
+    const num = String(E.num.inf++);
+    const u = mkUnit(S, { side: 'GER', nat: 'GER', t: 'inf', n: `${num}-я пд`, num, men: T[0], gun: T[1], tnk: T[2], org: 80, xp: 25 });
+    u.hq = A.k;
+    S.units.push(u);
+    placeAt(S, u, h);
+    u.ral = 1;
+    got.push(u.n);
+    if (h0 < 0) h0 = h;
+  }
+  if (!got.length) return;
+  S.wres = used + got.length;
+  note(S, { k: 'army', side: 'GER', t: `Резерв ОКВ: с Запада прибывают ${got.join(', ')}`, h: h0, big: 1 });
 }
 // прибытие эшелонов
 function arrivals(S) {

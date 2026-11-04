@@ -5,7 +5,7 @@
 import { OPS } from './plan.js';
 import {
   alive, isMech, reach, pathTo, doMove, doAttack, odds, unitsAt, stackN, STACK, stackCap, zoc, enemyAt, sideOfH, passable, dayOf,
-  enemyNear, canAttack, defVal, atkVal, cvRaw, railOK, railNet, placeAt, other,
+  enemyNear, canAttack, defVal, atkVal, cvRaw, railOK, railNet, placeAt, other, northK, border41,
 } from './rules.js';
 
 const NS0 = (S, h) => ({ GER: 'GER', FIN: 'GER', ROM: 'GER', HUN: 'GER', ITA: 'GER', SVK: 'GER', SOV: 'SOV' })[S.M.nations[S.M.own0[h]]] || null;
@@ -323,7 +323,7 @@ function salients(S, side, act) {
       if (ci >= 0 && (S.M.cities[ci].fort || S.M.cities[ci].vp >= 4)) continue;
       const k = nEn(S, u.h, side);
       if (k < 4) continue;
-      bestMove(S, u, (h, c) => (C[h] ? 0 : 50) + nEn(S, h, side) * 3 + enemyNear(S, h, side) * 0.5 + Math.max(0, stackN(S, h) - 1) * 0.5 + (c || 0) * 0.05);
+      bestMove(S, u, (h, c) => (C[h] ? 0 : 50) + nEn(S, h, side) * 3 + enemyNear(S, h, side) * 0.5 + Math.max(0, stackN(S, h) - 1) * 0.5 + (c || 0) * 0.05, true);
     }
   }
 }
@@ -390,12 +390,27 @@ function rebalance(S, side, act) {
   }
 }
 // директивы ставок: города, которые ИИ не штурмует, пока у защитников есть снабжение
-// (Гитлер: Ленинград — блокировать, не брать; Киев — взять окружением)
-const NOASS = { GER: [['Ленинград', '1941-06-22', '1945-12-31'], ['Киев', '1941-06-22', '1941-09-15']], SOV: [] };
+// (Гитлер: Ленинград и Москву — окружить, капитуляцию не принимать (директива 7.10.1941); Киев — взять окружением;
+// Тула (2-я танковая армия Гудериана в 1941 г. так и не взяла её штурмом) — обойти; Сталинград — сначала выйти к Волге
+// и отрезать город)
+const NOASS = { GER: [['Ленинград', '1941-06-22', '1945-12-31'], ['Киев', '1941-06-22', '1941-09-15'], ['Сталинград', '1942-07-01', '1942-09-10'], ['Москва', '1941-10-07', '1942-12-31'], ['Тула', '1941-10-25', '1941-12-15']], SOV: [] };
 const NOASS2 = Object.fromEntries(Object.entries(NOASS).map(([k, a]) => [k, a.map(([n, x, y]) => [n, dayOf(x), dayOf(y)])]));
+const D_SVIR = dayOf('1941-09-20');
+// стоп-линии Оси (ИИ) на севере: и для ударов, и для маршей (в пустые гексы за линией ИИ тоже не входит)
+function northStop(S, h) {
+  if (!S.M.llXY) return false;
+  const k = northK(S.M)[h];
+  if (k <= 1) return false;
+  const b = border41(S.M)[h];
+  return k >= 2 ? b > 2 : b > (S.day < D_SVIR ? 4 : 7);
+}
 function noAssault(S, side, t) {
+  if (side === S.side) return false;
+  // Ось (ИИ) на севере: наступления 1941 г. встали на Лице, Вермане, у Кестеньги и Ухты (≈ 2 гекса от границы);
+  // Карельская армия финнов — до Петрозаводска и Медвежьегорска (5) лишь с сентября, дальше Свири (7) не идёт
+  if (side === 'GER' && northStop(S, t)) return true;
   const ci = S.M.cityAt[t];
-  if (ci < 0 || side === S.side) return false;
+  if (ci < 0) return false;
   const c = S.M.cities[ci];
   for (const [n, a, b] of NOASS2[side]) if (n === c.n && S.day >= a && S.day <= b) return unitsAt(S, t).some((d) => d.oos <= 2);
   return false;
@@ -423,11 +438,15 @@ function addTo(set, S, h, side) {
   }
 }
 // лучший гекс из достижимых по оценке score (меньше — лучше)
-function bestMove(S, u, score) {
+// own — не входить на чужую землю (кроме своей земли 1941 г.): оборона, резерв и отход не «расползаются»
+// в пустоту за линией фронта (иначе в 1942 г. армии Карельского фронта уходили в глубь Финляндии)
+function bestMove(S, u, score, own = false) {
   const R = reach(S, u);
   let best = u.h, bs = score(u.h, 0);
   for (const [h, o] of R) {
     if (h === u.h || stackN(S, h) >= stackCap(S, h)) continue;
+    if (own && sideOfH(S, h) !== u.side && NS0(S, h) !== u.side) continue;
+    if (u.side === 'GER' && S.side !== 'GER' && northStop(S, h)) continue;
     const s = score(h, o.c);
     if (s < bs - 1e-6) (bs = s), (best = h);
   }
@@ -463,12 +482,13 @@ function marchAtk(S, A, us, p, need) {
 function marchRet(S, A, us, p) {
   const F = field(S, A.side, p.obj), side = A.side;
   for (const u of us)
-    bestMove(S, u, (h) => F[h] * 1 + enemyNear(S, h, side) * 2.5 + (zoc(S, h, side) ? 2 : 0));
+    bestMove(S, u, (h) => F[h] * 1 + enemyNear(S, h, side) * 2.5 + (zoc(S, h, side) ? 2 : 0), true);
 }
 function marchRes(S, A, us) {
   const side = A.side, fd = S.frontDist?.[side];
-  for (const u of us) bestMove(S, u, (h) => (fd ? Math.abs(fd[h] - 5) : 0) + enemyNear(S, h, side) * 3);
+  for (const u of us) bestMove(S, u, (h) => (fd ? Math.abs(fd[h] - 5) : 0) + enemyNear(S, h, side) * 3, true);
 }
+const hardAt = (S, h) => { const ci = S.M.cityAt[h]; return ci >= 0 && !!S.M.cities[ci].hard; };
 // оборона: закрыть гексы своего участка по нужде, лишних — во второй эшелон
 function marchDef(S, A, us, lab, ai, need) {
   const M = S.M, side = A.side, fd = S.frontDist?.[side];
@@ -476,7 +496,7 @@ function marchDef(S, A, us, lab, ai, need) {
   for (const [h, n] of need) if (lab[h] === ai) mine.push(h);
   if (!mine.length) {
     // нет своего участка — к ближайшему участку фронта своей группы
-    for (const u of us) bestMove(S, u, (h) => (fd ? fd[h] : 0) * 1 + Math.max(0, stackN(S, h) - 1) * 0.5);
+    for (const u of us) bestMove(S, u, (h) => (fd ? fd[h] : 0) * 1 + Math.max(0, stackN(S, h) - 1) * 0.5, true);
     return;
   }
   const have = new Map();
@@ -485,7 +505,8 @@ function marchDef(S, A, us, lab, ai, need) {
   const free = [];
   for (const u of us) {
     const n = need.get(u.h);
-    if (n != null && lab[u.h] === ai && have.get(u.h) <= Math.ceil(n) + 0 && (u.org >= 22 || u.ent >= 2.5)) continue;
+    // измотанные (порядок < 22) уходят во второй эшелон — но не из городов-крепостей: там стоят до смены
+    if (n != null && lab[u.h] === ai && have.get(u.h) <= Math.ceil(n) + 0 && (u.org >= 22 || u.ent >= 2.5 || hardAt(S, u.h))) continue;
     if (n != null && lab[u.h] === ai) have.set(u.h, have.get(u.h) - 1);
     free.push(u);
   }
@@ -506,7 +527,7 @@ function marchDef(S, A, us, lab, ai, need) {
       else {
         // ближе к цели
         let best = u.h, bs = M.dist(u.h, h);
-        for (const [x] of R) if (x !== u.h && stackN(S, x) < stackCap(S, x) && M.dist(x, h) < bs) (bs = M.dist(x, h)), (best = x);
+        for (const [x] of R) if (x !== u.h && stackN(S, x) < stackCap(S, x) && M.dist(x, h) < bs && (sideOfH(S, x) === side || NS0(S, x) === side)) (bs = M.dist(x, h)), (best = x);
         if (best !== u.h) doMove(S, u, pathTo(R, best));
       }
       have.set(h, have.get(h) + 1);
@@ -522,7 +543,7 @@ function marchDef(S, A, us, lab, ai, need) {
       let md = 9;
       for (const x of mine) { const dd = M.dist(x, h); if (dd < md) md = dd; }
       return s + md * 0.8;
-    });
+    }, true);
   }
 }
 // переброски по ж/д: дивизии далеко от своей армии (новые, резервы) — к её участку

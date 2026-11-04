@@ -139,6 +139,12 @@ export function llRoutes(S) {
 }
 
 // ——— суточный цикл экономики ———
+// выпуск за сутки при нынешней промышленности и долях (для окна «Экономика»: сразу видно, что даёт перераспределение)
+export function outNow(S, side) {
+  const E = S.eco[side], R = RATE[side], sh = E.share, tot = Object.values(sh).reduce((a, b) => a + b, 0) || 1, out = {};
+  for (const k in R) out[k] = E.ip * (sh[k] / tot) * R[k];
+  return out;
+}
 export function ecoDay(S, note) {
   const y = yearF(S.day), ctl = (S.rc = regionCtl(S));
   for (const side of ['GER', 'SOV']) {
