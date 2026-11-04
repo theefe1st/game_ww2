@@ -14,6 +14,7 @@ import { FrontMap, frontState } from "./front/frontmap.js";
 import { EuropeUI } from "./europe/ui.js";
 import { StaffUI } from "./staff/ui.js";
 import { BarbUI } from "./barb/ui.js";
+import { WarUI } from "./war/ui.js";
 import { FRONT_STAGES, FRONT_OPS, FRONT_TEXT, FRONT_RESULT } from "./front/stages.js";
 var e = Object.defineProperty,
   t = (e, t, n) => () => {
@@ -9392,6 +9393,7 @@ var Do = `wf_save_v1`,
 <div id="eu" class="hidden"></div>
 <div id="st" class="hidden"></div>
 <div id="bb" class="hidden"></div>
+<div id="war" class="hidden"></div>
 <div id="modal" class="hidden"></div>`;
       for (let e of this.ui.querySelectorAll(`[id]`)) this.$[e.id] = e;
       (this.$[`b-obj`].prepend(_o(`star`)),
@@ -9451,6 +9453,7 @@ var Do = `wf_save_v1`,
     }
     onBack() {
       if (this.eu && !this.$.eu.classList.contains(`hidden`)) return this.eu.back();
+      if (this.war && !this.$.war.classList.contains(`hidden`)) return this.war.back();
       if (this.bb && !this.$.bb.classList.contains(`hidden`)) return this.bb.back();
       if (this.st && !this.$.st.classList.contains(`hidden`)) return this.st.back();
       return this.modalOpen
@@ -9574,6 +9577,7 @@ var Do = `wf_save_v1`,
       this.closeEurope();
       this.closeStaff();
       this.closeBarb();
+      this.closeWar();
       let euAbort = this.euDeep;
       euAbort && ((this.euDeep = null), this.euRestore());
       ((this.menuBack = null),
@@ -9614,14 +9618,15 @@ var Do = `wf_save_v1`,
       t.innerHTML = `<div class="logo">МИРОВОЙ<br> ФРОНТ</div>
 <div class="tagline">Вторая мировая · пошаговая стратегия</div>
 <div class="mbtns">
-<button class="btn gold" id="m-bb"><span class="newtag">новое</span>Барбаросса 1941<small>${$(BarbUI.menuLabel())}</small></button>
-${this.menuArch ? `<div class="march">Архив прототипов v0.1–v0.7</div>
+<button class="btn gold" id="m-war"><span class="newtag">новое</span>Фронт 1941–1945<small>${$(WarUI.menuLabel())}</small></button>
+${this.menuArch ? `<div class="march">Архив прототипов v0.1–v0.8</div>
+<button class="btn" id="m-bb">Барбаросса 1941<small>${$(BarbUI.menuLabel())}</small></button>
 ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small></button>` : ``}
 <button class="btn" id="m-new">Новая кампания</button>
 <button class="btn" id="m-car">Карьера генерала<small>${$(o)}</small></button>
 <button class="btn" id="m-st">Сталинград 1942–1943<small>${$(StaffUI.menuLabel())}</small></button>
 <button class="btn" id="m-eu">Европа 1939–1945<small>${$(EuropeUI.menuLabel())}</small></button>
-<button class="btn" id="m-arch">Скрыть архив</button>` : `<button class="btn" id="m-arch">Архив прототипов<small>кампании, карьера, Сталинград, Европа</small></button>`}
+<button class="btn" id="m-arch">Скрыть архив</button>` : `<button class="btn" id="m-arch">Архив прототипов<small>кампании, карьера, Сталинград, Европа, Барбаросса</small></button>`}
 <div class="mrow"><button class="btn" id="m-help">Как играть</button><button class="btn" id="m-snd">Звук: ${co.on ? `вкл` : `выкл`}</button></div>
 </div>
 <div class="ver">${ko}</div>`;
@@ -9641,8 +9646,11 @@ ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small
         s(`m-st`)?.addEventListener(`click`, () => {
           (Z.click(), this.openStaff());
         }),
-        s(`m-bb`).addEventListener(`click`, () => {
+        s(`m-bb`)?.addEventListener(`click`, () => {
           (Z.click(), this.openBarb());
+        }),
+        s(`m-war`).addEventListener(`click`, () => {
+          (Z.click(), this.openWar());
         }),
         s(`m-arch`).addEventListener(`click`, () => {
           this.menuArch = !this.menuArch;
@@ -9661,7 +9669,7 @@ ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small
     }
     // ——— «Европа 1939–1945»: стратегический режим и тактические битвы из него ———
     openEurope() {
-      (this.closeFront(), this.closeStaff(), this.closeBarb(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      (this.closeFront(), this.closeStaff(), this.closeBarb(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
       for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
       this.eu ||
         (this.eu = new EuropeUI(this.$.eu, {
@@ -9679,7 +9687,7 @@ ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small
     }
     // ——— «Сталинград 1942–1943»: штабной режим «Операция «Уран»» (v0.7) ———
     openStaff() {
-      (this.closeFront(), this.closeEurope(), this.closeBarb(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      (this.closeFront(), this.closeEurope(), this.closeBarb(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
       for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
       this.st || (this.st = new StaffUI(this.$.st, { sfx: Z, exit: () => this.showMenu() }));
       (this.$.st.classList.remove(`hidden`), this.st.open());
@@ -9690,7 +9698,7 @@ ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small
     }
     // ——— «Барбаросса 1941» (v0.8): кампания по главам, глава 1 «Граница» ———
     openBarb() {
-      (this.closeFront(), this.closeEurope(), this.closeStaff(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      (this.closeFront(), this.closeEurope(), this.closeStaff(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
       for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
       this.bb || (this.bb = new BarbUI(this.$.bb, { sfx: Z, exit: () => this.showMenu() }));
       (this.$.bb.classList.remove(`hidden`), this.bb.open());
@@ -9698,6 +9706,17 @@ ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small
     closeBarb() {
       this.bb && !this.$.bb.classList.contains(`hidden`) && this.bb.close();
       this.$.bb.classList.add(`hidden`);
+    }
+    // ——— «Фронт 1941–1945» (v0.9): вся война на Восточном фронте, день за ходом ———
+    openWar() {
+      (this.closeFront(), this.closeEurope(), this.closeStaff(), this.closeBarb(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
+      this.war || (this.war = new WarUI(this.$.war, { sfx: Z, exit: () => this.showMenu() }));
+      (this.$.war.classList.remove(`hidden`), this.war.open());
+    }
+    closeWar() {
+      this.war && !this.$.war.classList.contains(`hidden`) && this.war.close();
+      this.$.war.classList.add(`hidden`);
     }
     euDeepStart(e, t, n, r) {
       let i = ma[e];

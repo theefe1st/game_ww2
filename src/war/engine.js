@@ -16,7 +16,7 @@ import { EVENTS, dueEvents, evByK } from './events.js';
 
 export const VER = 1;
 // запасы крепостей (суток в кольце)
-const FORT0 = { Брест: 25, Киев: 10, Ленинград: 120, Москва: 40, Одесса: 75, Севастополь: 90, Кёнигсберг: 60, Познань: 30, Бреслау: 80, Кюстрин: 30 };
+const FORT0 = { Брест: 25, Киев: 10, Ленинград: 120, Москва: 40, Тула: 30, Одесса: 75, Севастополь: 90, Кёнигсберг: 60, Познань: 30, Бреслау: 80, Кюстрин: 30 };
 export const SAVE_KEY = 'wf_war_v1';
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 // мораль: цена городов, котлов, разгромленных армий; потери (человек на 1 очко)
@@ -38,7 +38,8 @@ const MOR_CITY = { Москва: [15, 6], Ленинград: [8, 4], Стали
 
 // ——— сообщения ———
 export function note(S, o) {
-  S.log.push({ d: S.day, ...o });
+  S.lq = (S.lq || 0) + 1;
+  S.log.push({ d: S.day, i: S.lq, ...o });
   if (S.log.length > 500) S.log.splice(0, S.log.length - 500);
 }
 
@@ -234,6 +235,11 @@ function seaSupply(S) {
     const m = new Date(Date.UTC(1941, 5, 22) + S.day * 86400000).getUTCMonth();
     const winter = m === 11 || m <= 3;
     Q.SOV.push([L, 2, S.ev.fx.ladoga === 2 && winter ? 2 : 1]);
+  }
+  // Москва (запасы, заводы, кольцевая дорога), Тула (коридор на Москву) и Сталинград (переправы через Волгу) — частичное снабжение в окружении
+  for (const [n, r, lv, y1] of [['Москва', 1, 2, 1943], ['Тула', 0, 1, 1943], ['Сталинград', 1, 1, 1944]]) {
+    const h = M.cityHex(n);
+    if (h >= 0 && sideOfH(S, h) === 'SOV' && yearF(S.day) < y1 && !(S.net?.SOV?.[h] >= 0)) Q.SOV.push([h, r, lv]);
   }
   S.ports = P;
   S.partial = Q;
@@ -443,7 +449,7 @@ export function endDay(S) {
   const y = yearF(S.day);
   ecoDay(S, (o) => note(S, o));
   repairRail(S, 'GER', y < 1942 ? 4.5 : y < 1943 ? 5 : 4);
-  repairRail(S, 'SOV', y < 1943 ? 5 : y < 1944 ? 7 : 9);
+  repairRail(S, 'SOV', y < 1943 ? 5 : 6);
   S.frontDist = { GER: frontDistance(S, 'GER'), SOV: frontDistance(S, 'SOV') };
   for (const sd of SIDES) addMor(S, sd, -S.dayLoss[sd] / MOR.loss(sd, y), 'loss'), addMor(S, sd, drift(S, sd), 'drift');
   hqTick(S);

@@ -262,7 +262,8 @@ export function runAI(S, side, opt = {}) {
       const th = (brk ? 0.9 : atkMode ? TH_ATK[side] : 2.3) * thMul;
       if (o.R < th) continue;
       // без наступательной операции: только добивать котлы и (СССР) отбивать свою землю при большом перевесе
-      if (!brk && !atkMode && !unitsAt(S, t).some((d) => d.oos > 2) && (o.R < 3 || (side === 'GER' && NS0(S, t) !== 'GER'))) continue;
+      // (вне операции — только своя земля 1941 г.: СССР не наступает за границу без операции Ставки, вермахт — без директивы ОКХ)
+      if (!brk && !atkMode && !unitsAt(S, t).some((d) => d.oos > 2) && (o.R < 3 || NS0(S, t) !== side)) continue;
       list.push({ t, att, R: o.R, s: Math.min(o.R, 4) * val });
     }
     list.sort((a, b) => b.s - a.s);
@@ -284,6 +285,7 @@ export function runAI(S, side, opt = {}) {
     const th = threat(S, h, side), c = M.cityAt[h] >= 0 ? M.cities[M.cityAt[h]] : null;
     need.set(h, th > 0 ? 1 + (th > 28 ? 1 : 0) + (th > 60 ? 1 : 0) + (c && (c.hard || c.sz >= 2) ? 1 : 0) : c && c.sz >= 2 ? 1 : 0.5);
   }
+  keyCities(S, side, need);
   pressure(S, side, act, lab, need);
   rebalance(S, side, act);
   salients(S, side, act);
@@ -323,6 +325,21 @@ function salients(S, side, act) {
       if (k < 4) continue;
       bestMove(S, u, (h, c) => (C[h] ? 0 : 50) + nEn(S, h, side) * 3 + enemyNear(S, h, side) * 0.5 + Math.max(0, stackN(S, h) - 1) * 0.5 + (c || 0) * 0.05);
     }
+  }
+}
+// ключевые города (столицы, «города-герои»): при противнике в 2 гексах — полный гарнизон, подступы — гуще
+const KEYC = { SOV: { Москва: 5, Ленинград: 5, Сталинград: 4, Тула: 3, Севастополь: 3, Одесса: 3 }, GER: { Берлин: 5, Кёнигсберг: 3, Бреслау: 3, Будапешт: 3, Вена: 3 } };
+function keyCities(S, side, need) {
+  const M = S.M;
+  for (const n in KEYC[side]) {
+    const c = M.city(n);
+    if (!c || sideOfH(S, c.h) !== side) continue;
+    let near = 9;
+    for (let r = 1; r <= 3 && near > 3; r++) for (const h of M.ring(c.h, r)) if (enemyAt(S, h, side)) { near = r; break; }
+    if (near > 3) continue;
+    if (near <= 2) need.set(c.h, Math.max(need.get(c.h) || 0, Math.min(stackCap(S, c.h), KEYC[side][n])));
+    // подступы: гексы фронта в 1–3 гексах от города
+    for (const [h, v] of need) if (h !== c.h && M.dist(h, c.h) <= 3) need.set(h, v + 1);
   }
 }
 // нагрузка участков армий: потребность фронта (fr), сила противника у участка (en), своя сила (ow), напряжение pr = en/ow

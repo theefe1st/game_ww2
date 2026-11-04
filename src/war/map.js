@@ -7,6 +7,7 @@ import { warTerrain, ownerLayer, warCounter, CW, CH, EDGE, NATC } from './art.js
 import { rgb } from '../barb/art.js';
 import { alive, sideOfH, isMech, unitsAt } from './rules.js';
 import { portraitCanvasP } from '../staff/portraits.js';
+import { POR_NAT } from './gens41.js';
 
 const FONT = (px, w = 600) => `${w} ${px}px Rubik, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
 const FRONT = rgb('#1b120d'), FRONT2 = rgb('#f3dfb0');
@@ -684,7 +685,7 @@ export class WarMap {
       if (G) {
         const pk = 'w:' + A.gen;
         let pc = this.por.get(pk);
-        if (!pc) (pc = portraitCanvasP(pk, G.por, G.pn || (A.side === 'SOV' ? 'SOV' : 'GER'))), this.por.set(pk, pc);
+        if (!pc) (pc = portraitCanvasP(pk, G.por, POR_NAT[G.nat] || 'GER')), this.por.set(pk, pc);
         x.drawImage(pc, X, Y, pw, ph);
       } else {
         x.fillStyle = '#5b544b';

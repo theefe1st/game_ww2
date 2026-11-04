@@ -34,7 +34,7 @@ export function decodeEU(J) {
   }));
   // Киевский укрепрайон (КиУР) — как крепость; запасы крепостей — см. FORT0 в engine.js
   // Москва — Можайская линия и Московская зона обороны
-  for (const c of cities) if (c.n === 'Киев' || c.n === 'Ленинград' || c.n === 'Москва') c.fort = true;
+  for (const c of cities) if (c.n === 'Киев' || c.n === 'Ленинград' || c.n === 'Москва' || c.n === 'Тула') c.fort = true;
   const cityAt = new Int16Array(N).fill(-1);
   for (const c of cities) cityAt[c.h] = c.k;
   const byName = new Map(cities.map((c) => [c.n, c]));
