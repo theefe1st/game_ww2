@@ -1,6 +1,7 @@
-// «Мировой фронт» v0.10: звук без файлов — музыка и эффекты синтезируются WebAudio.
+// «Мировой фронт» v0.11: звук без файлов — музыка и эффекты синтезируются WebAudio.
 // Музыка: «menu» — торжественный хорал ре минор, «war» — спокойная тема с литаврами; громкость музыки и эффектов
 // хранится в localStorage. Контекст создаётся по первому касанию (требование браузеров).
+// Фон погоды (ambient): дождь, морось, ветер, метель — зацикленный шум через фильтры, плавная смена; громкость — как у эффектов.
 const KEY = 'wf_east_snd';
 const NOTE = (n) => 440 * Math.pow(2, (n - 69) / 12);
 // аккорды (MIDI) и мелодия по долям
@@ -15,7 +16,7 @@ export class Sound {
     let c = null;
     try { c = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch {}
     this.cfg = { music: 0.45, sfx: 0.8, ...(c || {}) };
-    this.ctx = null; this.track = null; this.want = null; this.timer = 0;
+    this.ctx = null; this.track = null; this.want = null; this.timer = 0; this.amb = null; this.ambCur = null;
   }
   save() { try { localStorage.setItem(KEY, JSON.stringify(this.cfg)); } catch {} }
   unlock() {
@@ -30,11 +31,18 @@ export class Sound {
       this.rev = c.createConvolver(); this.rev.buffer = this.impulse(2.2); const rg = c.createGain(); rg.gain.value = 0.35; this.rev.connect(rg); rg.connect(this.mGain);
       this.noiseBuf = this.noise(1.5);
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx.state === 'suspended' && !this.hid) this.ctx.resume();
     if (this.want && !this.track) this.music(this.want);
+    if (this.amb && !this.ambCur) this.ambient(this.amb);
+  }
+  // приложение свёрнуто — тишина (и музыка, и фон)
+  suspend(on) {
+    this.hid = !!on;
+    if (!this.ctx) return;
+    if (on) this.ctx.suspend?.(); else this.ctx.resume?.();
   }
   setMusic(v) { this.cfg.music = v; this.save(); if (this.mGain) this.mGain.gain.value = v * 0.32; if (v > 0 && this.want && !this.track) this.music(this.want); if (v === 0) this.stopMusic(true); }
-  setSfx(v) { this.cfg.sfx = v; this.save(); if (this.sGain) this.sGain.gain.value = v * 0.6; }
+  setSfx(v) { this.cfg.sfx = v; this.save(); if (this.sGain) this.sGain.gain.value = v * 0.6; this.ambient(this.amb); }
   impulse(sec) {
     const c = this.ctx, n = Math.floor(c.sampleRate * sec), b = c.createBuffer(2, n, c.sampleRate);
     for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.6); }
@@ -101,6 +109,53 @@ export class Sound {
     g.gain.setValueAtTime(0.22 * k, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
     o.connect(g); g.connect(out); o.start(t); o.stop(t + 1);
   }
+  // ——— фон погоды: kind = 'rain' | 'drizzle' | 'wind' | 'blizzard' | null ———
+  ambient(kind) {
+    this.amb = kind || null;
+    const c = this.ctx;
+    if (!c) return;
+    const want = this.cfg.sfx > 0 ? this.amb : null;
+    if ((this.ambCur?.kind || null) === want) return;
+    const old = this.ambCur;
+    if (old) {
+      old.g.gain.cancelScheduledValues(c.currentTime); old.g.gain.setTargetAtTime(0, c.currentTime, 0.7);
+      setTimeout(() => { for (const n of old.nodes) { try { n.stop?.(); } catch {} try { n.disconnect(); } catch {} } }, 4000);
+    }
+    this.ambCur = want ? this.makeAmb(want) : null;
+  }
+  makeAmb(kind) {
+    const c = this.ctx, t = c.currentTime, g = c.createGain(), nodes = [g];
+    this.ambBuf ??= this.noise(5.3);
+    g.gain.value = 0; g.connect(this.sGain);
+    const src = () => { const s = c.createBufferSource(); s.buffer = this.ambBuf; s.loop = true; s.start(t, Math.random() * 5); nodes.push(s); return s; };
+    const flt = (type, f, q) => { const x = c.createBiquadFilter(); x.type = type; x.frequency.value = f; x.Q.value = q; nodes.push(x); return x; };
+    const gain = (v) => { const x = c.createGain(); x.gain.value = v; nodes.push(x); return x; };
+    const lfo = (f, depth, param) => { const o = c.createOscillator(), og = gain(depth); o.frequency.value = f; o.connect(og); og.connect(param); o.start(t); nodes.push(o); };
+    let vol;
+    if (kind === 'rain' || kind === 'drizzle') {
+      const heavy = kind === 'rain';
+      // шорох капель (верх) + гул ливня (низ), «волны» силы дождя
+      const a = src(), hp = flt('highpass', heavy ? 1100 : 1700, 0.4), lp = flt('lowpass', heavy ? 7500 : 6000, 0.3), ga = gain(1);
+      a.connect(hp); hp.connect(lp); lp.connect(ga); ga.connect(g);
+      lfo(0.07, 0.25, ga.gain);
+      const b = src(), bp = flt('bandpass', 380, 0.7), gb = gain(heavy ? 0.55 : 0.18);
+      b.connect(bp); bp.connect(gb); gb.connect(g);
+      vol = heavy ? 0.2 : 0.11;
+    } else {
+      const strong = kind === 'blizzard';
+      // ветер: узкий шум с «гуляющей» частотой и порывами
+      const a = src(), bp = flt('bandpass', strong ? 560 : 360, strong ? 1.8 : 1.2), lp = flt('lowpass', strong ? 1900 : 1000, 0.2), ga = gain(0.75);
+      a.connect(bp); bp.connect(lp); lp.connect(ga); ga.connect(g);
+      lfo(0.11, strong ? 280 : 150, bp.frequency); lfo(0.047, strong ? 0.45 : 0.35, ga.gain);
+      if (strong) { // посвист позёмки
+        const b = src(), bp2 = flt('bandpass', 1500, 6), gb = gain(0.35);
+        b.connect(bp2); bp2.connect(gb); gb.connect(g); lfo(0.19, 380, bp2.frequency); lfo(0.08, 0.3, gb.gain);
+      }
+      vol = strong ? 0.26 : 0.15;
+    }
+    g.gain.setTargetAtTime(vol, t, 1.1);
+    return { kind, g, nodes };
+  }
   // ——— эффекты ———
   tone(f0, f1, dur, type = 'sine', vol = 0.3, t = 0) {
     const c = this.ctx; if (!c) return;
@@ -131,6 +186,37 @@ export class Sound {
       case 'error': this.tone(160, 140, 0.16, 'square', 0.1); break;
       case 'victory': [0, 4, 7, 12, 16, 19, 24].forEach((n, i) => this.tone(NOTE(60 + n), NOTE(60 + n), 0.6, 'triangle', 0.18, i * 0.12)); break;
       case 'defeat': [0, -2, -5, -9, -12].forEach((n, i) => this.tone(NOTE(60 + n), NOTE(60 + n), 0.7, 'sine', 0.2, i * 0.22)); break;
+      // далёкая канонада: глухие разрывы вразнобой
+      case 'arty': { let d = 0; for (let i = 0; i < 6; i++) { const k = 0.55 + Math.random() * 0.45; this.burst(1.1, 150 + Math.random() * 110, 0.6, 0.42 * k, d); this.tone(58 + Math.random() * 14, 28, 0.9, 'sine', 0.34 * k, d); d += 0.16 + Math.random() * 0.34; } break; }
+      case 'plane': this.drone(2.6); break;
+      case 'sea': this.waves(); break;
     }
+  }
+  // гул моторов самолётов: два мотора с биениями, пролёт с эффектом Доплера
+  drone(dur) {
+    const c = this.ctx, s = c.currentTime, g = c.createGain(), lp = c.createBiquadFilter(), am = c.createGain(), pr = c.createOscillator(), pg = c.createGain();
+    lp.type = 'lowpass'; lp.frequency.setValueAtTime(380, s); lp.frequency.linearRampToValueAtTime(900, s + dur * 0.45); lp.frequency.linearRampToValueAtTime(300, s + dur);
+    g.gain.setValueAtTime(0.001, s); g.gain.exponentialRampToValueAtTime(0.2, s + dur * 0.45); g.gain.exponentialRampToValueAtTime(0.001, s + dur);
+    am.gain.value = 0.75; pr.frequency.value = 23; pg.gain.value = 0.25; pr.connect(pg); pg.connect(am.gain); // «тарахтение» винтов
+    for (const f of [92, 95.5]) {
+      const o = c.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f * 1.06, s); o.frequency.linearRampToValueAtTime(f * 0.92, s + dur);
+      o.connect(lp); o.start(s); o.stop(s + dur + 0.05);
+    }
+    lp.connect(am); am.connect(g); g.connect(this.sGain); pr.start(s); pr.stop(s + dur + 0.05);
+  }
+  // море: две волны и гудок корабля
+  waves() {
+    const c = this.ctx, s = c.currentTime;
+    for (let i = 0; i < 2; i++) {
+      const t = s + i * 1.1, n = c.createBufferSource(), fl = c.createBiquadFilter(), g = c.createGain();
+      n.buffer = this.noiseBuf; fl.type = 'lowpass'; fl.frequency.setValueAtTime(300, t); fl.frequency.linearRampToValueAtTime(1300, t + 0.7); fl.frequency.linearRampToValueAtTime(260, t + 1.5);
+      g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(0.34, t + 0.6); g.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+      n.connect(fl); fl.connect(g); g.connect(this.sGain); n.start(t, Math.random() * 0.3); n.stop(t + 1.55);
+    }
+    const o = c.createOscillator(), o2 = c.createOscillator(), lp = c.createBiquadFilter(), g = c.createGain(), t = s + 0.35;
+    o.type = 'sawtooth'; o.frequency.value = 104; o2.type = 'sawtooth'; o2.frequency.value = 131; lp.type = 'lowpass'; lp.frequency.value = 520;
+    g.gain.setValueAtTime(0.001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.12); g.gain.setValueAtTime(0.09, t + 0.95); g.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
+    o.connect(lp); o2.connect(lp); lp.connect(g); g.connect(this.sGain); o.start(t); o2.start(t); o.stop(t + 1.35); o2.stop(t + 1.35);
   }
 }

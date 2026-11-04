@@ -85,6 +85,19 @@ export class EastUI {
       this.act(b.dataset.a, b);
     });
     root.addEventListener('pointerdown', () => this.snd.unlock(), { capture: true });
+    // свёрнутое приложение — без звука; фон погоды — по тому, что видно на экране
+    document.addEventListener('visibilitychange', () => { this.snd.suspend(document.hidden); this.updAmb(); });
+    this.ambT = setInterval(() => this.updAmb(), 1500);
+  }
+  // звук погоды: преобладающая непогода в видимой части карты (сетка 5×4)
+  updAmb() {
+    const mp = this.map;
+    if (!mp || this.closed || this.mode !== 'game' || !this.opt.wxfx || !this.S?.wx || document.hidden) return this.snd.ambient(null);
+    const n = {};
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 5; i++) { const w = mp.wxAt(((i + 0.5) * mp.w) / 5, ((j + 0.5) * mp.h) / 4); n[w] = (n[w] || 0) + 1; }
+    let best = 'dry', bn = 5; // непогода хотя бы на четверти экрана
+    for (const k in n) if (k !== 'dry' && n[k] > bn) { best = k; bn = n[k]; }
+    this.snd.ambient({ rain: 'rain', mud: 'drizzle', snow: 'wind', frost: 'blizzard' }[best] || null);
   }
   // карта создаётся при первом открытии (WebGL, рельеф — ~0,3 с)
   ensureMap() {
@@ -112,10 +125,11 @@ export class EastUI {
     this.map.genImg = (k) => { if (!k) return null; let im = GI.get(k); if (!im) { im = new Image(); im.onload = () => this.map.redraw(); im.src = genURL(k); GI.set(k, im); } return im; };
   }
   open() {
+    this.closed = false;
     this.ensureMap();
     this.showMenu();
   }
-  close() { this.snd.stopMusic(); this.save(); }
+  close() { this.closed = true; this.snd.stopMusic(); this.snd.ambient(null); this.save(); }
   back() {
     if (!this.$('.e-modal').classList.contains('hidden')) { if (this.modalLock) return true; this.closeModal(); return true; }
     if (!this.$('.e-panel').classList.contains('hidden')) { this.closePanel(); return true; }
@@ -164,7 +178,7 @@ export class EastUI {
       case 'evc': return this.pickChoice(b.dataset.id, +b.dataset.i);
       case 'evok': this.snd.play('click'); return this.nextCard();
       case 'rep': this.snd.play('click'); return this.nextCard();
-      case 'opt': { this.snd.play('click'); const k = b.dataset.k; this.opt[k] = !this.opt[k]; this.saveOpts(); if (this.map) { this.map.opt.trees = this.opt.trees; this.map.opt.wx = this.opt.wxfx; this.map.redraw(); } if (k === 'tips' && this.opt.tips) { this.tipsSeen = {}; try { localStorage.removeItem(TIPS); } catch {} } return this.showSettings(); }
+      case 'opt': { this.snd.play('click'); const k = b.dataset.k; this.opt[k] = !this.opt[k]; this.saveOpts(); if (this.map) { this.map.opt.trees = this.opt.trees; this.map.opt.wx = this.opt.wxfx; this.map.redraw(); } this.updAmb(); if (k === 'tips' && this.opt.tips) { this.tipsSeen = {}; try { localStorage.removeItem(TIPS); } catch {} } return this.showSettings(); }
       case 'tipok': this.snd.play('click'); return this.hideTip();
       case 'region': { const r = +b.dataset.r; this.snd.play('click'); this.map.flyTo(this.M.reg[r].x, this.M.reg[r].y, Math.max(this.map.view.sc, 0.8)); return this.openRegion(r); }
       case 'save': this.save(); this.toast(ic('save') + 'Игра сохранена'); return this.closeModal();
@@ -234,7 +248,7 @@ ${DIFF.map((d) => opt('diff', d.k, `${ic(['medal', 'star', 'skull'][d.k])}<b>${d
 <div class="e-set">
 <label class="e-row">${ic('music')}<span>Музыка</span><input type="range" min="0" max="100" value="${Math.round(s.music * 100)}" id="e-mus"></label>
 <label class="e-row">${ic('sound')}<span>Звуки</span><input type="range" min="0" max="100" value="${Math.round(s.sfx * 100)}" id="e-sfx"></label>
-${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Анимация погоды', 'rain')}${tg('tips', 'Подсказки новичку', 'info')}
+${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Погода: анимация и звуки', 'rain')}${tg('tips', 'Подсказки новичку', 'info')}
 </div>
 <div class="e-btns"><button class="e-btn gold" data-a="close">${ic('check')}<span>Готово</span></button></div>`, { cls: 'set' });
     m.querySelector('#e-mus').addEventListener('input', (e) => this.snd.setMusic(e.target.value / 100));
@@ -372,17 +386,33 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Аним�
     const pocket = S.units.filter((u) => E.alive(u) && u.s === P && S.sup[P][u.r] <= 0).length;
     const rep = { turn0: b.turn, won, lost, gain, loss, my: my.length, myWin: my.filter((x) => x.win).length, en: en.length, enWin: en.filter((x) => x.win).length,
       dl, pow: S.stats[Q].pow - b.pow[Q], powL: S.stats[P].pow - b.pow[P], arr: alive[P] - b.alive[P] + dl[P], pocket, news: (S.news || []).slice() };
+    const marks = bt.filter((x) => x.win || x.side === Q).slice(-60);
     this.map.clearBattles();
-    this.map.showBattles(bt.filter((x) => x.win || x.side === Q).slice(-60));
+    this.map.showBattles(marks);
+    this.lastMarks = marks.length ? marks : null;
     this.cards.push({ k: 'rep', rep });
     if (pocket) this.tipLater('pocket');
     if (S.turn === 2) this.tipLater('build');
-    this.beginPlayer();
+    // пауза «Итоги недели…»: видно стрелки и вспышки боёв, слышно канонаду
+    if (!marks.length || S.over) return this.beginPlayer();
+    this.snd.play('arty');
+    this.busy(true, 'Итоги недели…');
+    setTimeout(() => { if (this.S === S && this.mode === 'game') this.beginPlayer(); }, 1400);
+  }
+  // после сводки — бои недели ещё раз (сводка закрывала карту)
+  replayBattles() {
+    const mk = this.lastMarks;
+    this.lastMarks = null;
+    if (!mk || !this.map) return;
+    this.map.clearBattles();
+    this.map.showBattles(mk, 5200);
+    const v = this.map.view, onScr = mk.some((m) => { const g = this.M.reg[m.T], x = (g.x - v.x0) * v.sc, y = (g.y - v.y0) * v.sc; return x > 0 && y > 0 && x < this.map.w && y < this.map.h; });
+    if (onScr) this.snd.play('arty');
   }
   // ——— карточки: сводка недели, события, итог ———
   nextCard() {
     const c = this.cards.shift();
-    if (!c) { this.closeModal(); this.modalLock = false; this.refresh(); this.maybeTip(); return; }
+    if (!c) { this.closeModal(); this.modalLock = false; this.refresh(); this.replayBattles(); this.maybeTip(); return; }
     if (c.k === 'rep') return this.showReport(c.rep);
     if (c.k === 'ev') return this.showEventCard(c.id);
   }

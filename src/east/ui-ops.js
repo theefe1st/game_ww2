@@ -67,13 +67,14 @@ ${al ? `<p class="e-note warn">${ic('air')}Слабое прикрытие с в
     const res = O.runOp(S, P, p.kind, p.r, p.t, p.us);
     if (!res) { this.snd.play('error'); return this.toast(`${ic('cancel')}Войска не готовы`); }
     for (const u of p.us) u.man = 1;
-    this.snd.play('attack');
+    this.snd.play(p.kind === 'sea' ? 'sea' : 'plane');
+    setTimeout(() => this.snd.play('attack'), p.kind === 'sea' ? 900 : 1300);
     this.map.showBattles(S.battles.slice(n0), 5000);
     const t = esc(nm(M, p.t)), K = O.OPS[p.kind];
     setTimeout(() => {
       if (res.win) { this.snd.play('win'); this.toast(`${ic(K.ic)}${t}: ${res.free ? 'высадка без боя' : 'плацдарм захвачен!'}${res.air ? ` Потери в полёте: ${res.air} %.` : ''}`, 'good'); }
       else { this.snd.play('lose'); this.toast(`${ic('def')}${t}: десант отбит${res.lost ? `, погибло ${res.lost} ${divW(res.lost)}` : ''}`, 'bad'); }
-    }, 450);
+    }, p.kind === 'sea' ? 1500 : 1900);
     this.refresh();
     if (res.win) { this.map.setHL({ sel: p.t }); this.openPanel('reg', p.t); }
   },
