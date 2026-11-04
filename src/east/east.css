@@ -26,6 +26,7 @@
 .e-btn span{display:flex;flex-direction:column;line-height:1.15}
 .e-btn small{font-weight:400;font-size:12px;opacity:.78;display:flex;align-items:center;gap:.3em}
 .e-btn.gold{background:linear-gradient(#f0c766,#c8902a);border-color:#f6dc92!important;color:#2a1a08;box-shadow:0 2px 0 #7a5212,0 3px 10px rgba(0,0,0,.35)}
+.e-btn.warn{background:linear-gradient(#c4513a,#93301c);border-color:#e88a70!important;color:#fff;box-shadow:0 2px 0 #5a1a0c,0 3px 10px rgba(0,0,0,.35)}
 .e-btn.big{min-height:58px;font-size:18px;padding:.5em 1.2em}
 .e-btn.big .ic{width:1.5em;height:1.5em}
 .e-btn.sm{min-height:36px;font-size:13.5px;padding:.3em .75em;border-radius:10px}
@@ -291,6 +292,12 @@
 .e-end.good h2{color:#2f6a1e}
 .e-end.bad h2{color:#9a2a16}
 .e-end .e-stats{width:100%}
+.e-hcmp{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;padding:7px 14px;border-radius:12px;background:rgba(60,50,30,.07)}
+.e-hcmp.good{background:rgba(47,106,30,.12);color:#2f5a1e}
+.e-stars{display:flex;gap:2px}
+.e-stars .ic{width:22px;height:22px}
+.e-stars .on{fill:#d9a21b}
+.e-stars .off{fill:currentColor;opacity:.22}
 .e-end .e-btns{justify-content:center}
 .e-help{display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center}
 .e-hico{width:84px;height:84px;border-radius:22px;display:flex;align-items:center;justify-content:center;background:radial-gradient(#fff7e0,#e2c890);box-shadow:inset 0 0 0 3px #8a5a1a;color:#6a3a10}
@@ -309,6 +316,13 @@
   .e-hico{width:64px;height:64px}
   .e-card p{font-size:14px}
   .e-card.rep{width:min(560px,94vw)}
+  .e-card.end{width:min(640px,94vw)}
+  .e-end{gap:8px}
+  .e-end h2{font-size:24px}
+  .e-end .e-evic{width:48px;height:48px}
+  .e-end .e-evic .ic{width:28px;height:28px}
+  .e-end .e-stats{grid-template-columns:repeat(4,1fr)}
+  .e-end .e-stat{padding:5px 7px}
 }
 /* ——— ожидание, уведомления, подсказки ——— */
 .e-busy{position:absolute;z-index:25;left:50%;top:calc(var(--bar) + 12px);transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 16px;border-radius:18px;

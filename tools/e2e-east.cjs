@@ -106,7 +106,7 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
       await click('.e-panel [data-a=move]', 500); await shot('move'); await overflow('move');
       // ударить по соседней области противника
       const tgt = await ev(() => { const U = window.__east; for (const r of U.map.hl.atk || []) return r; return -1; });
-      if (tgt >= 0) { await tapReg(tgt); await page.waitForTimeout(700); console.log('attack:', await txt('.e-toasts', 140)); await shot('attack_res', 100); }
+      if (tgt >= 0) { await tapReg(tgt); await page.waitForTimeout(400); if (await ev(() => !!window.__east.sel)) { console.log('attack: low odds, confirm —', await txt('.e-toasts', 100)); await shot('attack_confirm', 50); await tapReg(tgt); } await page.waitForTimeout(700); console.log('attack:', await txt('.e-toasts', 140)); await shot('attack_res', 100); }
       else await click('[data-a=cancel]');
     }
   }
@@ -115,7 +115,7 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   if (enReg >= 0) {
     await ev((r) => { const U = window.__east, g = U.M.reg[r]; U.map.centerOn(g.x, g.y, 0.9); }, enReg); await page.waitForTimeout(400);
     await tapReg(enReg); await shot('region_enemy'); await overflow('region enemy');
-    if (await has('.e-panel [data-a=attack]')) { await click('.e-panel [data-a=attack]', 700); console.log('attack2:', await txt('.e-toasts', 140)); await shot('attack2', 100); }
+    if (await has('.e-panel [data-a=attack]')) { await click('.e-panel [data-a=attack]', 300); if (await has('.e-panel [data-a=attack].warn')) { console.log('attack2: low odds, confirm'); await shot('attack2_confirm', 50); await click('.e-panel [data-a=attack].warn', 700); } console.log('attack2:', await txt('.e-toasts', 140)); await shot('attack2', 100); }
     if (await has('.e-panel [data-a=pclose]')) await click('.e-panel [data-a=pclose]');
   }
   await click('[data-a=army]'); await shot('army'); await overflow('army');
@@ -152,7 +152,8 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
     ok(await has('.e-panel [data-a=attack]'), 'attack button');
     if (await has('.e-panel [data-a=attack]')) {
       const before = await ev(() => window.__east.S.battles.length);
-      await click('.e-panel [data-a=attack]', 700);
+      await click('.e-panel [data-a=attack]', 300);
+      if (await has('.e-panel [data-a=attack].warn')) { console.log('attack3: low odds, confirm'); await click('.e-panel [data-a=attack].warn', 700); } else await page.waitForTimeout(500);
       console.log('attack3:', await txt('.e-toasts', 160));
       ok(await ev((b) => window.__east.S.battles.length > b, before), 'battle resolved');
       await shot('attack3', 100);

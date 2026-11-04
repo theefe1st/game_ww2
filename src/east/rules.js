@@ -95,9 +95,9 @@ export const quality = (nat, turn) => lerpT(QT[nat] || QT.GER, yearF(turn));
 const TQ = { GER: [[1941.4, 1], [1943.4, 1.08], [1945.5, 1.1]], SOV: [[1941.4, 0.7], [1942.3, 0.92], [1943.5, 1], [1945.5, 1.06]] };
 export const tankQ = (side, turn) => lerpT(TQ[side] || TQ.GER, yearF(turn));
 export const DIFF = [
-  { k: 0, n: 'Лёгкая', pl: 1.18, ai: 0.9, eco: 1.2 },
-  { k: 1, n: 'Нормальная', pl: 1.06, ai: 0.98, eco: 1.05 },
-  { k: 2, n: 'Тяжёлая', pl: 0.97, ai: 1.06, eco: 0.95 },
+  { k: 0, n: 'Лёгкая', pl: 1.18, ai: 0.9, eco: 1.2, cap: 1.12 },
+  { k: 1, n: 'Нормальная', pl: 1.06, ai: 0.98, eco: 1.05, cap: 1.03 },
+  { k: 2, n: 'Тяжёлая', pl: 0.97, ai: 1.06, eco: 0.95, cap: 0.97 },
 ];
 export const MODES = { hist: { n: 'Исторический', d: 'события и планы сторон по истории' }, free: { n: 'Свободный', d: 'своя стратегия, история может пойти иначе' } };
 export const POSTURE = { def: { n: 'Оборона', ic: 'def' }, atk: { n: 'Наступление', ic: 'atk' }, ret: { n: 'Отход', ic: 'ret' } };

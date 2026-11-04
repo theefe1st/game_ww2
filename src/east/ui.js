@@ -14,7 +14,7 @@ import { evCard, chooseEvent, boostsNow, pendingChoices } from './events.js';
 import { EastMap, drawCounter } from './map.js';
 import { Sound } from './audio.js';
 import { icon } from './icons.js';
-import { fmtTurn, SIDE_N, SIDE0, NAT_N, TYPES, TER, WX, DIFF, MODES, other, divW, plural } from './rules.js';
+import { fmtTurn, turnOf, SIDE_N, SIDE0, NAT_N, TYPES, TER, WX, DIFF, MODES, other, divW, plural } from './rules.js';
 import { ZONES } from './sites.js';
 import { ALLG, POR_NAT, TRAITS } from '../war/gens41.js';
 import { portraitURLP } from '../staff/portraits.js';
@@ -297,7 +297,7 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('figures', 'Фиг
   // фаза игрока: свежие очки хода, приказы «авто», сохранение
   beginPlayer(resume = false) {
     const S = this.S;
-    if (S.over) return this.showEnd();
+    if (S.over) { this.busy(false); return this.showEnd(); }
     E.beginPhase(S, this.P);
     this.applyAuto();
     this.busy(false);
@@ -444,6 +444,7 @@ ${ask ? `<div class="e-evopts">${c.opts.map((o, i) => `<button class="e-btn ${i 
     this.modal(`<div class="e-end ${win ? 'good' : 'bad'}"><div class="e-evic">${ic(win ? 'trophy' : 'skull')}</div>
 <h2>${win ? 'Победа!' : 'Поражение'}</h2><p>${esc(o.why)}</p>
 <div class="e-rdate">${ic('calendar')}${esc(fmtTurn(o.turn, true))} · ${o.turn} ${plural(o.turn, 'неделя', 'недели', 'недель')} войны</div>
+${this.histCmp(o)}
 <div class="e-stats">
 <div class="e-stat">${ic('skull')}<b>${st[other(this.P)].lost}</b><small>дивизий врага разбито</small></div>
 <div class="e-stat">${ic('encircle')}<b>${st[other(this.P)].pow}</b><small>взято в плен в котлах</small></div>
@@ -452,6 +453,17 @@ ${ask ? `<div class="e-evopts">${c.opts.map((o, i) => `<button class="e-btn ${i 
 </div>
 <div class="e-btns"><button class="e-btn" data-a="exitgame">${ic('exit')}<span>В меню</span></button><button class="e-btn gold" data-a="newgame">${ic('play')}<span>Новая игра</span></button></div></div>`, { lock: true, cls: 'end' });
     this.mode = 'over';
+  }
+  // сравнение с историей: Берлин взят 2 мая 1945 г.
+  histCmp(o) {
+    if (o.win !== 'SOV') return '';
+    const d = o.turn - turnOf('1945-05-02'), n = Math.abs(d), w = `${n} ${plural(n, 'неделю', 'недели', 'недель')}`;
+    const sov = this.P === 'SOV', good = sov ? d < -1 : d > 1;
+    const txt = n <= 1 ? 'Почти точно как в истории (2 мая 1945)'
+      : sov ? (d < 0 ? `На ${w} раньше, чем в истории` : `На ${w} позже, чем в истории`)
+        : d > 0 ? `Рейх продержался на ${w} дольше, чем в истории` : `На ${w} раньше, чем в истории`;
+    const st = sov ? (d <= -8 ? 3 : d <= 4 ? 2 : 1) : d >= 8 ? 3 : d >= -4 ? 2 : 1;
+    return `<div class="e-hcmp ${good ? 'good' : ''}"><span class="e-stars">${[1, 2, 3].map((k) => ic('star', k <= st ? 'on' : 'off')).join('')}</span><span>${esc(txt)}</span></div>`;
   }
   // ——— верхняя панель, флажки целей ———
   refresh() {
@@ -587,9 +599,9 @@ ${bs}</div>`;
     const coming = S.units.filter((u) => !u.dead && u.s === P && u.r < 0 && u.arr !== undefined);
     const types = ['arm', 'mot', 'inf', 'mtn', 'cav', 'sec'].filter((t) => by[t]);
     const canT = P === 'SOV' ? ['inf', 'mtn', 'cav', 'mot', 'arm'] : ['inf', 'mtn', 'mot', 'arm'];
-    const z = this.recZ ?? -1;
+    const z = this.recZ ?? -1, capN = E.armyCap(S, P), size = E.armySize(S, P), full = size >= capN;
     const recB = canT.map((t) => {
-      const c = E.newCost(P, t), ok = S.pp[P] >= c.pp && S.men[P] >= c.men;
+      const c = E.newCost(P, t), ok = !full && S.pp[P] >= c.pp && S.men[P] >= c.men;
       return `<button class="e-rec" data-a="rec" data-t="${t}" ${ok ? '' : 'disabled'}><img src="${counterURL(P, t)}" alt=""><b>${esc(TYPES[t].n)}</b><small>${ic('prod')}${num(c.pp)} ${ic('men')}${num(c.men)}</small></button>`;
     }).join('');
     return `${this.head(ic('helmet'), 'Армия', `${n} ${divW(n)} · в среднем ${n ? Math.round(str / n) : 0}% штата`)}<div class="e-pbody">
@@ -598,7 +610,8 @@ ${pocket ? `<div class="e-warn">${ic('encircle')}В окружении: ${pocket
 ${coming.length ? `<div class="e-note">${ic('train')}В пути: ${coming.length} ${divW(coming.length)}</div>` : ''}
 <h4>${ic('prod')}Хозяйство за неделю</h4>
 <div class="e-eco"><span>${ic('prod')}<b>+${num(inc.pp || 0)}</b><small>производство${inc.ll ? `, из них ленд-лиз ${num(inc.ll)}` : ''}</small></span><span>${ic('men')}<b>+${num(inc.men || 0)}</b><small>призыв</small></span><span>${ic('factory')}<b>${num(inc.fac || 0)}</b><small>заводов работает</small></span></div>
-<h4>${ic('plus')}Новая дивизия <small>прибудет через 2 недели</small></h4>
+<h4>${ic('plus')}Новая дивизия <small>прибудет через 2 недели · ${size}/${capN}</small></h4>
+${full ? `<div class="e-note">${ic('info')}Армия у предела: ${capN} ${divW(capN)}. Предел растёт с мобилизацией, запасы идут на пополнение.</div>` : ''}
 <div class="e-zsel"><button class="e-zc ${z < 0 ? 'on' : ''}" data-a="recz" data-z="-1">Авто</button>${ZONES.map((Z, q) => `<button class="e-zc ${z === q ? 'on' : ''}" data-a="recz" data-z="${q}">${esc(Z.s)}</button>`).join('')}</div>
 <div class="e-recs">${recB}</div>
 <button class="e-row e-toggle ${S.auto.recruit ? 'on' : ''}" data-a="auto" data-k="recruit">${ic('auto')}<span>Генштаб сам формирует дивизии</span><i></i></button>
@@ -613,7 +626,7 @@ ${coming.length ? `<div class="e-note">${ic('train')}В пути: ${coming.lengt
       if (z < 0) z = 2;
     }
     const u = E.recruit(S, P, t, z);
-    if (!u) { this.snd.play('error'); return this.toast(`${ic('cancel')}Не хватает запасов`); }
+    if (!u) { this.snd.play('error'); return this.toast(`${ic('cancel')}${E.armySize(S, P) >= E.armyCap(S, P) ? 'Армия у предела численности' : 'Не хватает запасов'}`); }
     S.stats[P].made++;
     this.snd.play('build');
     this.toast(`${ic('plus')}${esc(u.n)}: прибудет на ${esc(ZONES[z].n.toLowerCase())} направление`);
@@ -736,6 +749,12 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
     if (t < 0 || t === r) return this.cancelMode(true);
     if (this.map.hl.atk?.has(t)) {
       const at = us.filter((u) => E.alive(u) && E.canAttack(S, u) && E.natOK(S, u, t));
+      if (at.length && E.odds(S, t, at).R < 0.9 && this.confirmAtk !== t) { // низкие шансы — переспросить
+        this.confirmAtk = t; clearTimeout(this.confirmT); this.confirmT = setTimeout(() => (this.confirmAtk = -1), 5000);
+        this.snd.play('error');
+        return this.toast(`${ic('info')}Шансы низкие (×${E.odds(S, t, at).R.toFixed(1)}). Нажмите ещё раз, чтобы атаковать`, 'bad');
+      }
+      this.confirmAtk = -1;
       this.cancelMode(true);
       if (!at.length) { this.snd.play('error'); return this.toast(`${ic('cancel')}Войска не готовы к удару`); }
       return this.attackWith(t, at);
@@ -760,6 +779,15 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
   doAttack(T) {
     const at = this.attackers(T);
     if (!at.length) return;
+    // низкие шансы — переспросить (второе нажатие в течение 5 с)
+    if (E.odds(this.S, T, at).R < 0.9 && this.confirmAtk !== T) {
+      this.confirmAtk = T; clearTimeout(this.confirmT); this.confirmT = setTimeout(() => (this.confirmAtk = -1), 5000);
+      this.snd.play('error');
+      const b = this.$(`.e-panel [data-a="attack"][data-r="${T}"]`);
+      if (b) { b.classList.add('warn'); b.querySelector('span').innerHTML = 'Точно атаковать?<small>шансы низкие, будут потери</small>'; }
+      return;
+    }
+    this.confirmAtk = -1;
     this.attackWith(T, at);
   }
   attackWith(T, us) {

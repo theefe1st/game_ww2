@@ -140,7 +140,7 @@ export const EVENTS = [
       for (const u of S.units) if (alive(u) && u.s === 'GER' && S.M.nats[S.own[u.r]] === 'FIN') { const a = S.at[u.r]; a.splice(a.indexOf(u), 1); u.dead = 1; u.r = -1; }
       evict(S, 'SOV'); reindex(S); addMor(S, 'GER', -3);
     } },
-  { id: 'volk', side: 'GER', ic: 'helmet', at: '1944-10-18', t: 'Фольксштурм', d: 'В строй ставят стариков и подростков: новые слабые дивизии у Берлина и Кёнигсберга.',
+  { id: 'volk', side: 'GER', ic: 'helmet', at: '1944-03-01', cond: (S) => S.turn >= T('1944-10-18') || nearReich(S, 3), t: 'Фольксштурм', d: 'В строй ставят стариков и подростков: новые слабые дивизии у Берлина и Кёнигсберга.',
     fx: (S) => {
       const o = { key: 'GER:vs', str: 50, rdy: 45, name: (n) => `${n}-й фольксштурм` };
       spawn(S, 'GER', 'Берлин', 3, o); spawn(S, 'GER', 'Кёнигсберг', 2, o); spawn(S, 'GER', 'Бреслау', 2, o);
@@ -151,6 +151,12 @@ export const EVENTS = [
 const EVM = new Map(EVENTS.map((e) => [e.id, e]));
 export const evById = (id) => EVM.get(id);
 // войска СССР в пределах d шагов от земель наций nats
+// Красная армия у границ Рейха (довоенная территория Германии)
+function nearReich(S, d) {
+  const G = natIdx(S, 'GER');
+  for (let r = 0; r < S.M.R; r++) if (S.own0[r] === G && sideOf(S, r) === 'GER' && near(S, r, 'GER', d)) return true;
+  return false;
+}
 function nearNat(S, nats, d) {
   const idx = nats.map((n) => natIdx(S, n));
   for (let r = 0; r < S.M.R; r++) if (idx.includes(S.own[r]) && near(S, r, 'GER', d)) return true;

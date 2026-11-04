@@ -5,6 +5,7 @@
 import {
   ZN, sideOf, isFront, attackersFor, odds, resolveAttack, reach, moveTo, room, railTargets, railMove, beginPhase, endPhase, baseCV, defCV,
   attCV, garOf, isSource, frontDist, recruit, build, canBuild, evacuate, canEvac, regionDef, alive, cap, genOf, hasTr, unitsAt, newCost, BUILD, note, natOf,
+  armyCap, armySize,
 } from './engine.js';
 import { other, isMech, yearF, turnOf, TYPES, SIDE0, dateOf, lerpT } from './rules.js';
 import { PLAN, GEN_HIST } from './hist.js';
@@ -45,7 +46,7 @@ export function setPostures(S, side, isAI) {
       const p = planOf(S, side, z);
       S.post[side][z] = p ? p[3] : 'def';
       S.tgt[side][z] = p && p[3] === 'atk' ? planTarget(S, side, p[4]) : -1;
-      if (S.post[side][z] === 'atk' && S.tgt[side][z] < 0) S.tgt[side][z] = autoTarget(S, side, z); // цели плана взяты — дальше по обстановке
+      // цели плана взяты раньше срока — закрепиться (не уходить за Волгу, не рваться к Берлину раньше времени)
       if (S.post[side][z] === 'atk' && S.tgt[side][z] < 0) S.post[side][z] = 'def';
       continue;
     }
@@ -54,7 +55,8 @@ export function setPostures(S, side, isAI) {
     const cur = S.post[side][z];
     let p = cur;
     // отход целым направлением ИИ не объявляет (только отдельные дивизии из котлов)
-    const kw = side === 'SOV' && (wx === 'snow' || wx === 'frost') ? 0.85 : 1; // зимние наступления Красной армии
+    // зимние наступления Красной армии; вермахт зимой наступает только с большим перевесом
+    const kw = wx === 'snow' || wx === 'frost' ? (side === 'SOV' ? 0.85 : 1.4) : 1;
     if (k >= (cur === 'atk' ? 0.95 : 1.2) * kw && wx !== 'mud') p = 'atk';
     else if (cur !== 'def' && k < 0.95 * kw) p = 'def';
     S.post[side][z] = p;
@@ -69,7 +71,7 @@ export function autoTarget(S, side, z) {
   for (const g of M.reg) {
     if (sideOf(S, g.id) !== other(side) || g.vp <= 0) continue;
     const dz = g.z === z ? 0 : 6, k = d[g.id];
-    if (k > 7) continue;
+    if (k > 5) continue; // не дальше 5 областей от фронта: иначе прорыв отрывается от снабжения
     const s = g.vp * 3 - k * 4 - dz;
     if (s > bs) (bs = s), (best = g.id);
   }
@@ -162,8 +164,9 @@ function breakout(S, C) {
     for (const e of M.reg[u.r].nb) if (sideOf(S, e.r) === C.en && d[e.r] < td) (td = d[e.r]), (T = e.r);
     if (T < 0 || tried.has(T)) continue;
     tried.add(T);
-    const us = attackersFor(S, T, side).filter((v) => sup[v.r] <= 0 && !v.man);
-    if (us.length && odds(S, T, us).R >= 0.8) resolveAttack(S, T, us, {});
+    // прорыв изнутри и деблокирующий удар снаружи
+    const us = attackersFor(S, T, side).filter((v) => !v.man && (sup[v.r] <= 0 || (canAttackNow(v) && keepOK(S, C, v))));
+    if (us.some((v) => sup[v.r] <= 0) && odds(S, T, us).R >= 0.8) resolveAttack(S, T, us, {});
   }
 }
 // резервы в тылу — по железной дороге к участкам с нехваткой сил
@@ -272,6 +275,8 @@ function offensive(S, C, z) {
       if (!us.length) continue;
       const o = odds(S, e, us);
       const prog = Math.min(...nb.map((n) => dT[n.r]), dT[e] + 1) - dT[e];
+      // не уходить в сторону от цели (кроме возврата своих земель): иначе удары «куда попало», хоть на Берлин
+      if (prog < 0 && e !== T && SIDE0[M.nats[S.own0[e]]] !== side) continue;
       const s = prog * 6 - dT[e] * 0.9 + M.reg[e].vp * 1.5 + Math.min(o.R, 4) * 3 + (S.at[e].length || garOf(S, e) ? 0 : 6) + (e === T ? 8 : 0);
       cand.push({ e, us, o, s });
     }
@@ -491,8 +496,6 @@ function fillGaps(S, C) {
   }
 }
 // ——— хозяйство ИИ: набор, постройки, эвакуация ———
-// численность армии, к которой стремится ИИ (дивизий, с союзниками)
-export const ARMY = { SOV: [[1941.4, 320], [1942.0, 380], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
 export const MIX = {
   SOV: [[1941.4, { inf: 0.86, cav: 0.1, arm: 0.04 }], [1942.3, { inf: 0.78, cav: 0.06, arm: 0.12, mot: 0.04 }], [1943.2, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.0, { inf: 0.7, arm: 0.2, mot: 0.1 }]],
   GER: [[1941.4, { inf: 0.8, arm: 0.12, mot: 0.08 }], [1943.0, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.5, { inf: 0.82, arm: 0.12, mot: 0.06 }]],
@@ -522,7 +525,7 @@ export function economyAI(S, side, isAI) {
   const reserve = { pp: 30, men: side === 'SOV' ? 40 : 30 };
   const mix = mixNow(side, S.turn);
   const queued = S.units.filter((u) => u.s === side && u.r < 0 && !u.dead && u.arr !== undefined && !u.hist).length;
-  const army = S.units.filter((u) => u.s === side && alive(u)).length + queued, capA = isAI ? lerpT(ARMY[side], yearF(S.turn)) : 1e9;
+  const army = armySize(S, side), capA = armyCap(S, side);
   let k = 0;
   while (k++ < 14 && queued + k < 40 && army + k <= capA) {
     let t = rndPick(S, mix);

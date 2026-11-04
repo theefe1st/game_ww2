@@ -73,7 +73,7 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
     pp: { GER: 60, SOV: 60 }, men: { GER: 60, SOV: 150 }, inc: { GER: {}, SOV: {} }, spent: { GER: {}, SOV: {} },
     mor: { GER: 75, SOV: 60 }, sup: {}, railCap: { GER: 0, SOV: 0 },
     stats: { GER: { lost: 0, pow: 0, battles: 0, made: 0 }, SOV: { lost: 0, pow: 0, battles: 0, made: 0 } },
-    wx: new Array(ZN).fill('dry'), wxShift: [0, 0, 0, 0, 0].map(() => 0), auto: { recruit: true, build: false },
+    wx: new Array(ZN).fill('dry'), wxShift: [0, 0, 0, 0, 0].map(() => 0), auto: { recruit: true, build: true },
     over: null,
   };
   S.wxShift = [0, 1, 2, 3, 4].map(() => Math.round((rnd(S) - 0.5) * 12));

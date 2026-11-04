@@ -524,7 +524,7 @@ function director(S) {
   // в «Свободном» режиме — слабее и только при большом отрыве (своя стратегия может переиграть историю)
   const x = Math.max(-1, Math.min(1, (free ? S.dir - Math.sign(S.dir) * Math.min(Math.abs(S.dir), 3) : S.dir) / 10)), lag = x > 0 ? 'SOV' : 'GER';
   const allow = (side) => S.diff === 1 || (S.diff === 0 ? side === S.side : side !== S.side);
-  const k = (allow(lag) ? Math.abs(x) : 0) * (free ? 0.7 : 1);
+  const k = (allow(lag) ? Math.abs(x) : 0) * (free ? (Math.abs(S.dir) >= 8 ? 0.9 : 0.7) : 1);
   // «ход истории»: отстающая сторона сражается немного лучше, ведущая — хуже (до ±15 %)
   S.band = { GER: 1 + (x > 0 ? -0.15 : 0.15) * k, SOV: 1 + (x > 0 ? 0.15 : -0.15) * k };
   if (S.turn % 3 || !k) return;
@@ -535,7 +535,7 @@ function director(S) {
     for (let i = 0; i < n; i++) recruit(S, 'SOV', i % 4 === 3 && yearF(S.turn) > 1942.2 ? 'arm' : 'inf', z, { free: 1, wait: 1, str: 85, rdy: 70 });
     note(S, { ic: 'star', side: 'SOV', txt: `Резервы Ставки: ${n} ${divW(n)}` });
   } else if (lag === 'GER' && S.dir <= (free ? -5 : -3) && n0.filter((u) => u.s === 'GER').length < lerpT(ARMY_CAP.GER, yearF(S.turn))) {
-    const n = Math.min(free ? 2 : 3, Math.round((-S.dir - (free ? 3 : 0)) / 2)), z = pick(-1);
+    const n = Math.min(free && S.dir > -8 ? 2 : 3, Math.round((-S.dir - (free ? 3 : 0)) / 2)), z = pick(-1);
     S.men.GER += 6 * n;
     for (let i = 0; i < n; i++) recruit(S, 'GER', i % 3 === 2 ? 'arm' : 'inf', z, { free: 1, wait: 1, str: 90, rdy: 80 });
     note(S, { ic: 'star', side: 'GER', txt: `Резервы с Запада: ${n} ${divW(n)}` });
@@ -583,6 +583,11 @@ export function income(S, side) {
   }
   return { pp, men, fac, ll };
 }
+// предел численности армии (дивизий, с союзниками): растёт с мобилизацией; у игрока — с поправкой на сложность
+export const ARMY = { SOV: [[1941.4, 320], [1942.0, 380], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
+export const armyCap = (S, side) => Math.round(lerpT(ARMY[side], yearF(S.turn)) * (side === S.side ? DIFF[S.diff].cap ?? 1 : 1));
+// дивизии на карте и новые в пути (исторические подкрепления не в счёт)
+export const armySize = (S, side) => S.units.filter((u) => u.s === side && !u.dead && (u.r >= 0 || (u.arr !== undefined && !u.hist))).length;
 // стоимость пополнения 1 % численности и новой дивизии
 export const costOf = (u) => ({ pp: TYPES[u.t].pp / 100, men: (TYPES[u.t].mp$ * (u.s === 'SOV' ? 1 : 1.5)) / 100 });
 export const newCost = (side, t) => ({ pp: TYPES[t].pp * (side === 'SOV' ? 0.9 : 1.1), men: TYPES[t].mp$ * (side === 'SOV' ? 1 : 1.5) });
@@ -619,7 +624,7 @@ export function nameFor(S, side, nat, t) {
 }
 export function recruit(S, side, t, z, opt = {}) {
   const c = newCost(side, t);
-  if (!opt.free && (S.pp[side] < c.pp || S.men[side] < c.men)) return null;
+  if (!opt.free && (S.pp[side] < c.pp || S.men[side] < c.men || armySize(S, side) >= armyCap(S, side))) return null;
   if (!opt.free) { S.pp[side] -= c.pp; S.men[side] -= c.men; }
   const nat = opt.nat || side;
   const y = yearF(S.turn), s0 = Math.round(lerpT(STRMAX[side], y) * (side === 'SOV' ? 0.95 : 1));
@@ -716,7 +721,7 @@ export function evacuate(S, r) {
 export function checkEnd(S) {
   if (S.over) return;
   const own = (n) => sideOf(S, regByName(S, n));
-  if (own('Берлин') === 'SOV') return end(S, 'SOV', 'Берлин взят. Победа!');
+  if (own('Берлин') === 'SOV') return end(S, 'SOV', 'Красная армия взяла Берлин');
   const big = ['Ленинград', 'Сталинград', 'Горький', 'Куйбышев', 'Баку'].filter((n) => own(n) === 'GER').length;
   if (own('Москва') === 'GER' && big >= 2) return end(S, 'GER', 'Москва пала, СССР запросил мира');
   if (S.mor.SOV <= 3) return end(S, 'GER', 'Советский Союз сломлен');
