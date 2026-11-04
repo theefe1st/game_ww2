@@ -15,6 +15,7 @@ import { EuropeUI } from "./europe/ui.js";
 import { StaffUI } from "./staff/ui.js";
 import { BarbUI } from "./barb/ui.js";
 import { WarUI } from "./war/ui.js";
+import { EastUI } from "./east/ui.js";
 import { FRONT_STAGES, FRONT_OPS, FRONT_TEXT, FRONT_RESULT } from "./front/stages.js";
 var e = Object.defineProperty,
   t = (e, t, n) => () => {
@@ -9243,7 +9244,7 @@ function Eo(e) {
 var Do = `wf_save_v1`,
   Oo = (e) =>
     `${e} ${e % 10 == 1 && e % 100 != 11 ? `приказ` : e % 10 >= 2 && e % 10 <= 4 && (e % 100 < 12 || e % 100 > 14) ? `приказа` : `приказов`}`,
-  ko = `v0.9 · прототип`,
+  ko = `v0.10 · архив прототипов`,
   Ao = {
     smolensk41: Ua,
     moscow41: Wa,
@@ -9356,6 +9357,8 @@ var Do = `wf_save_v1`,
         this.menuCamera(),
         this.euRestore(),
         this.showMenu(),
+        // v0.10: по умолчанию — новая игра «Восточный фронт 1941–1945»; #arch / #legacy — старое меню прототипов
+        /arch|legacy/.test(location.hash) || this.openEast(),
         document.addEventListener(`visibilitychange`, () => {
           document.hidden && this.save();
         }),
@@ -9394,6 +9397,7 @@ var Do = `wf_save_v1`,
 <div id="st" class="hidden"></div>
 <div id="bb" class="hidden"></div>
 <div id="war" class="hidden"></div>
+<div id="east" class="hidden"></div>
 <div id="modal" class="hidden"></div>`;
       for (let e of this.ui.querySelectorAll(`[id]`)) this.$[e.id] = e;
       (this.$[`b-obj`].prepend(_o(`star`)),
@@ -9452,6 +9456,7 @@ var Do = `wf_save_v1`,
       ((this.$.modal.className = `hidden`), (this.$.modal.innerHTML = ``));
     }
     onBack() {
+      if (this.east && !this.$.east.classList.contains(`hidden`)) return this.east.back();
       if (this.eu && !this.$.eu.classList.contains(`hidden`)) return this.eu.back();
       if (this.war && !this.$.war.classList.contains(`hidden`)) return this.war.back();
       if (this.bb && !this.$.bb.classList.contains(`hidden`)) return this.bb.back();
@@ -9573,6 +9578,7 @@ var Do = `wf_save_v1`,
         } catch {}
     }
     showMenu() {
+      this.closeEast();
       this.closeFront();
       this.closeEurope();
       this.closeStaff();
@@ -9618,7 +9624,8 @@ var Do = `wf_save_v1`,
       t.innerHTML = `<div class="logo">МИРОВОЙ<br> ФРОНТ</div>
 <div class="tagline">Вторая мировая · пошаговая стратегия</div>
 <div class="mbtns">
-<button class="btn gold" id="m-war"><span class="newtag">новое</span>Фронт 1941–1945<small>${$(WarUI.menuLabel())}</small></button>
+<button class="btn gold" id="m-east"><span class="newtag">новое</span>Восточный фронт 1941–1945<small>${$(EastUI.menuLabel())}</small></button>
+<button class="btn" id="m-war">Фронт 1941–1945 (v0.9)<small>${$(WarUI.menuLabel())}</small></button>
 ${this.menuArch ? `<div class="march">Архив прототипов v0.1–v0.8</div>
 <button class="btn" id="m-bb">Барбаросса 1941<small>${$(BarbUI.menuLabel())}</small></button>
 ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small></button>` : ``}
@@ -9651,6 +9658,9 @@ ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small
         }),
         s(`m-war`).addEventListener(`click`, () => {
           (Z.click(), this.openWar());
+        }),
+        s(`m-east`).addEventListener(`click`, () => {
+          (Z.click(), this.openEast());
         }),
         s(`m-arch`).addEventListener(`click`, () => {
           this.menuArch = !this.menuArch;
@@ -9717,6 +9727,18 @@ ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small
     closeWar() {
       this.war && !this.$.war.classList.contains(`hidden`) && this.war.close();
       this.$.war.classList.add(`hidden`);
+    }
+    // ——— v0.10 «Восточный фронт 1941–1945»: регионы, неделя за ход, направления и генералы ———
+    openEast() {
+      (this.closeFront(), this.closeEurope(), this.closeStaff(), this.closeBarb(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
+      this.east || (this.east = new EastUI(this.$.east, { exit: () => this.showMenu() }));
+      (this.$.east.classList.remove(`hidden`), this.east.open());
+    }
+    closeEast() {
+      if (!this.$.east) return;
+      this.east && !this.$.east.classList.contains(`hidden`) && this.east.close();
+      this.$.east.classList.add(`hidden`);
     }
     euDeepStart(e, t, n, r) {
       let i = ma[e];
