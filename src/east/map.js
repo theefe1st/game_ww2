@@ -599,31 +599,100 @@ export class EastMap {
       }
     }
   }
-  // слой вспышек: стрелки ударов прошлой фазы и «взрывы» над областями боёв
+  // слой вспышек: стрелки ударов (вырастают от исходной области), вспышки выстрелов, дым, значки боёв; погода — частицы
   drawFx() {
     const c = this.fctx, M = this.M, v = this.view, dpr = this.dpr, sc = v.sc, t = now();
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, this.w, this.h);
-    this.fxOn = this.marks.length > 0;
+    const wxOn = this.wxActive();
+    this.fxOn = this.marks.length > 0 || wxOn;
     if (!this.fxOn) return;
+    if (wxOn) this.drawWx(c, t);
+    if (!this.marks.length) return;
     const vis = (x, y, m = 40) => { const X = (x - v.x0) * sc, Y = (y - v.y0) * sc; return X > -m && Y > -m && X < this.w + m && Y < this.h + m ? [X, Y] : null; };
     for (const m of this.marks) {
       const a = clamp(1 - (t - m.t0 - m.life * 0.6) / (m.life * 0.4), 0, 1), g = M.reg[m.T];
-      const to = this.toScr(g.x, g.y), col = SIDE_COL[m.side];
+      const to = this.toScr(g.x, g.y), col = SIDE_COL[m.side], e = clamp((t - m.t0) / 650, 0, 1), ee = 1 - (1 - e) * (1 - e);
       for (const f of m.from || []) {
         const fg = M.reg[f]; if (!fg) continue;
         const fr = this.toScr(fg.x, fg.y);
-        this.arrow(c, fr[0], fr[1], to[0], to[1], `rgba(${col[0]},${col[1]},${col[2]},${0.85 * a})`, m.win ? 3.2 : 2.2, !m.win);
+        this.arrow(c, fr[0], fr[1], fr[0] + (to[0] - fr[0]) * ee, fr[1] + (to[1] - fr[1]) * ee, `rgba(${col[0]},${col[1]},${col[2]},${0.85 * a})`, m.win ? 3.2 : 2.2, !m.win || !!m.op);
       }
     }
     for (const m of this.marks) {
       const g = M.reg[m.T], p = vis(g.x, g.y);
       if (!p) continue;
-      const age = (t - m.t0) / m.life, a = clamp(1 - (age - 0.6) / 0.4, 0, 1), pulse = 1 + 0.15 * Math.sin((t - m.t0) / 120);
-      c.globalAlpha = a;
+      const dt = t - m.t0, age = dt / m.life, a = clamp(1 - (age - 0.6) / 0.4, 0, 1), pulse = 1 + 0.15 * Math.sin(dt / 120);
+      const sd = (m.T * 7919) % 97;
+      // дым: серые клубы поднимаются и тают
+      for (let k = 0; k < 3; k++) {
+        const q = ((dt / 1700 + k / 3 + sd / 97) % 1), x = p[0] + ((sd * (k + 3)) % 17) - 8, y = p[1] + 4 - q * 22;
+        c.fillStyle = `rgba(92,88,80,${(1 - q) * 0.32 * a})`;
+        c.beginPath(); c.arc(x, y, 5 + q * 9, 0, Math.PI * 2); c.fill();
+      }
+      // вспышки выстрелов: в первые секунды чаще
+      if (dt < m.life * 0.75) for (let k = 0; k < 4; k++) {
+        const per = 420 + k * 130, q = ((dt + k * 211 + sd * 13) % per) / per;
+        if (q > 0.45) continue;
+        const r = q / 0.45, x = p[0] + ((sd * (k + 1) * 5) % 27) - 13, y = p[1] + ((sd * (k + 2) * 3) % 19) - 9;
+        c.fillStyle = `rgba(255,226,150,${(1 - r) * 0.85 * a})`;
+        c.beginPath(); c.arc(x, y, 1.5 + r * 2.5, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = `rgba(240,140,40,${(1 - r) * 0.6 * a})`; c.lineWidth = 1.4;
+        c.beginPath(); c.arc(x, y, 3 + r * 9, 0, Math.PI * 2); c.stroke();
+      }
+      c.globalAlpha = a * (dt < 650 ? clamp((dt - 300) / 350, 0, 1) : 1);
       drawIcon(c, m.op === 'abn' ? 'para' : m.op === 'sea' ? 'landing' : 'boom', p[0] + 9, p[1] - 12, (m.op ? 24 : 20) * pulse, m.win ? '#f0a020' : '#c8c0b0', '#5a1a08');
       c.globalAlpha = 1;
     }
+  }
+  // ——— погода: частицы (дождь — косые штрихи, снег — хлопья, мороз — редкий снег с позёмкой, распутица — морось) ———
+  zoneAt(x, y) {
+    const M = this.M, s = 32, G = (this.zg ??= { nx: Math.ceil(M.w / s), ny: Math.ceil(M.h / s), z: null });
+    G.z ??= new Int8Array(G.nx * G.ny).fill(-2);
+    const i = Math.floor(x / s), j = Math.floor(y / s);
+    if (i < 0 || j < 0 || i >= G.nx || j >= G.ny) return -1;
+    const k = j * G.nx + i;
+    if (G.z[k] === -2) { const r = regionAt(M, (i + 0.5) * s, (j + 0.5) * s); G.z[k] = r >= 0 ? M.reg[r].z : -1; }
+    return G.z[k];
+  }
+  wxAt(px, py) { const v = this.view, z = this.zoneAt(v.x0 + px / v.sc, v.y0 + py / v.sc); return z >= 0 ? this.S.wx[z] : 'dry'; }
+  // есть ли непогода на экране (проверка сеткой 5×4, кэш на кадр вида)
+  wxActive() {
+    if (!this.opt.wx || !this.S?.wx || !this.S.wx.some((w) => w !== 'dry')) return false;
+    const v = this.view, key = `${v.x0.toFixed(0)},${v.y0.toFixed(0)},${v.sc.toFixed(3)},${this.S.turn},${this.w}`;
+    if (this.wxKey === key) return this.wxOn;
+    this.wxKey = key; this.wxOn = false;
+    for (let j = 0; j < 4 && !this.wxOn; j++) for (let i = 0; i < 5; i++) if (this.wxAt(((i + 0.5) * this.w) / 5, ((j + 0.5) * this.h) / 4) !== 'dry') { this.wxOn = true; break; }
+    return this.wxOn;
+  }
+  drawWx(c, t) {
+    const W = this.w, H = this.h, n = Math.round(clamp((W * H) / 2600, 70, 360));
+    const P = (this.wxp ??= []);
+    while (P.length < n) P.push({ x: Math.random() * W, y: Math.random() * H, k: Math.random(), ph: Math.random() * 6.28 });
+    P.length = n;
+    const dt = Math.min(0.08, (t - (this.wxT || t)) / 1000); this.wxT = t;
+    const rain = new Path2D(), snow = new Path2D();
+    let nr = 0, ns = 0;
+    for (const p of P) {
+      const w = this.wxAt(p.x, p.y);
+      if (w === 'rain' || w === 'mud') {
+        if (w === 'mud' && p.k > 0.45) { p.y += 300 * dt; } else {
+          const vy = 560 + p.k * 220, vx = -110;
+          p.x += vx * dt; p.y += vy * dt;
+          rain.moveTo(p.x, p.y); rain.lineTo(p.x - vx * 0.018, p.y - vy * 0.018); nr++;
+        }
+      } else if (w === 'snow' || w === 'frost') {
+        const fr = w === 'frost';
+        if (fr && p.k > 0.6) { p.y += 30 * dt; } else {
+          p.x += (Math.sin(t / 900 + p.ph) * 18 - (fr ? 46 : 8)) * dt; p.y += (fr ? 26 : 38 + p.k * 30) * dt;
+          const r = 0.9 + p.k * 1.5;
+          snow.moveTo(p.x + r, p.y); snow.arc(p.x, p.y, r, 0, Math.PI * 2); ns++;
+        }
+      } else p.y += 200 * dt;
+      if (p.y > H + 12 || p.x < -12 || p.x > W + 12) { p.y = -8 - Math.random() * 20; p.x = Math.random() * (W + 60); }
+    }
+    if (nr) { c.strokeStyle = 'rgba(212,226,242,0.5)'; c.lineWidth = 1; c.lineCap = 'round'; c.stroke(rain); }
+    if (ns) { c.fillStyle = 'rgba(255,255,255,0.82)'; c.fill(snow); }
   }
   arrow(c, x0, y0, x1, y1, col, w, dash) {
     const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
