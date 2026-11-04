@@ -143,6 +143,7 @@ export function atkVal(S, u, h, from = u.h) {
   if (u.ral) v *= 0.5; // только что выгрузилась с поезда
   return v * (S.ev?.fx?.[u.side + 'atk'] || 1);
 }
+const REICH_D = dayOf('1944-07-15');
 export function defVal(S, u) {
   const M = S.M, h = u.h, g = genOf(S, u), t = M.terr[h], c = M.cityAt[h] >= 0 ? M.cities[M.cityAt[h]] : null;
   let v = cvRaw(S, u) * quality(S, u.nat) * orgF(u) * xpF(u) * supF(u) * moraleF(S, u.side) * Math.sqrt(airF(S, u.side)) * diffK(S, u.side);
@@ -154,6 +155,11 @@ export function defVal(S, u) {
     if (hasTr(g, 'mtn') && (t === 3 || t === 5 || t === 6)) v *= 1.15;
   }
   if (u.side === 'GER' && u.nat === 'GER' && winter41(S) && S.wx[M.zone[h]] === 'frost') v *= c ? 0.9 : 0.78;
+  // оборона рейха (с лета 1944 г.): «Восточный вал», фольксштурм, короткие коммуникации — чем ближе к Берлину, тем упорнее
+  if (u.side === 'GER' && S.day >= REICH_D) {
+    const b = M.cityHex('Берлин'), dd = b >= 0 ? M.dist(h, b) : 99;
+    if (dd < 15) v *= 1 + 0.3 * (1 - dd / 15);
+  }
   const fx = S.ev?.fx;
   if (fx) {
     if (fx[u.side + 'def']) v *= fx[u.side + 'def'];
