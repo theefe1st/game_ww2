@@ -145,13 +145,23 @@ export class EastMap {
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(root);
     this.resize();
-    const loop = () => { this.raf = requestAnimationFrame(loop); this.frame(); };
+    // кадры: 60 в секунду, пока что-то меняется; в покое — проверка 5 раз в секунду (бережём батарею)
+    this.idleT = now();
+    const loop = () => {
+      this.raf = 0;
+      if (this.anim || this.dirty || this.marks.length || this.fxOn) this.idleT = now();
+      this.frame();
+      if (this.dead) return;
+      if (now() - this.idleT < 1500) this.raf = requestAnimationFrame(loop);
+      else this.tmo = setTimeout(() => { this.tmo = 0; this.raf = requestAnimationFrame(loop); }, 200);
+    };
+    this.kick = () => { this.idleT = now(); if (this.tmo) { clearTimeout(this.tmo); this.tmo = 0; this.raf = requestAnimationFrame(loop); } };
     this.raf = requestAnimationFrame(loop);
   }
   resetStat() { this.fst = { n: 0, upd: 0, gl: 0, ov: 0, max: 0 }; }
-  destroy() { cancelAnimationFrame(this.raf); this.ro.disconnect(); }
+  destroy() { this.dead = true; cancelAnimationFrame(this.raf); clearTimeout(this.tmo); this.ro.disconnect(); }
   setState(S, side) { this.S = S; this.side = side; this.refresh(); }
-  refresh() { this.colorsDirty = this.linesDirty = this.dirty = true; }
+  refresh() { this.colorsDirty = this.linesDirty = this.dirty = true; this.kick?.(); }
   redraw() { this.dirty = true; }
   resize() {
     const r = this.root.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -170,11 +180,11 @@ export class EastMap {
   }
   toMap(px, py) { const v = this.view; return [v.x0 + px / v.sc, v.y0 + py / v.sc]; }
   toScr(x, y) { const v = this.view; return [(x - v.x0) * v.sc, (y - v.y0) * v.sc]; }
-  centerOn(x, y, sc = this.view.sc) { const v = this.view; v.sc = sc; v.x0 = x - this.w / 2 / sc; v.y0 = y - this.h / 2 / sc; this.clampView(); this.dirty = true; }
+  centerOn(x, y, sc = this.view.sc) { const v = this.view; v.sc = sc; v.x0 = x - this.w / 2 / sc; v.y0 = y - this.h / 2 / sc; this.clampView(); this.dirty = true; this.kick?.(); }
   flyTo(x, y, sc = this.view.sc, ms = 450) {
     const a = { ...this.view }, b = { sc: clamp(sc, this.minSc, 3.2) };
     b.x0 = x - this.w / 2 / b.sc; b.y0 = y - this.h / 2 / b.sc;
-    this.anim = { a, b, t0: now(), ms };
+    this.anim = { a, b, t0: now(), ms }; this.kick?.();
   }
   fitRegions(rs, pad = 40) {
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -189,6 +199,7 @@ export class EastMap {
     let pan = null, pinch = null, down = null, longT = 0;
     const pos = (e) => { const r = el.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     el.addEventListener('pointerdown', (e) => {
+      this.kick();
       el.setPointerCapture?.(e.pointerId);
       P.set(e.pointerId, pos(e));
       this.anim = null;
@@ -206,6 +217,7 @@ export class EastMap {
       }
     });
     el.addEventListener('pointermove', (e) => {
+      if (P.size) this.kick();
       if (!P.has(e.pointerId)) return;
       P.set(e.pointerId, pos(e));
       if (P.size >= 2 && pinch) {
@@ -238,7 +250,7 @@ export class EastMap {
     };
     el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
     el.addEventListener('wheel', (e) => {
-      e.preventDefault();
+      e.preventDefault(); this.kick();
       const [x, y] = pos(e), m = this.toMap(x, y), v = this.view;
       v.sc = clamp(v.sc * Math.pow(1.0015, -e.deltaY), this.minSc, 3.2);
       v.x0 = m[0] - x / v.sc; v.y0 = m[1] - y / v.sc;
@@ -320,12 +332,12 @@ export class EastMap {
     const sel = this.hl.sel >= 0 ? this.rp[this.hl.sel].map((p) => ({ p, closed: true })) : [];
     this.G.setLines('sel', sel, [{ w: 5.5, col: [255, 236, 150, 0.55] }, { w: 2.4, col: [196, 128, 10, 1] }]);
   }
-  setHL(o) { Object.assign(this.hl, o); this.colorsDirty = this.linesDirty = this.dirty = true; }
+  setHL(o) { Object.assign(this.hl, o); this.colorsDirty = this.linesDirty = this.dirty = true; this.kick?.(); }
   // вспышки боёв: [{T, from, side, win}] → маркеры на life мс
   showBattles(list, life = 6500) {
     const t0 = now();
     for (const b of list) this.marks.push({ ...b, t0, life });
-    this.dirty = true;
+    this.dirty = true; this.kick?.();
   }
   clearBattles() { this.marks = []; this.dirty = true; }
   // ——— 2D-слой ———

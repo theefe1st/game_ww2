@@ -921,10 +921,15 @@ var Le = class {
         this.resize(),
         window.addEventListener(`resize`, () => this.resize()),
         this.bindInput());
+      // v0.10: цикл кадров ставится на паузу, пока открыт «Восточный фронт» (бережём батарею)
       let n = () => {
+        if (this.paused) return void (this.rafOn = !1);
         (this.frame(), requestAnimationFrame(n));
       };
-      requestAnimationFrame(n);
+      ((this.loopFn = n), (this.rafOn = !0), requestAnimationFrame(n));
+    }
+    pause(e) {
+      ((this.paused = !!e), !e && !this.rafOn && ((this.rafOn = !0), (this.dirty = !0), requestAnimationFrame(this.loopFn)));
     }
     setGame(e) {
       this.G = e;
@@ -9733,12 +9738,12 @@ ${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small
       (this.closeFront(), this.closeEurope(), this.closeStaff(), this.closeBarb(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
       for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
       this.east || (this.east = new EastUI(this.$.east, { exit: () => this.showMenu() }));
-      (this.$.east.classList.remove(`hidden`), this.east.open());
+      (this.$.east.classList.remove(`hidden`), this.east.open(), this.view.pause?.(!0));
     }
     closeEast() {
       if (!this.$.east) return;
       this.east && !this.$.east.classList.contains(`hidden`) && this.east.close();
-      this.$.east.classList.add(`hidden`);
+      (this.$.east.classList.add(`hidden`), this.view.pause?.(!1));
     }
     euDeepStart(e, t, n, r) {
       let i = ma[e];
