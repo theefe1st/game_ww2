@@ -10,6 +10,7 @@ import { HIST_KEYS } from './hist.js';
 import { runEvents } from './events.js';
 import { produce, construct, evacWeek, hasEq, payEq, EQS, polOf, aaCover, qLost } from './eco.js';
 import { tx, techWeek } from './tech.js';
+import { trainWeek } from './army.js';
 export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, used, eqTot, hasEq, EQS, LINES, LINE, shiftLine, etaOf, unbuild, brigN, brigBusy, brigFree, bWeeks, bTime, bRate, bRate0, myQ, isActive, aaCover, allocFac } from './eco.js';
 
 export const SAVE_KEY = 'wf_east_v1';
@@ -594,6 +595,7 @@ export function endWeek(S) {
   S.turn++;
   for (let z = 0; z < ZN; z++) S.wx[z] = weatherOf(S.turn, z, S.wxShift[(S.turn / 52) | 0] || 0, S.seed);
   S.air.GER = airBase(S, 'GER') * (S.airK?.GER ?? 1); S.air.SOV = airBase(S, 'SOV') * (S.airK?.SOV ?? 1);
+  trainWeek(S);
   arrivals(S);
   director(S);
   runEvents(S);
@@ -689,7 +691,8 @@ export function income(S, side) {
 export const ARMY = { SOV: [[1941.4, 320], [1942.0, 380], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
 export const armyCap = (S, side) => Math.round(lerpT(ARMY[side], yearF(S.turn)) * (side === S.side ? DIFF[S.diff].cap ?? 1 : 1));
 // дивизии на карте и новые в пути (исторические подкрепления не в счёт)
-export const armySize = (S, side) => S.units.filter((u) => u.s === side && !u.dead && (u.r >= 0 || (u.arr !== undefined && !u.hist))).length;
+// (и в обучении, и в резерве — army.js)
+export const armySize = (S, side) => S.units.filter((u) => u.s === side && !u.dead && (u.r >= 0 || u.trn > 0 || u.res || (u.arr !== undefined && !u.hist))).length;
 // стоимость пополнения 1 % численности и новой дивизии
 export const costOf = (u) => ({ pp: TYPES[u.t].pp / 100, men: (TYPES[u.t].mp$ * (u.s === 'SOV' ? 1 : 1.5)) / 100 });
 export const newCost = (side, t) => ({ pp: TYPES[t].pp * (side === 'SOV' ? 0.9 : 1.1), men: TYPES[t].mp$ * (side === 'SOV' ? 1 : 1.5) });

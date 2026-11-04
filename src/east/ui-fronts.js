@@ -11,6 +11,7 @@ import { other, WX, TYPES, divW } from './rules.js';
 import { esc, ic, num, flagHTML, genURL, POST, weeksW } from './kit.js';
 import { counterURL, divLabel, wmOf } from './counters.js';
 import * as F from './fronts.js';
+import * as A from './army.js';
 
 export const frontShort = (n) => String(n || '').replace(/ фронт$/, '');
 export const genPool = F.genPool;
@@ -75,7 +76,7 @@ ${bs}${prio}${isOpen ? this.frontMore(z, fs, ash, aAuto) : ''}</div>`;
       return `${h}<div class="e-dv ${on ? 'on' : ''}"><button class="e-dvb" data-a="fdiv" data-id="${u.id}"><img src="${counterURL(u.nat, u.t, divLabel(u), wmOf(u))}" alt=""><span><b>${esc(u.n)}</b><i class="e-eff q"><em style="width:${Math.round(u.str)}%"></em></i></span><small>${Math.round(u.str)} %</small></button><button class="e-ib sm" data-a="ftsel" data-id="${u.id}" aria-label="Выбрать для переброски">${ic(on ? 'check' : 'swap')}</button></div>`;
     }).join('');
     const tr = tin.length ? `<h5>в пути на фронт</h5>${tin.map((u) => `<div class="e-dv tr"><span class="e-dvb"><img src="${counterURL(u.nat, u.t, divLabel(u), wmOf(u))}" alt=""><span><b>${esc(u.n)}</b><small>${ic('train')}прибудет через ${weeksW(Math.max(1, u.arr - S.turn))}</small></span></span></div>`).join('')}` : '';
-    const n = sel.size, fronts = [...Array(E.ZN).keys()].filter((f) => f !== z);
+    const n = sel.size, fronts = [...Array(E.ZN).keys()].filter((f) => f !== z), nRes = A.inRes(S, P).length;
     const bar = n ? `<div class="e-trbar"><span>${ic('train')}Перебросить ${n} ${divW(n)} на:</span><div class="e-chips">${fronts.map((f) => `<button class="e-chip" data-a="ftgo" data-z="${z}" data-f="${f}"><i class="e-dot" style="background:${FRONT_COL[S.fr[P][f].col]}"></i>${esc(frontShort(S.fr[P][f].n))}</button>`).join('')}<button class="e-chip" data-a="ftclr">${ic('close')}</button></div><small>по железной дороге: соседний фронт — 1 неделя, дальний — 2; на этой неделе ещё ${S.railCap[P] || 0}</small></div>` : '';
     return `<div class="e-fmore">
 <h4>${ic('air')}Авиация фронта <small>${aAuto ? 'делит Генштаб' : 'ваши доли'}</small></h4>
@@ -84,6 +85,7 @@ ${bs}${prio}${isOpen ? this.frontMore(z, fs, ash, aAuto) : ''}</div>`;
 <div class="e-loss"><b>Наши</b><div>${lrow(L, 1)}</div><div class="all">${lrow(L, 0)}</div><b>Врага</b><div>${lrow(LE, 1)}</div><div class="all">${lrow(LE, 0)}</div></div>
 <div class="e-note">${ic('upgrade')}Выучка войск: ${Math.round(fs.q * 100)} % — растёт по ходу войны, как в истории; дивизии пополняются сами из запасов снаряжения и людей.</div>
 <h4>${ic('helmet')}Дивизии фронта <small>${fs.n} ${divW(fs.n)} · нажмите ⇄, чтобы перебросить</small></h4>
+${nRes ? `<div class="e-li"><span>${ic('star')}${esc(A.resName(P))}: ${nRes} ${divW(nRes)}</span><button class="e-btn sm" data-a="fres" data-z="${z}">${ic('train')}<span>Сюда ${Math.min(3, nRes)} · ${weeksW(A.sendW(z))}</span></button></div>` : ''}
 ${bar}<div class="e-dvl">${rows || `<div class="e-note">${ic('info')}Дивизий нет</div>`}${tr}</div></div>`;
   },
   setPost(z, p) {
@@ -170,11 +172,16 @@ ${bar}<div class="e-dvl">${rows || `<div class="e-note">${ic('info')}Дивиз�
   doReq(z, k) {
     const S = this.S, P = this.P, nmF = esc(frontShort(S.fr[P][z].n));
     if (k === 'men') {
-      const us = F.spareFor(S, P, z, 3);
-      if (!us.length) { this.toast(`${ic('info')}Свободных дивизий нет — сформируйте новые для фронта`); this.recL = 'f' + z; F.reqNo(S, P, z, 2); return this.openPanel('army'); }
+      // сначала — из резерва Ставки, затем — с фронтов без натиска
       let n = 0;
-      for (const u of us) if (F.transfer(S, u, z)) n++;
-      this.toast(`${ic('train')}${nmF}: перебрасываются ${n} ${divW(n)} (1–2 недели)`);
+      for (const u of A.inRes(S, P).slice(0, 3)) if (A.send(S, u, z)) n++;
+      if (n) this.toast(`${ic('star')}${nmF}: из резерва — ${n} ${divW(n)} (${weeksW(A.sendW(z))})`);
+      else {
+        const us = F.spareFor(S, P, z, 3);
+        if (!us.length) { this.toast(`${ic('info')}Свободных дивизий нет — обучите новые для фронта`); this.rqDst = z; F.reqNo(S, P, z, 2); return this.openPanel('army'); }
+        for (const u of us) if (F.transfer(S, u, z)) n++;
+        this.toast(`${ic('train')}${nmF}: перебрасываются ${n} ${divW(n)} (1–2 недели)`);
+      }
     } else if (k === 'ammo') {
       if (!F.prioSet(S, P, z)) { this.snd.play('error'); return this.toast(`${ic('cancel')}Не хватает ★`); }
       this.toast(`${ic('ammo')}${nmF}: приоритет снабжения на 4 недели`);
@@ -209,5 +216,6 @@ export const FRONT_ACT = {
   ftclr() { this.snd.play('click'); this.trSel?.clear(); this.renderPanel(); },
   ftgo(b) { this.doTransfer(+b.dataset.z, +b.dataset.f); },
   freq(b) { this.doReq(+b.dataset.z, b.dataset.k); },
+  fres(b) { const S = this.S, P = this.P, z = +b.dataset.z; let n = 0; for (const u of A.inRes(S, P).slice(0, 3)) if (A.send(S, u, z)) n++; if (n) { this.snd.play('build'); this.toast(`${ic('star')}${esc(frontShort(S.fr[P][z].n))}: из резерва — ${n} ${divW(n)}`); } this.refresh(); },
   freqno(b) { this.snd.play('click'); F.reqNo(this.S, this.P, +b.dataset.z, 3); this.renderPanel(); },
 };

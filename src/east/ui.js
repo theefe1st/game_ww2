@@ -173,7 +173,6 @@ export class EastUI {
       case 'settgt': { this.snd.play('select'); const r = +b.dataset.r; this.setTarget(this.frontOfR(r), r); return this.closePanel(); }
       case 'bld': return this.doBuild(+b.dataset.r, b.dataset.k);
       case 'evac': return this.doEvac(+b.dataset.r);
-      case 'rec': return this.doRecruit(b.dataset.t);
       case 'auto': { this.snd.play('select'); const k = b.dataset.k; if (k === 'evac') S.flags.evacAuto = S.flags.evacAuto ? 0 : 1; else S.auto[k] = !S.auto[k]; return this.openPanel(this.panelKind); }
       case 'ev': { const id = b.dataset.id; return this.showEventCard(id, true); }
       case 'evc': return this.pickChoice(b.dataset.id, +b.dataset.i);
@@ -530,6 +529,7 @@ ${this.histCmp(o)}
 <span class="e-mor" title="Боевой дух: ${Math.round(S.mor[P])}">${flagHTML(P, 'xs')}<i><em style="width:${Math.round(S.mor[P])}%"></em></i></span>`;
     this.$('.e-next').disabled = !!this.isBusy;
     this.$('.e-tab[data-a="sci"]')?.classList.toggle('dot', !S.tech[P].auto && this.sciFree() > 0);
+    this.$('.e-tab[data-a="army"]')?.classList.toggle('dot', S.units.some((u) => u.res && !u.dead && u.s === P));
     this.map.flags = [];
     for (const z of frontsOn(S, P)) if (S.post[P][z] === 'atk' && S.tgt[P][z] >= 0 && !S.fr[P][z].man) this.map.flags.push({ r: S.tgt[P][z], label: frontShort(S.fr[P][z].n), col: FRONT_COL[S.fr[P][z].col] });
     this.map.refresh();

@@ -531,3 +531,14 @@
 .e-brig i.on .ic{opacity:1;color:#bfe6a0}
 .e-qi.wait{opacity:.72}
 .e-qi.wait .e-eff.q em{background:rgba(255,240,210,.35)}
+/* v0.11 (отзыв 04.11): призыв → обучение → резерв Ставки */
+.e-rcs{display:flex;flex-direction:column;gap:5px}
+.e-rc{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:12px;background:rgba(255,240,210,.06);border:1px solid transparent}
+.e-rc>img{width:34px;height:34px;flex:none;border-radius:6px}
+.e-rc.on{background:rgba(226,182,78,.13);border-color:rgba(226,182,78,.35)}
+.e-rc .e-ib.sm{width:32px;height:32px;border-radius:10px;flex:none}
+.e-rc .e-miss{font-style:normal;color:#f0a08a}
+.e-qimg{width:30px;height:30px;flex:none;margin:0 4px;border-radius:5px}
+.e-sub{font-size:12px;opacity:.75;display:flex;align-items:center;gap:5px;margin-top:2px}
+.e-sub .ic{width:14px;height:14px;color:var(--gold)}
+.e-btn.e-wide{width:100%;justify-content:center}

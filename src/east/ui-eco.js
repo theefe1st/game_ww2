@@ -1,9 +1,10 @@
 // «Мировой фронт» v0.11, «Восточный фронт»: хозяйство в интерфейсе. «Экономика» — заводы, производственные линии
 // (доли ±5 % или ±1 завод, эффективность, «авто»), стройбригады и очередь стройки (порядок, отмена), советы по укреплениям, эвакуация;
-// «Армия» — состав, запасы снаряжения, новые дивизии (куда: авто, тыл фронта или учебный лагерь);
+// «Армия» — состав, запасы снаряжения, призыв (род × число → обучение → резерв Ставки → фронт, army.js);
 // карточка области — постройки и кнопки стройки.
 import * as E from './engine.js';
-import { frontsOn, zoneForce } from './ai.js';
+import { frontsOn } from './ai.js';
+import * as A from './army.js';
 import { counterURL } from './counters.js';
 import { frontShort } from './ui-fronts.js';
 import { FRONT_COL } from './map.js';
@@ -58,7 +59,7 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
 <div class="e-note">${ic('info')}Одна бригада ведёт один проект. У фронта стройка идёт в 1,5 раза дольше, без железной дороги — в 1,25 раза. Каждый новый завод строится на 12 % дольше прежнего.</div>
 </div>`;
   },
-  // ——— Армия ———
+  // ——— Армия: состав, запасы, призыв → обучение → резерв Ставки → фронт ———
   pArmy() {
     const S = this.S, P = this.P, M = this.M, q = S.eq[P];
     const by = {}; let n = 0, str = 0, pocket = 0;
@@ -66,53 +67,74 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
     const coming = S.units.filter((u) => !u.dead && u.s === P && u.r < 0 && u.arr !== undefined);
     const types = ['arm', 'mot', 'inf', 'mtn', 'cav', 'sec', 'abn'].filter((t) => by[t]);
     const canT = (P === 'SOV' ? ['inf', 'mtn', 'cav', 'mot', 'arm', 'abn'] : ['inf', 'mtn', 'mot', 'arm', 'abn']).filter((t) => TYPES[t] && (t !== 'abn' || this.canAbn?.()));
-    const capN = E.armyCap(S, P), size = E.armySize(S, P), full = size >= capN, loc = this.recLoc();
+    const capN = E.armyCap(S, P), size = E.armySize(S, P), full = size >= capN;
+    const fronts = frontsOn(S, P), fsh = (f) => frontShort(S.fr[P][f].n), fdot = (f) => `<i class="e-dot" style="background:${FRONT_COL[S.fr[P][f].col]}"></i>`;
+    // — резерв Ставки —
+    const res = A.inRes(S, P), rby = {};
+    for (const u of res) (rby[u.t] ??= []).push(u);
+    const rs = (this.rsel ??= {}), rT = Object.keys(rby);
+    let selN = 0;
+    for (const t of rT) { rs[t] = Math.min(rs[t] ?? rby[t].length, rby[t].length); selN += rs[t]; }
+    const rsF = fronts.includes(this.rsF) ? this.rsF : A.needFront(S, P);
+    const resH = res.length ? `<h4>${ic('star')}${esc(A.resName(P))} <small>${res.length} ${divW(res.length)} · готовы к отправке</small></h4>
+<div class="e-rcs">${rT.map((t) => `<div class="e-rc ${rs[t] ? 'on' : ''}"><img src="${counterURL(P, t)}" alt=""><div class="e-lm"><b>${esc(TYPES[t].n)}</b><small>в резерве: ${rby[t].length}</small></div><button class="e-ib sm" data-a="rsn" data-t="${t}" data-d="-1" aria-label="Меньше" ${rs[t] ? '' : 'disabled'}>${ic('minus')}</button><b class="e-lsh">${rs[t]}</b><button class="e-ib sm" data-a="rsn" data-t="${t}" data-d="1" aria-label="Больше" ${rs[t] < rby[t].length ? '' : 'disabled'}>${ic('plus')}</button></div>`).join('')}</div>
+<div class="e-zsel">${fronts.map((f) => `<button class="e-zc ${rsF === f ? 'on' : ''}" data-a="rsf" data-z="${f}">${fdot(f)}${esc(fsh(f))}</button>`).join('')}</div>
+<button class="e-btn gold e-wide" data-a="rsgo" ${selN ? '' : 'disabled'}>${ic('train')}<span>Отправить ${selN} ${divW(selN)}: ${esc(fsh(rsF))} · ${weeksW(A.sendW(rsF))}</span></button>` : '';
+    // — в обучении —
+    const ords = A.orders(S, P), dstN = (d) => (d === -2 ? 'авто: где нужнее' : d >= 0 ? `→ ${fsh(d)}` : `→ ${A.resTo(P)}`);
+    const trH = ords.length ? `<h4>${ic('hourglass')}Обучение <small>${ords.reduce((a, o) => a + o.n, 0)} ${divW(ords.reduce((a, o) => a + o.n, 0))}</small></h4><div class="e-lines">${ords.map((o) => `<div class="e-qi"><img class="e-qimg" src="${counterURL(P, o.t)}" alt=""><div class="e-lm"><b>${o.n} × ${esc(TYPES[o.t].n)}</b><small>${o.camp >= 0 ? `${ic('camp')}${esc(nm(M, o.camp))} · ` : ''}ещё ${weeksW(o.left)} · ${esc(dstN(o.dst))}</small><i class="e-eff q"><em style="width:${Math.round((1 - o.left / Math.max(1, o.tot)) * 100)}%"></em></i></div><button class="e-ib sm" data-a="rqdel" data-o="${o.ord}" aria-label="Отменить">${ic('close')}</button></div>`).join('')}</div>` : '';
+    // — призыв: заказ (род × число), где учить, куда после обучения —
+    const rq = (this.rq ??= {}), camps = this.camps(), camp = camps.includes(this.rqC) ? this.rqC : -1, dst = this.rqDst === -2 || fronts.includes(this.rqDst) ? this.rqDst : -1;
+    const tot = { n: 0, pp: 0, men: 0 }, need = { inf: 0, art: 0, arm: 0 };
+    const add = (o, t, k) => { const c = E.newCost(P, t), m = E.EQS[t] || E.EQS.inf; o.n += k; o.pp += k * c.pp; o.men += k * c.men; for (const x in m) need[x] += k * c.pp * m[x]; };
+    for (const t of canT) if (rq[t]) add(tot, t, rq[t]);
+    const fits = (t) => { const c = E.newCost(P, t), m = E.EQS[t] || E.EQS.inf; if (size + tot.n + 1 > capN || S.men[P] + 1e-6 < tot.men + c.men) return false; for (const x in m) if (q[x] + 1e-6 < need[x] + c.pp * m[x]) return false; return true; };
     const recB = canT.map((t) => {
-      const c = E.newCost(P, t), m = E.EQS[t] || E.EQS.inf, miss = Object.keys(m).filter((k) => q[k] + 1e-6 < c.pp * m[k]);
-      const ok = !full && !miss.length && S.men[P] >= c.men;
-      return `<button class="e-rec" data-a="rec" data-t="${t}" ${ok ? '' : 'disabled'}><img src="${counterURL(P, t)}" alt=""><b>${esc(TYPES[t].n)}</b><small>${ic('equip')}${num(c.pp)} ${ic('men')}${num(c.men)}</small>${miss.length ? `<small class="e-miss">нет ${esc(EQN[miss[0]])}</small>` : ''}</button>`;
+      const c = E.newCost(P, t), k = rq[t] || 0, m = E.EQS[t] || E.EQS.inf, miss = Object.keys(m).filter((x) => q[x] + 1e-6 < c.pp * m[x]);
+      return `<div class="e-rc ${k ? 'on' : ''}"><img src="${counterURL(P, t)}" alt=""><div class="e-lm"><b>${esc(TYPES[t].n)}</b><small>${ic('equip')}${num(c.pp)} ${ic('men')}${num(c.men)} · ${ic('hourglass')}${A.trainW(t, camp >= 0)} нед.${miss.length ? ` · <em class="e-miss">нет ${esc(EQN[miss[0]])}</em>` : ''}</small></div><button class="e-ib sm" data-a="rqn" data-t="${t}" data-d="-1" aria-label="Меньше" ${k ? '' : 'disabled'}>${ic('minus')}</button><b class="e-lsh">${k}</b><button class="e-ib sm" data-a="rqn" data-t="${t}" data-d="1" aria-label="Больше" ${fits(t) ? '' : 'disabled'}>${ic('plus')}</button></div>`;
     }).join('');
-    const locs = [['auto', 'Авто', '']];
-    for (const f of frontsOn(S, P)) locs.push(['f' + f, frontShort(S.fr[P][f].n), FRONT_COL[S.fr[P][f].col]]);
-    for (const r of this.camps()) locs.push(['c' + r, nm(M, r), 'camp']);
-    const when = loc.camp >= 0 ? `в лагере «${esc(nm(M, loc.camp))}» через 1 неделю, опытнее` : 'прибудет через 2 недели';
+    const ok = tot.n > 0 && size + tot.n <= capN && S.men[P] + 1e-6 >= tot.men && ['inf', 'art', 'arm'].every((x) => q[x] + 1e-6 >= need[x]);
     return `${this.head(ic('helmet'), 'Армия', `${n} ${divW(n)} · в среднем ${n ? Math.round(str / n) : 0}% штата`)}<div class="e-pbody">
 <div class="e-types">${types.map((t) => `<div class="e-type"><img src="${counterURL(P, t)}" alt=""><b>${by[t]}</b><small>${esc(TYPES[t].sh)}</small></div>`).join('')}</div>
 ${pocket ? `<div class="e-warn">${ic('encircle')}В окружении: ${pocket} ${divW(pocket)}</div>` : ''}
-${coming.length ? `<div class="e-note">${ic('train')}В пути: ${coming.length} ${divW(coming.length)}</div>` : ''}
+${coming.length ? `<div class="e-note">${ic('train')}В пути на фронт: ${coming.length} ${divW(coming.length)}</div>` : ''}
 <h4>${ic('equip')}Снаряжение и люди <small><button class="e-lnk" data-a="eco">${ic('prod')}производство</button></small></h4>
 <div class="e-eco e4"><span>${ic('rifle')}<b>${num(q.inf)}</b><small>стрелковое</small></span><span>${ic('art')}<b>${num(q.art)}</b><small>артиллерия</small></span><span>${ic('tank')}<b>${num(q.arm)}</b><small>танки</small></span><span>${ic('men')}<b>${num(S.men[P])}</b><small>люди</small></span></div>
-<h4>${ic('plus')}Новая дивизия <small>${size}/${capN} · ${when}</small></h4>
+${resH}${trH}
+<h4>${ic('plus')}Призыв <small>армия ${size}/${capN}</small></h4>
 ${full ? `<div class="e-note">${ic('info')}Армия у предела: ${capN} ${divW(capN)}. Предел растёт с мобилизацией, запасы идут на пополнение.</div>` : ''}
-<div class="e-zsel">${locs.map(([k, t, col]) => `<button class="e-zc ${loc.k === k ? 'on' : ''}" data-a="recl" data-k="${k}">${col === 'camp' ? ic('camp') : col ? `<i class="e-dot" style="background:${col}"></i>` : ''}${esc(t)}</button>`).join('')}</div>
-<div class="e-recs">${recB}</div>
-<button class="e-row e-toggle ${S.auto.recruit ? 'on' : ''}" data-a="auto" data-k="recruit">${ic('auto')}<span>Генштаб сам формирует дивизии</span><i></i></button>
+<div class="e-rcs">${recB}</div>
+<div class="e-sub">${ic('camp')}Где обучать</div>
+<div class="e-zsel"><button class="e-zc ${camp < 0 ? 'on' : ''}" data-a="rqc" data-r="-1">В тылу</button>${camps.map((r) => `<button class="e-zc ${camp === r ? 'on' : ''}" data-a="rqc" data-r="${r}">${ic('camp')}${esc(nm(M, r))}</button>`).join('')}</div>
+<div class="e-sub">${ic('flag')}После обучения</div>
+<div class="e-zsel"><button class="e-zc ${dst === -1 ? 'on' : ''}" data-a="rqd" data-z="-1">${ic('star')}В резерв</button><button class="e-zc ${dst === -2 ? 'on' : ''}" data-a="rqd" data-z="-2">${ic('auto')}Авто</button>${fronts.map((f) => `<button class="e-zc ${dst === f ? 'on' : ''}" data-a="rqd" data-z="${f}">${fdot(f)}${esc(fsh(f))}</button>`).join('')}</div>
+<button class="e-btn gold e-wide" data-a="rqgo" ${ok ? '' : 'disabled'}>${ic('helmet')}<span>${tot.n ? `Обучить ${tot.n} ${divW(tot.n)} (снаряжение ${num(tot.pp)}, люди ${num(tot.men)})` : 'Выберите дивизии: + у рода войск'}</span></button>
+<div class="e-note">${ic('info')}Обучение — ${camp >= 0 ? 'в лагере на неделю быстрее, дивизии опытнее' : 'в учебном лагере на неделю быстрее и опытнее'}. Обученные дивизии ждут в резерве, пока вы не отправите их на фронт (1–2 недели по железной дороге).</div>
+<button class="e-row e-toggle ${S.auto.recruit ? 'on' : ''}" data-a="auto" data-k="recruit">${ic('auto')}<span>Генштаб сам формирует дивизии<small>сразу в тыл фронтов, где нужнее</small></span><i></i></button>
 </div>`;
   },
   // учебные лагеря стороны со снабжением
   camps() { const S = this.S, P = this.P, out = []; for (let r = 0; r < this.M.R; r++) if (S.camp[r] && E.sideOf(S, r) === P && S.sup[P][r] > 0) out.push(r); return out; },
-  recLoc() {
-    const k = this.recL || 'auto', S = this.S, P = this.P;
-    if (k[0] === 'c') { const r = +k.slice(1); if (S.camp[r] && E.sideOf(S, r) === P && S.sup[P][r] > 0) return { k, camp: r, f: -1 }; }
-    if (k[0] === 'f') { const f = +k.slice(1); if (S.fr[P][f]?.on) return { k, camp: -1, f }; }
-    return { k: 'auto', camp: -1, f: -1 };
-  },
-  doRecruit(t) {
-    const S = this.S, P = this.P, M = this.M, loc = this.recLoc();
-    let f = loc.f, opt = {};
-    if (loc.camp >= 0) { f = S.fz[loc.camp]; opt = { at: loc.camp, camp: 1, wait: 1, xp: 10, rdy: 75 }; }
-    if (f < 0) { // где нужнее: наибольший перевес противника на фронте
-      const fm = E.frontMap(S, P);
-      let bw = -1;
-      for (const q of frontsOn(S, P)) { const o = zoneForce(S, P, q, fm), w = o.d / Math.max(1, o.a); if (o.d > 0 && w > bw) (bw = w), (f = q); }
-      if (f < 0) f = frontsOn(S, P)[0] ?? 2;
-    }
-    const z = E.frontZone(S, P, f);
-    const u = E.recruit(S, P, t, z, { ...opt, f });
-    if (!u) { this.snd.play('error'); return this.toast(`${ic('cancel')}${E.armySize(S, P) >= E.armyCap(S, P) ? 'Армия у предела численности' : 'Не хватает снаряжения или людей'}`); }
-    S.stats[P].made++;
+  doOrder() {
+    const S = this.S, P = this.P, rq = this.rq || {}, camps = this.camps(), camp = camps.includes(this.rqC) ? this.rqC : -1;
+    const fronts = frontsOn(S, P), dst = this.rqDst === -2 || fronts.includes(this.rqDst) ? this.rqDst : -1;
+    let n = 0, w = 0;
+    for (const t of Object.keys(rq)) { if (!rq[t]) continue; const us = A.order(S, P, t, rq[t], camp, dst); n += us.length; if (us.length) w = Math.max(w, us[0].trn); }
+    if (!n) { this.snd.play('error'); return this.toast(`${ic('cancel')}${E.armySize(S, P) >= E.armyCap(S, P) ? 'Армия у предела численности' : 'Не хватает снаряжения или людей'}`); }
+    this.rq = {};
     this.snd.play('build');
-    this.toast(`${ic('plus')}${esc(u.n)}: ${loc.camp >= 0 ? `учебный лагерь «${esc(nm(M, loc.camp))}»` : `в тыл: ${esc(frontShort(S.fr[P][f]?.n))}`}`);
+    this.toast(`${ic('helmet')}Обучение: ${n} ${divW(n)}, ≈ ${weeksW(w)}`);
+    this.refresh();
+  },
+  doSend() {
+    const S = this.S, P = this.P, res = A.inRes(S, P), rs = this.rsel || {}, fronts = frontsOn(S, P), f = fronts.includes(this.rsF) ? this.rsF : A.needFront(S, P);
+    let n = 0;
+    const left = {};
+    for (const u of res) { left[u.t] ??= rs[u.t] ?? Infinity; if (left[u.t] > 0 && A.send(S, u, f)) { left[u.t]--; n++; } }
+    if (!n) { this.snd.play('error'); return; }
+    this.rsel = {};
+    this.snd.play('build');
+    this.toast(`${ic('train')}${n} ${divW(n)} — ${esc(frontShort(S.fr[P][f].n))}, ≈ ${weeksW(A.sendW(f))}`);
     this.refresh();
   },
   // ——— постройки в карточке области ———
@@ -167,5 +189,12 @@ export const ECO_ACT = {
     E.unbuild(S, x);
     this.snd.play('click'); this.toast(`${ic('cancel')}Стройка отменена: ${esc(E.BUILD[x.k].n.toLowerCase())}`); this.refresh();
   },
-  recl(b) { this.snd.play('select'); this.recL = b.dataset.k; this.renderPanel(); },
+  rqn(b) { this.snd.play('select'); const rq = (this.rq ??= {}), t = b.dataset.t; rq[t] = Math.max(0, (rq[t] || 0) + +b.dataset.d); this.renderPanel(); },
+  rqc(b) { this.snd.play('select'); this.rqC = +b.dataset.r; this.renderPanel(); },
+  rqd(b) { this.snd.play('select'); this.rqDst = +b.dataset.z; this.renderPanel(); },
+  rqgo() { this.doOrder(); },
+  rqdel(b) { const n = A.cancelOrder(this.S, this.P, +b.dataset.o); if (n) { this.snd.play('click'); this.toast(`${ic('cancel')}Обучение отменено: ${n} ${divW(n)}, снаряжение и люди возвращены`); } this.refresh(); },
+  rsn(b) { this.snd.play('select'); const rs = (this.rsel ??= {}), t = b.dataset.t, have = A.inRes(this.S, this.P).filter((u) => u.t === t).length; rs[t] = Math.max(0, Math.min(have, (rs[t] ?? have) + +b.dataset.d)); this.renderPanel(); },
+  rsf(b) { this.snd.play('select'); this.rsF = +b.dataset.z; this.renderPanel(); },
+  rsgo() { this.doSend(); },
 };

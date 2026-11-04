@@ -37,7 +37,7 @@ export function payEq(S, side, t, pp) { const s = EQS[t] || EQS.inf, q = S.eq[si
 // желаемые доли линий: по составу армии (пополнение) и смеси новых дивизий, с поправкой на запасы
 export function lineTarget(S, side, mix) {
   const d = { inf: 0, art: 0, arm: 0 }, m = { inf: 0, art: 0, arm: 0 };
-  for (const u of S.units) if (u.s === side && !u.dead && (u.r >= 0 || u.arr !== undefined)) { const p = TYPES[u.t].pp, s = EQS[u.t] || EQS.inf; for (const c in s) d[c] += p * s[c]; }
+  for (const u of S.units) if (u.s === side && !u.dead && (u.r >= 0 || u.arr !== undefined || u.trn > 0 || u.res)) { const p = TYPES[u.t].pp, s = EQS[u.t] || EQS.inf; for (const c in s) d[c] += p * s[c]; }
   if (mix) for (const [t, w] of Object.entries(mix)) { const s = EQS[t] || EQS.inf; for (const c in s) m[c] += w * TYPES[t].pp * s[c]; }
   const dt = d.inf + d.art + d.arm || 1, mt = m.inf + m.art + m.arm || 1, st = S.eq?.[side] ? eqTot(S, side) : 0;
   const T = {};
