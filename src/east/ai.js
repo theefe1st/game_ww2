@@ -4,9 +4,9 @@
 // развитие прорывов подвижными войсками → набор дивизий и постройки.
 import {
   ZN, sideOf, isFront, attackersFor, odds, resolveAttack, reach, moveTo, room, railTargets, railMove, beginPhase, endPhase, baseCV, defCV,
-  attCV, frontDist, recruit, build, canBuild, evacuate, canEvac, regionDef, alive, cap, genOf, hasTr, unitsAt, newCost, BUILD, note, natOf,
+  attCV, garOf, isSource, frontDist, recruit, build, canBuild, evacuate, canEvac, regionDef, alive, cap, genOf, hasTr, unitsAt, newCost, BUILD, note, natOf,
 } from './engine.js';
-import { other, isMech, yearF, turnOf, TYPES, SIDE0, dateOf } from './rules.js';
+import { other, isMech, yearF, turnOf, TYPES, SIDE0, dateOf, lerpT } from './rules.js';
 import { PLAN, GEN_HIST } from './hist.js';
 import { placeR } from './setup.js';
 
@@ -45,6 +45,7 @@ export function setPostures(S, side, isAI) {
       const p = planOf(S, side, z);
       S.post[side][z] = p ? p[3] : 'def';
       S.tgt[side][z] = p && p[3] === 'atk' ? planTarget(S, side, p[4]) : -1;
+      if (S.post[side][z] === 'atk' && S.tgt[side][z] < 0) S.tgt[side][z] = autoTarget(S, side, z); // цели плана взяты — дальше по обстановке
       if (S.post[side][z] === 'atk' && S.tgt[side][z] < 0) S.post[side][z] = 'def';
       continue;
     }
@@ -110,10 +111,11 @@ export function runSide(S, side, { isAI = true } = {}) {
   setPostures(S, side, isAI);
   const C = { side, en: other(side), thr: threatMap(S, side), fd: frontDist(S, side), isAI };
   strategic(S, C);
+  breakout(S, C);
   const order = [...Array(ZN).keys()].sort((a, b) => (S.post[side][b] === 'atk' ? 1 : 0) - (S.post[side][a] === 'atk' ? 1 : 0));
   for (const z of order) if (S.post[side][z] === 'atk') offensive(S, C, z);
   for (const z of order) if (S.post[side][z] === 'ret') withdraw(S, C, z);
-  C.thr = threatMap(S, side); C.fd = frontDist(S, side);
+  C.thr = threatMap(S, side); C.fd = frontDist(S, side); C.crit = null;
   defend(S, C);
   for (const z of order) if (S.post[side][z] === 'atk') exploit(S, C, z);
   C.fd = frontDist(S, side);
@@ -121,6 +123,32 @@ export function runSide(S, side, { isAI = true } = {}) {
   endPhase(S, side);
   if (isAI || S.auto.recruit) economyAI(S, side, isAI);
   for (const u of S.units) if (u.s === side) u.man = 0;
+}
+// окружённые: пробиваться к своим (сначала движением, затем атакой в сторону снабжаемых областей)
+function breakout(S, C) {
+  const { side } = C, M = S.M, sup = S.sup[side];
+  const pocket = S.units.filter((u) => alive(u) && u.s === side && sup[u.r] <= 0 && !u.man);
+  if (!pocket.length) return;
+  const d = new Int16Array(M.R).fill(999), q = [];
+  for (let r = 0; r < M.R; r++) if (sideOf(S, r) === side && sup[r] > 0.3) (d[r] = 0), q.push(r);
+  for (let h = 0; h < q.length; h++) { const r = q[h]; for (const e of M.reg[r].nb) if (sideOf(S, e.r) && d[e.r] > d[r] + 1) (d[e.r] = d[r] + 1), q.push(e.r); }
+  for (const u of pocket) {
+    if (!alive(u) || u.mp <= 0.2) continue;
+    const Rr = reach(S, u);
+    let best = -1, bd = d[u.r];
+    for (const [r] of Rr.best) if (d[r] < bd && room(S, r, side) > 0) (bd = d[r]), (best = r);
+    if (best >= 0) moveTo(S, u, best, Rr);
+  }
+  const tried = new Set();
+  for (const u of pocket) {
+    if (!alive(u) || u.att || sup[u.r] > 0) continue;
+    let T = -1, td = d[u.r];
+    for (const e of M.reg[u.r].nb) if (sideOf(S, e.r) === C.en && d[e.r] < td) (td = d[e.r]), (T = e.r);
+    if (T < 0 || tried.has(T)) continue;
+    tried.add(T);
+    const us = attackersFor(S, T, side).filter((v) => sup[v.r] <= 0 && !v.man);
+    if (us.length && odds(S, T, us).R >= 0.8) resolveAttack(S, T, us, {});
+  }
 }
 // резервы в тылу — по железной дороге к участкам с нехваткой сил
 function strategic(S, C) {
@@ -145,14 +173,41 @@ function strategic(S, C) {
     if (best >= 0 && bd < 600 && railMove(S, u, best)) { top.def += defCV(S, u) * 0.8; need.sort((a, b) => b.want - b.def - (a.want - a.def)); }
   }
 }
+// «горлышки» снабжения: сколько своих дивизий останется без снабжения, если область будет потеряна
+function critical(S, side, fd) {
+  const M = S.M, R = M.R, src = [];
+  for (let r = 0; r < R; r++) if (isSource(S, r, side)) src.push(r);
+  const cnt = new Int16Array(R);
+  for (let r = 0; r < R; r++) cnt[r] = S.at[r].filter((u) => u.s === side).length;
+  const base = reachSet(S, side, src, -1);
+  const out = new Map();
+  for (let r = 0; r < R; r++) {
+    if (fd[r] !== 0 || sideOf(S, r) !== side) continue;
+    const got = reachSet(S, side, src, r);
+    let lost = 0;
+    for (let q = 0; q < R; q++) if (base[q] && !got[q] && q !== r) lost += cnt[q];
+    if (lost >= 4) out.set(r, lost);
+  }
+  return out;
+}
+function reachSet(S, side, src, cut) {
+  const M = S.M, seen = new Uint8Array(M.R), q = [];
+  for (const r of src) if (r !== cut) (seen[r] = 1), q.push(r);
+  for (let h = 0; h < q.length; h++) for (const e of M.reg[q[h]].nb) if (!seen[e.r] && e.r !== cut && sideOf(S, e.r) === side && e.sp !== 'sea') (seen[e.r] = 1), q.push(e.r);
+  return seen;
+}
 function deficits(S, C) {
   const { side } = C, M = S.M, out = [];
+  C.crit ??= critical(S, side, C.fd);
   for (let r = 0; r < M.R; r++) {
-    if (sideOf(S, r) !== side || C.fd[r] !== 0) continue;
+    if (sideOf(S, r) !== side) continue;
+    const vp = M.reg[r].vp;
+    // крупные города у фронта держат и во втором эшелоне
+    if (C.fd[r] > 0 && C.fd[r] <= 2 && vp >= 3) { out.push({ r, z: M.reg[r].z, def: regionDef(S, r), want: vp * 2.2, vp }); continue; }
+    if (C.fd[r] !== 0) continue;
     const z = M.reg[r].z, p = S.post[side][z];
     const k = p === 'atk' ? 0.95 : p === 'ret' ? 0.4 : 0.85;
-    const vp = M.reg[r].vp;
-    const want = Math.max(C.thr[r] * k / 1.25, 2.2) * (1 + Math.min(vp, 8) * 0.05);
+    const want = Math.max(C.thr[r] * k / 1.25, 2.2) * (1 + Math.min(vp, 8) * 0.05) * (1 + Math.min(1.5, (C.crit.get(r) || 0) / 12));
     out.push({ r, z, def: regionDef(S, r), want, vp });
   }
   out.sort((a, b) => b.want - b.def - (a.want - a.def));
@@ -164,7 +219,7 @@ function offensive(S, C, z) {
   if (T < 0) return;
   const dT = distTo(S, T);
   const early41 = side === 'GER' && S.turn <= 2;
-  const rMin = (side === 'GER' ? 1.2 : 1.3) * (S.wx[z] === 'mud' ? 1.15 : 1);
+  const rMin = (side === 'GER' ? 1.45 : 1.5) * (S.wx[z] === 'mud' ? 1.15 : 1);
   for (let pass = 0; pass < 3; pass++) {
     const cand = [];
     for (let e = 0; e < M.R; e++) {
@@ -175,7 +230,7 @@ function offensive(S, C, z) {
       if (!us.length) continue;
       const o = odds(S, e, us);
       const prog = Math.min(...nb.map((n) => dT[n.r]), dT[e] + 1) - dT[e];
-      const s = prog * 6 - dT[e] * 0.9 + M.reg[e].vp * 1.5 + Math.min(o.R, 4) * 3 + (S.at[e].length ? 0 : 6) + (e === T ? 8 : 0);
+      const s = prog * 6 - dT[e] * 0.9 + M.reg[e].vp * 1.5 + Math.min(o.R, 4) * 3 + (S.at[e].length || garOf(S, e) ? 0 : 6) + (e === T ? 8 : 0);
       cand.push({ e, us, o, s });
     }
     if (!cand.length) return;
@@ -184,7 +239,7 @@ function offensive(S, C, z) {
     for (const c of cand.slice(0, 10)) {
       const us = c.us.filter((u) => canAttackNow(u));
       if (!us.length) continue;
-      if (!S.at[c.e].length) { // пустая — занять
+      if (!S.at[c.e].length && !garOf(S, c.e)) { // пустая — занять
         const u = us.sort((a, b) => (isMech(b) ? 1 : 0) - (isMech(a) ? 1 : 0))[0];
         if (keepOK(S, C, u)) { const Rr = reach(S, u); if (moveTo(S, u, c.e, Rr)) did++; }
         continue;
@@ -208,7 +263,7 @@ function offensive(S, C, z) {
     if (!did) break;
   }
 }
-const canAttackNow = (u) => alive(u) && !u.att && u.rdy >= 22 && u.t !== 'sec' && u.mp > 0.2 && !u.man;
+const canAttackNow = (u) => alive(u) && !u.att && u.rdy >= 45 && u.t !== 'sec' && u.mp > 0.2 && !u.man;
 function mainOrigin(us) {
   const w = new Map();
   for (const u of us) w.set(u.r, (w.get(u.r) || 0) + u.str);
@@ -248,7 +303,7 @@ function exploit(S, C, z) {
     if (u.mp >= 1 && u.rdy >= 45 && !u.att) {
       let best = -1, br = 0;
       for (const n of M.reg[u.r].nb) {
-        if (sideOf(S, n.r) !== C.en || !S.at[n.r].length) continue;
+        if (sideOf(S, n.r) !== C.en || (!S.at[n.r].length && !garOf(S, n.r))) continue;
         const R = odds(S, n.r, [u]).R;
         if (R > br) (br = R), (best = n.r);
       }
@@ -309,7 +364,7 @@ function defend(S, C) {
   }
   // контрудары: хорошие шансы или свой город
   for (let e = 0; e < M.R; e++) {
-    if (sideOf(S, e) !== C.en || !S.at[e].length) continue;
+    if (sideOf(S, e) !== C.en || (!S.at[e].length && !garOf(S, e))) continue;
     const z = M.reg[e].z;
     if (S.post[side][z] === 'ret') continue;
     const us = attackersFor(S, e, side).filter((u) => !u.man);
@@ -342,6 +397,8 @@ function fillGaps(S, C) {
   }
 }
 // ——— хозяйство ИИ: набор, постройки, эвакуация ———
+// численность армии, к которой стремится ИИ (дивизий, с союзниками)
+export const ARMY = { SOV: [[1941.4, 300], [1942.0, 370], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
 export const MIX = {
   SOV: [[1941.4, { inf: 0.86, cav: 0.1, arm: 0.04 }], [1942.3, { inf: 0.78, cav: 0.06, arm: 0.12, mot: 0.04 }], [1943.2, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.0, { inf: 0.7, arm: 0.2, mot: 0.1 }]],
   GER: [[1941.4, { inf: 0.8, arm: 0.12, mot: 0.08 }], [1943.0, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.5, { inf: 0.82, arm: 0.12, mot: 0.06 }]],
@@ -359,16 +416,21 @@ export function economyAI(S, side, isAI) {
   const fr = [];
   for (let r = 0; r < M.R; r++) if (sideOf(S, r) === side && isFront(S, r, side) && S.fort[r] < 3) fr.push([r, thr[r] * (1 + M.reg[r].vp * 0.15) - S.fort[r] * 4]);
   fr.sort((a, b) => b[1] - a[1]);
-  let forts = isAI ? (side === 'SOV' ? 2 : 1) : S.auto.build ? 1 : 0;
-  for (const [r] of fr) { if (forts <= 0 || S.pp[side] < 60) break; if (S.post[side][M.reg[r].z] === 'atk') continue; if (build(S, side, r, 'fort')) forts--; }
+  let forts = isAI ? 1 : S.auto.build ? 1 : 0;
+  for (const [r] of fr) { if (forts <= 0 || S.pp[side] < 80) break; if (S.post[side][M.reg[r].z] === 'atk') continue; if (build(S, side, r, 'fort')) forts--; }
   // набор дивизий: запас — на пополнение
   const reserve = { pp: 30, men: side === 'SOV' ? 40 : 30 };
   const mix = mixNow(side, S.turn);
   const queued = S.units.filter((u) => u.s === side && u.r < 0 && !u.dead && u.arr !== undefined && !u.hist).length;
+  const army = S.units.filter((u) => u.s === side && alive(u)).length + queued, capA = isAI ? lerpT(ARMY[side], yearF(S.turn)) : 1e9;
   let k = 0;
-  while (k++ < 14 && queued + k < 40) {
-    let t = 'inf', x = rndPick(S, mix);
-    t = x;
+  while (k++ < 14 && queued + k < 40 && army + k <= capA) {
+    let t = rndPick(S, mix);
+    // по запасам: людей много, производства мало — пехота и кавалерия; наоборот — танки
+    const q = (S.pp[side] - reserve.pp) / Math.max(1, S.men[side] - reserve.men) / (newCost(side, 'inf').pp / newCost(side, 'inf').men);
+    if (q < 0.55 && (t === 'arm' || t === 'mot')) t = mix.cav ? 'cav' : 'inf';
+    else if (q < 0.4 && t === 'inf' && mix.cav) t = 'cav';
+    else if (q > 1.8 && t === 'inf') t = (mix.arm || 0) > 0.1 ? 'arm' : 'mot';
     const c = newCost(side, t);
     if (S.pp[side] - c.pp < reserve.pp || S.men[side] - c.men < reserve.men) break;
     const z = needZone(S, side, thr);

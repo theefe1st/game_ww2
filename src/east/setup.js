@@ -32,7 +32,8 @@ function placeArmy(S, P, A, codes, arrTurn) {
     let r = regionAt(M, x, y);
     if (r < 0 || sideOf(S, r) !== side) r = nearestRegion(M, x, y, (q) => sideOf(S, q) === side);
     const nat = o.nat || A.nat;
-    const u = mkUnit(S, { s: side, nat, t: o.t, n: o.n, str: side === 'SOV' ? (o.t === 'arm' ? 78 : 82) : 100, rdy: side === 'SOV' ? 70 : 100, xp: side === 'SOV' ? 5 : nat === 'GER' ? 35 : 15 });
+    // внезапность: войска западных округов не приведены в готовность
+    const u = mkUnit(S, { s: side, nat, t: o.t, n: o.n, str: side === 'SOV' ? (o.t === 'arm' ? 78 : 82) : 100, rdy: side === 'SOV' ? (arrTurn > 0 ? 70 : 45) : 100, xp: side === 'SOV' ? 5 : nat === 'GER' ? 35 : 15 });
     if (arrTurn > 0) { u.arr = arrTurn; u.at = r; u.z = M.reg[r].z; }
     else u._want = r;
   });
