@@ -32,6 +32,8 @@ export function decodeEU(J) {
   const cities = J.cities.map(([n, h, sz, vp, f], k) => ({
     k, n, h, sz, vp, cap: f.includes('c'), port: f.includes('p'), fort: f.includes('f'), hard: f.includes('h'), x: f.includes('x'),
   }));
+  // Киевский укрепрайон (КиУР) — как крепость; запасы крепостей — см. FORT0 в engine.js
+  for (const c of cities) if (c.n === 'Киев' || c.n === 'Ленинград') c.fort = true;
   const cityAt = new Int16Array(N).fill(-1);
   for (const c of cities) cityAt[c.h] = c.k;
   const byName = new Map(cities.map((c) => [c.n, c]));
@@ -49,6 +51,7 @@ export function decodeEU(J) {
     J, g, N, terr, own0, nations: J.nations, riv, rivW, rail, reg, regions: J.regions, offmap: J.offmap, nb, cities, cityAt, rivers: J.rivers,
     land: (i) => terr[i] >= 2,
     xy: (i) => hexXY(g, i),
+    hexAt: (x, y) => hexAtXY(g, x, y),
     dist: (a, b) => hexDist(g, a, b),
     llXY,
     hexLL: (lon, lat) => {

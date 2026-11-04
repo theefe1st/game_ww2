@@ -78,13 +78,13 @@ export const winter41 = (S) => S.day >= dayOf('1941-11-20') && S.day <= dayOf('1
 
 // ——— качество войск по годам (интерполяция) ———
 const QT = {
-  GER: [[1941.4, 1.62], [1942.0, 1.45], [1942.6, 1.42], [1943.2, 1.32], [1943.7, 1.26], [1944.4, 1.15], [1945.0, 1.05], [1945.5, 1.0]],
-  SOV: [[1941.4, 0.55], [1941.75, 0.66], [1942.0, 0.78], [1942.6, 0.82], [1943.0, 0.95], [1943.6, 1.05], [1944.4, 1.15], [1945.5, 1.2]],
-  FIN: [[1941.4, 1.25], [1945.5, 1.2]],
-  ROM: [[1941.4, 0.72], [1942.9, 0.7], [1944.6, 0.66]],
-  HUN: [[1941.4, 0.75], [1945.5, 0.72]],
-  ITA: [[1941.4, 0.7], [1945.5, 0.68]],
-  SVK: [[1941.4, 0.7], [1945.5, 0.66]],
+  GER: [[1941.4, 1.2], [1941.75, 1.18], [1942.0, 1.1], [1942.6, 1.15], [1943.0, 1.1], [1943.6, 1.06], [1944.4, 1.0], [1945.0, 0.93], [1945.5, 0.88]],
+  SOV: [[1941.4, 0.8], [1941.75, 0.82], [1942.0, 0.86], [1942.6, 0.88], [1943.0, 0.97], [1943.6, 1.03], [1944.4, 1.1], [1945.0, 1.14], [1945.5, 1.16]],
+  FIN: [[1941.4, 1.15], [1945.5, 1.1]],
+  ROM: [[1941.4, 0.68], [1942.9, 0.66], [1944.6, 0.62]],
+  HUN: [[1941.4, 0.7], [1945.5, 0.68]],
+  ITA: [[1941.4, 0.66], [1945.5, 0.64]],
+  SVK: [[1941.4, 0.65], [1945.5, 0.62]],
 };
 function lerpT(T, x) {
   if (x <= T[0][0]) return T[0][1];
@@ -98,8 +98,8 @@ export const tankQ = (S, side) => lerpT(TQ[side] || TQ.GER, yearF(S.day));
 
 // ——— сила дивизии ———
 export const cvRaw = (S, u) => u.men / 1000 + u.gun / 40 + (u.tnk * tankQ(S, u.side)) / 15;
-export const orgF = (u) => 0.35 + 0.65 * Math.max(0, u.org) / 100;
-export const xpF = (u) => 1 + u.xp / 220;
+export const orgF = (u) => 0.45 + 0.55 * Math.max(0, u.org) / 100;
+export const xpF = (u) => 1 + u.xp / 300;
 export const supF = (u) => (u.oos <= 0 ? 1 : u.oos <= 2 ? 0.9 : u.oos <= 5 ? 0.72 : 0.5);
 export const moraleF = (S, side) => 0.86 + (0.26 * Math.max(0, S.morale[side])) / 130;
 export const DIFF = ['Лёгкая', 'Нормальная', 'Тяжёлая'];
@@ -114,11 +114,13 @@ const hasTr = (g, t) => g && g.tr.includes(t);
 // местность: множитель обороны и штраф танкам
 export const TERR_DEF = [1, 1, 1, 1.35, 1.4, 1.9, 1.5, 0.95, 1.2];
 const ARMOR_TERR = [1, 1, 1, 0.55, 0.75, 0.4, 0.45, 1.1, 0.7];
-export const cityDef = (c) => (c ? (c.sz === 3 ? 1.5 : c.sz === 2 ? 1.3 : 1.15) * (c.hard ? (c.n === 'Ленинград' ? 2.8 : c.n === 'Москва' ? 2.4 : 2.1) : 1) : 1);
+// укрепрайоны больших городов: Москва, Ленинград, Сталинград, Тула (hard), Киевский УР
+const HARD = { Ленинград: 2.8, Москва: 2.4, Киев: 1.7 };
+export const cityDef = (c) => (c ? (c.sz === 3 ? 1.5 : c.sz === 2 ? 1.3 : 1.15) * (c.hard ? HARD[c.n] || 2.1 : HARD[c.n] || 1) : 1);
 
 export function airF(S, side) {
   const a = S.air?.[side] ?? 0.5; // доля превосходства в воздухе 0–1
-  return 1 + 0.45 * (a - 0.5);
+  return 1 + 0.3 * (a - 0.5);
 }
 // сила атакующего по гексу h (с учётом реки на ребре a.h → h)
 export function atkVal(S, u, h, from = u.h) {
@@ -144,7 +146,7 @@ export function atkVal(S, u, h, from = u.h) {
 export function defVal(S, u) {
   const M = S.M, h = u.h, g = genOf(S, u), t = M.terr[h], c = M.cityAt[h] >= 0 ? M.cities[M.cityAt[h]] : null;
   let v = cvRaw(S, u) * quality(S, u.nat) * orgF(u) * xpF(u) * supF(u) * moraleF(S, u.side) * Math.sqrt(airF(S, u.side)) * diffK(S, u.side);
-  v *= TERR_DEF[t] * (1 + 0.12 * u.ent) * cityDef(c);
+  v *= TERR_DEF[t] * (1 + 0.15 * u.ent) * cityDef(c);
   if (c && c.fort && S.fst[c.k] > 0 && sideOfH(S, h) === u.side) v *= 1.6;
   if (g) {
     v *= 1 + (g.sk - 3) * 0.03;
@@ -152,8 +154,11 @@ export function defVal(S, u) {
     if (hasTr(g, 'mtn') && (t === 3 || t === 5 || t === 6)) v *= 1.15;
   }
   if (u.side === 'GER' && u.nat === 'GER' && winter41(S) && S.wx[M.zone[h]] === 'frost') v *= c ? 0.9 : 0.78;
-  if (u.side === 'SOV' && S.ev?.fx?.SOVdef) v *= S.ev.fx.SOVdef;
-  if (u.side === 'GER' && S.ev?.fx?.GERdef) v *= S.ev.fx.GERdef;
+  const fx = S.ev?.fx;
+  if (fx) {
+    if (fx[u.side + 'def']) v *= fx[u.side + 'def'];
+    if (u.nat !== u.side && fx[u.nat + 'def']) v *= fx[u.nat + 'def'];
+  }
   return v;
 }
 
@@ -340,7 +345,7 @@ export function repairRail(S, side, k) {
 const SUPC = [99, 99, 1, 1.5, 1.5, 2, 2, 1, 1.5];
 export function supplyMap(S, side) {
   const M = S.M, N = M.N, net = railNet(S, side), L = new Uint8Array(N), dist = new Float32Array(N).fill(99);
-  const base = side === 'GER' ? (S.day < 140 ? 4.5 : 4) : S.day >= dayOf('1943-03-01') ? 4 : 3; // грузовики: ленд-лиз «студебеккеры» с 1943 г.
+  const base = side === 'GER' ? (S.day < 140 ? 5 : 4.5) : S.day >= dayOf('1943-03-01') ? 4.5 : 3.5; // грузовики: ленд-лиз «студебеккеры» с 1943 г.
   const q = [];
   for (let h = 0; h < N; h++) if (net[h] >= 0) (dist[h] = 0), q.push(h);
   // Дейкстра по своей земле (простая очередь со вставкой: дешёвые рёбра ≤ 2)
@@ -353,10 +358,10 @@ export function supplyMap(S, side) {
       if (j < 0 || M.terr[j] < 2 || sideOfH(S, j) !== side) continue;
       const w = WX[S.wx[M.zone[j]]];
       const c = c0 + SUPC[M.terr[j]] / w.sup + (M.river(h, d) ? 0.5 : 0);
-      if (c < dist[j] && c <= base + 3) (dist[j] = c), qq.push(j);
+      if (c < dist[j] && c <= base + 3.5) (dist[j] = c), qq.push(j);
     }
   }
-  for (let h = 0; h < N; h++) L[h] = dist[h] <= base ? 2 : dist[h] <= base + 2.5 ? 1 : 0;
+  for (let h = 0; h < N; h++) L[h] = dist[h] <= base ? 2 : dist[h] <= base + 3 ? 1 : 0;
   // частичные источники: порты Чёрного моря, Ладога для Ленинграда
   for (const [p, r, lv] of S.partial[side] || [])
     for (const h of M.ring ? M.ring(p, r) : []) if (sideOfH(S, h) === side && L[h] < lv) L[h] = lv;
@@ -398,7 +403,7 @@ export function forecast(S, att, tgt) {
 }
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 function lossFrac(R, att) {
-  return att ? clamp(0.03 * Math.pow(R, -0.6), 0.006, 0.16) : clamp(0.035 * Math.pow(R, 0.65), 0.01, 0.22);
+  return att ? clamp(0.018 * Math.pow(R, -0.6), 0.004, 0.12) : clamp(0.022 * Math.pow(R, 0.5), 0.008, 0.12);
 }
 // гекс окружён: нет выхода в свою или пустую не-вражескую землю
 export function encircled(S, h, side) {
@@ -421,7 +426,7 @@ function hurt(S, u, f, kind) {
   if (S.eco?.[u.side]) S.eco[u.side].wnd.push([S.day + 30, Math.round(men * 0.3)]);
   return men;
 }
-function destroy(S, u, by, why = 'разгромлена') {
+export function destroy(S, u, by, why = 'разгромлена') {
   S.loss[u.side] += u.men;
   S.dayLoss[u.side] += u.men;
   if (why === 'сдалась' || why === 'капитулировала') S.pow[u.side] += u.men;
@@ -442,6 +447,18 @@ function retreatHex(S, u, from) {
     if (M.cityAt[j] >= 0) s += 0.5;
     if (s > bs) (bs = s), (best = j);
   }
+  if (best >= 0) return best;
+  // отход с боями на 2 гекса: через свою землю без противника (сосед может быть занят своими)
+  for (let d = 0; d < 6; d++) {
+    const j = M.nb[u.h * 6 + d];
+    if (j < 0 || !passable(S, j) || sideOfH(S, j) !== u.side || enemyAt(S, j, u.side)) continue;
+    for (let e = 0; e < 6; e++) {
+      const k = M.nb[j * 6 + e];
+      if (k < 0 || k === u.h || !passable(S, k) || sideOfH(S, k) !== u.side || enemyAt(S, k, u.side) || stackN(S, k) >= STACK) continue;
+      const s = -enemyNear(S, k, u.side) * 3 + (S.supL?.[u.side]?.[k] || 0) * 2 + M.dist(k, from) * 1.5 + rnd(S) * 0.2;
+      if (s > bs) (bs = s), (best = k);
+    }
+  }
   return best;
 }
 // атака: att — дивизии-участники, tgt — гекс. Возвращает итог для журнала и интерфейса.
@@ -451,8 +468,10 @@ export function doAttack(S, att, tgt) {
   if (!att.length || !ds.length) return null;
   const o = odds(S, att, tgt), R = o.R;
   const lr = Math.log(R) + gauss(S) * SIG;
-  const push = lr > TH_PUSH, rout = lr > Math.log(3), crush = lr > Math.log(5.5);
-  const dl = lossFrac(R, 0) * (push ? 1.25 : 0.85) * (rout ? 1.4 : 1), al = lossFrac(R, 1) * (push ? 0.85 : 1.15);
+  // большие города-крепости (Москва, Ленинград, Сталинград, Тула): уличные бои — выбить защитников труднее
+  const ci = S.M.cityAt[tgt], hardC = ci >= 0 && S.M.cities[ci].hard && !o.sur;
+  const push = lr > (hardC ? Math.log(2.2) : TH_PUSH), rout = lr > Math.log(hardC ? 4 : 3), crush = lr > Math.log(10);
+  const dl = lossFrac(R, 0) * (push ? 1.15 : 0.85) * (rout ? 1.25 : 1) * (hardC ? 0.8 : 1), al = lossFrac(R, 1) * (push ? 0.85 : 1.15) * (hardC ? 1.6 : 1);
   let lossA = 0, lossD = 0;
   const sideD = ds[0].side;
   // потери атакующих — пропорционально вкладу
@@ -469,7 +488,7 @@ export function doAttack(S, att, tgt) {
   const out = { tgt, R, push, rout, retreated: [], killed: [], lossA: 0, lossD: 0, sideA: att[0].side, sideD, adv: null };
   for (const d of ds) {
     lossD += hurt(S, d, dl, 'def');
-    d.org = Math.max(0, d.org - (12 + 8 * Math.min(R, 3)) * (push ? 1 : 0.6));
+    d.org = Math.max(0, d.org - (6 + 4 * Math.min(R, 3)) * (push ? 1 : 0.6));
     d.xp = Math.min(100, d.xp + 1);
     if (d.men < 600 || (d.men < d.menM * 0.08 && d.tnk < 10)) {
       destroy(S, d, att[0].side);
@@ -479,18 +498,24 @@ export function doAttack(S, att, tgt) {
   if (push) {
     for (const d of unitsAt(S, tgt).slice()) {
       const r = retreatHex(S, d, att[0].h);
+      // отступать некуда: крепкая дивизия держится в кольце (тяжёлые потери), слабая — сдаётся
+      if (r < 0 && !crush && d.men > d.menM * 0.2 && rnd(S) < (d.org >= 15 ? 0.7 : 0.45)) {
+        lossD += hurt(S, d, 0.06, 'def');
+        d.org = Math.max(0, d.org - 10);
+        continue;
+      }
       if (r < 0 || crush) {
         // отступать некуда — плен или разгром
-        if (r < 0 || d.org < 15 || rnd(S) < 0.5) {
+        if (r < 0 || rnd(S) < (d.org < 10 ? 0.25 : 0.08)) {
           lossD += d.men;
-          destroy(S, d, att[0].side, r < 0 ? 'сдалась' : 'разгромлена');
+          destroy(S, d, att[0].side, r < 0 ? 'сдалась' : 'разбита');
           out.killed.push(d);
           continue;
         }
       }
       const g = genOf(S, d), k = g && g.tr.includes('ret') ? 0.5 : 1;
-      if (rout) lossD += hurt(S, d, 0.06 * k, 'def');
-      d.org = Math.max(0, d.org - (rout ? 25 : 12) * k);
+      if (rout) lossD += hurt(S, d, 0.03 * k, 'def');
+      d.org = Math.max(0, d.org - (rout ? 12 : 6) * k);
       d.ent = 0;
       setAt(S, d, r);
       out.retreated.push(d);

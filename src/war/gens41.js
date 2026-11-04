@@ -142,4 +142,60 @@ for (const [k, n, nat, tr, sk, cap, o, from] of L) {
   if (nat !== 'GER') p.kc = o.kc ?? 0;
   GENS[k] = { k, n, sh: n.split(' ').slice(-1)[0], nat, tr: tr.split(' '), sk, por: p, from: from || '1941-06-22' };
 }
-export const genSide = (k) => (GENS[k]?.nat === 'SOV' ? 'SOV' : 'GER');
+// командармы и командующие, не вошедшие в основной список (новые армии РККА, поздние группы армий Оси)
+const L2 = [
+  ['kachalov', 'В. Я. Качалов', 'SOV', 'def', 2, 'sov', { a: 0.45 }],
+  ['maslennikov', 'И. И. Масленников', 'SOV', 'def', 3, 'sov', { a: 0.4 }],
+  ['khomenko', 'В. А. Хоменко', 'SOV', 'def', 2, 'sov', { a: 0.4 }],
+  ['dolmatov', 'В. Н. Долматов', 'SOV', 'def', 2, 'sov', { a: 0.5 }],
+  ['vishnevsky', 'С. В. Вишневский', 'SOV', 'def', 2, 'sov', { a: 0.5 }],
+  ['yefremov', 'М. Г. Ефремов', 'SOV', 'atk hard', 3, 'sov', { a: 0.45 }],
+  ['kachanov', 'К. М. Качанов', 'SOV', 'def', 1, 'sov', { a: 0.4 }],
+  ['ryabyshev', 'Д. И. Рябышев', 'SOV', 'tank', 2, 'sov', { a: 0.45 }],
+  ['zakharkin', 'И. Г. Захаркин', 'SOV', 'def', 2, 'sov', { a: 0.5 }],
+  ['lopatin', 'А. И. Лопатин', 'SOV', 'def', 2, 'sov', { a: 0.45 }],
+  ['boldin', 'И. В. Болдин', 'SOV', 'def hard', 3, 'sov', { a: 0.5 }],
+  ['podlas', 'К. П. Подлас', 'SOV', 'def', 2, 'sov', { a: 0.45 }],
+  ['klykov', 'Н. К. Клыков', 'SOV', 'atk', 2, 'sov', { a: 0.5 }],
+  ['kulik', 'Г. И. Кулик', 'SOV', 'def', 1, 'sov', { a: 0.6, h: 'bald' }],
+  ['lazarev', 'И. Г. Лазарев', 'SOV', 'def', 2, 'sov', { a: 0.45 }],
+  ['remezov', 'Ф. Н. Ремезов', 'SOV', 'def', 2, 'sov', { a: 0.5 }],
+  ['kozlov', 'Д. Т. Козлов', 'SOV', 'def', 1, 'sov', { a: 0.5 }],
+  ['galanin', 'И. В. Галанин', 'SOV', 'def', 3, 'sov', { a: 0.45 }],
+  ['purkaev', 'М. А. Пуркаев', 'SOV', 'def', 3, 'sov', { a: 0.45, h: 'bald' }],
+  ['sokolov_g', 'Г. Г. Соколов', 'SOV', 'def', 1, 'sov', { a: 0.5 }],
+  ['khozin', 'М. С. Хозин', 'SOV', 'def', 2, 'sov', { a: 0.45 }],
+  ['zakharov', 'Г. Ф. Захаров', 'SOV', 'atk', 3, 'sov', { a: 0.45 }],
+  ['romanenko', 'П. Л. Романенко', 'SOV', 'tank', 2, 'sov', { a: 0.45 }],
+  ['romanovsky', 'В. З. Романовский', 'SOV', 'def', 2, 'sov', { a: 0.45 }],
+  ['badanov', 'В. М. Баданов', 'SOV', 'tank atk', 3, 'sov', { a: 0.5 }],
+  ['rodin', 'А. Г. Родин', 'SOV', 'tank', 2, 'sov', { a: 0.45 }],
+  ['kravchenko', 'А. Г. Кравченко', 'SOV', 'tank enc', 4, 'sov', { a: 0.35 }],
+  ['zhadov', 'А. С. Жадов', 'SOV', 'def hard', 4, 'sov', { a: 0.4 }],
+  ['chistyakov', 'И. М. Чистяков', 'SOV', 'def', 4, 'sov', { a: 0.4 }],
+  ['galitsky', 'К. Н. Галицкий', 'SOV', 'atk', 4, 'sov', { a: 0.4 }],
+  ['kreizer', 'Я. Г. Крейзер', 'SOV', 'def', 3, 'sov', { a: 0.35 }],
+  ['kryuchenkin', 'В. Д. Крюченкин', 'SOV', 'cav', 2, 'sov', { a: 0.5 }],
+  ['zhmachenko', 'Ф. Ф. Жмаченко', 'SOV', 'def', 3, 'sov', { a: 0.45 }],
+  ['managarov', 'И. М. Манагаров', 'SOV', 'atk', 3, 'sov', { a: 0.4 }],
+  ['tsvetaev', 'В. Д. Цветаев', 'SOV', 'atk', 3, 'sov', { a: 0.45 }],
+  ['glagolev', 'В. В. Глаголев', 'SOV', 'mtn', 3, 'sov', { a: 0.45 }],
+  ['gagen', 'Н. А. Гаген', 'SOV', 'def', 3, 'sov', { a: 0.45 }],
+  ['gordov', 'В. Н. Гордов', 'SOV', 'def', 2, 'sov', { a: 0.45 }],
+  ['berling', 'З. Берлинг', 'SOV', 'def', 2, 'sov', { a: 0.4 }],
+  ['friessner', 'Г. Фриснер', 'GER', 'def ret', 4, 'ger', { a: 0.5 }],
+  ['rendulic', 'Л. Рендулич', 'GER', 'def mtn', 4, 'ger', { a: 0.45 }],
+  ['kempf', 'В. Кемпф', 'GER', 'tank', 3, 'ger', { a: 0.5 }],
+  ['salmuth', 'Г. фон Зальмут', 'GER', 'def', 3, 'ger', { a: 0.55 }],
+  ['weiss', 'В. Вейс', 'GER', 'def', 3, 'ger', { a: 0.45 }],
+  ['tippelskirch', 'К. фон Типпельскирх', 'GER', 'def', 3, 'ger', { a: 0.5 }],
+];
+// безымянные командиры для армий, сверх списков (детерминированные портреты)
+export const EXTRA = {};
+for (const [k, n, nat, tr, sk, cap, o, from] of L2) {
+  const p = por(k, cap, o);
+  if (nat !== 'GER') p.kc = o.kc ?? 0;
+  EXTRA[k] = { k, n, sh: n.split(' ').slice(-1)[0], nat, tr: tr.split(' '), sk, por: p, from: from || '1941-06-22', x: 1 };
+}
+export const ALLG = { ...GENS, ...EXTRA };
+export const genSide = (k) => (ALLG[k]?.nat === 'SOV' ? 'SOV' : 'GER');

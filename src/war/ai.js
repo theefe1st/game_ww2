@@ -8,6 +8,7 @@ import {
   enemyNear, canAttack, defVal, atkVal, cvRaw, railOK, railNet, placeAt, other,
 } from './rules.js';
 
+const NS0 = (S, h) => ({ GER: 'GER', FIN: 'GER', ROM: 'GER', HUN: 'GER', ITA: 'GER', SVK: 'GER', SOV: 'SOV' })[S.M.nations[S.M.own0[h]]] || null;
 const OPS2 = OPS.map(([side, a, b, n, who, k, obj]) => ({ side, a: dayOf(a), b: dayOf(b), n, who: who.split(' '), k, obj: obj ? obj.split('|') : [] }));
 export const ORDERS = {
   auto: { n: 'Авто', d: 'по историческому плану Ставки и ОКХ' },
@@ -19,16 +20,19 @@ export const ORDERS = {
 };
 // текущая операция плана для армии (своя строка важнее строки группы/фронта)
 export function planOp(S, A) {
-  const d = S.day;
-  let best = null, bs = -1;
-  const ops = S.xops ? OPS2.concat(S.xops) : OPS2;
+  const d = S.day, up = S.hqs[A.up], als = up ? [up.k, ...(up.als || [])] : [];
+  let best = null, bs = 0;
+  const ops = S.xops?.length ? OPS2.concat(S.xops) : OPS2;
   for (const o of ops) {
-    if (o.side !== A.side || d < o.a || d > o.b) continue;
-    const s = o.who.includes(A.k) ? 2 : o.who.includes(A.up) || o.who.includes(S.hqs[A.up]?.alias) ? 1 : 0;
-    if (s > bs || (s === bs && s > 0 && o.a > best.a)) (bs = s), (best = o);
+    if (o.side !== A.side || d < o.a || d > o.b || (S.noop?.length && S.noop.includes(o.n))) continue;
+    let s = o.who.includes(A.k) || (A.als && A.als.some((x) => o.who.includes(x))) ? 2 : als.some((x) => o.who.includes(x)) ? 1 : 0;
+    if (!s) continue;
+    if (o.x) s += 0.5;
+    if (s > bs || (s === bs && o.a > best.a)) (bs = s), (best = o);
   }
-  return bs > 0 ? { ...best, own: bs === 2 } : null;
+  return best ? { ...best, own: bs >= 2 } : null;
 }
+export const OPS_ALL = OPS2;
 export function armyUnits(S, A) {
   return S.units.filter((u) => u.hq === A.k && alive(u) && !u.arr);
 }
@@ -79,7 +83,8 @@ export function posture(S, A, us = armyUnits(S, A)) {
   if (A.order === 'ret') return { k: 'ret', obj: rearHex(S, A.side, c) };
   const o = planOp(S, A);
   if (!o) return { k: 'def' };
-  if (o.k === 'def') return { k: 'def', op: o };
+  if (o.k === 'hold') return { k: 'def', hold: 1, op: o };
+  if (o.k === 'def' || (o.k === 'ret' && A.side === 'SOV' && S.ev?.fx?.SOVnoRet >= S.day)) return { k: 'def', op: o };
   const t = opTarget(S, A, o, c);
   if (!t) return { k: 'def', op: o };
   return { k: o.k, obj: t.h, objN: t.n, op: o };
@@ -212,6 +217,8 @@ export function runAI(S, side, opt = {}) {
   const fr = frontHexes(S, side);
   const sup = S.supL?.[side];
   const thMul = S.ev?.fx?.[side + 'agg'] || 1;
+  // «поводок снабжения»: не дальше 2 гексов от своей земли со снабжением
+  S._lea = leash(S, side, sup);
   // 1) окружённые: на прорыв; 2) удары
   const isAtk = (A) => A._p.k === 'atk';
   const unitArmy = new Map();
@@ -234,11 +241,12 @@ export function runAI(S, side, opt = {}) {
         for (const u of unitsAt(S, j)) {
           if (u.side !== side || !canAttack(S, u) || skipU(u)) continue;
           const A = unitArmy.get(u.id);
-          if (!A || A._p.k === 'res' || A._p.k === 'ret') continue;
+          if (!A || A._p.k === 'res' || A._p.k === 'ret' || A._p.hold) continue;
           att.push(u);
         }
       }
       if (!att.length) continue;
+      if (noAssault(S, side, t)) continue;
       const o = odds(S, att, t);
       // ценность цели: ближе к цели армии, город, котёл, слабый противник
       let val = 1;
@@ -253,6 +261,8 @@ export function runAI(S, side, opt = {}) {
       const brk = att.some((u) => u.oos > 2 && (!sup || !sup[u.h]));
       const th = (brk ? 0.9 : atkMode ? TH_ATK[side] : 2.3) * thMul;
       if (o.R < th) continue;
+      // без наступательной операции: только добивать котлы и (СССР) отбивать свою землю при большом перевесе
+      if (!brk && !atkMode && !unitsAt(S, t).some((d) => d.oos > 2) && (o.R < 3 || (side === 'GER' && NS0(S, t) !== 'GER'))) continue;
       list.push({ t, att, R: o.R, s: Math.min(o.R, 4) * val });
     }
     list.sort((a, b) => b.s - a.s);
@@ -285,6 +295,33 @@ export function runAI(S, side, opt = {}) {
   // 4) дальние переброски по железной дороге
   railMoves(S, side, act, lab, opt);
   for (const A of act) (A._us = null);
+}
+// директивы ставок: города, которые ИИ не штурмует, пока у защитников есть снабжение
+// (Гитлер: Ленинград — блокировать, не брать; Киев — взять окружением)
+const NOASS = { GER: [['Ленинград', '1941-06-22', '1945-12-31'], ['Киев', '1941-06-22', '1941-09-15'], ['Москва', '1941-06-22', '1942-03-31']], SOV: [] };
+const NOASS2 = Object.fromEntries(Object.entries(NOASS).map(([k, a]) => [k, a.map(([n, x, y]) => [n, dayOf(x), dayOf(y)])]));
+function noAssault(S, side, t) {
+  const ci = S.M.cityAt[t];
+  if (ci < 0 || side === S.side) return false;
+  const c = S.M.cities[ci];
+  for (const [n, a, b] of NOASS2[side]) if (n === c.n && S.day >= a && S.day <= b) return unitsAt(S, t).some((d) => d.oos <= 2);
+  return false;
+}
+function leash(S, side, sup) {
+  const M = S.M, N = M.N, D = new Uint8Array(N).fill(9);
+  if (!sup) return D.fill(0);
+  let q = [];
+  for (let h = 0; h < N; h++) if (sup[h] > 0 && sideOfH(S, h) === side) (D[h] = 0), q.push(h);
+  for (let k = 1; k <= 3 && q.length; k++) {
+    const nq = [];
+    for (const h of q)
+      for (let d = 0; d < 6; d++) {
+        const j = M.nb[h * 6 + d];
+        if (j >= 0 && D[j] > k && M.terr[j] >= 2) (D[j] = k), nq.push(j);
+      }
+    q = nq;
+  }
+  return D;
 }
 function addTo(set, S, h, side) {
   for (let d = 0; d < 6; d++) {
@@ -324,6 +361,7 @@ function marchAtk(S, A, us, p, need) {
         s += Math.max(0, stackN(S, h) - 1) * 1.2;
       }
       if (cautious && F[h] < f0 && enemyNear(S, h, side) > 1) s += 6;
+      if (S._lea && S._lea[h] > (enc ? 3 : 2) && F[h] < f0) s += 8;
       if (S.M.cityAt[h] >= 0 && sideOfH(S, h) !== side) s -= 1;
       return s;
     });
@@ -354,7 +392,7 @@ function marchDef(S, A, us, lab, ai, need) {
   const free = [];
   for (const u of us) {
     const n = need.get(u.h);
-    if (n != null && lab[u.h] === ai && have.get(u.h) <= Math.ceil(n) + 0) continue;
+    if (n != null && lab[u.h] === ai && have.get(u.h) <= Math.ceil(n) + 0 && (u.org >= 22 || u.ent >= 2.5)) continue;
     if (n != null && lab[u.h] === ai) have.set(u.h, have.get(u.h) - 1);
     free.push(u);
   }
