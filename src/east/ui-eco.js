@@ -10,6 +10,7 @@ import { frontShort } from './ui-fronts.js';
 import { FRONT_COL } from './map.js';
 import { TYPES, SIDE0, divW, plural } from './rules.js';
 import { esc, ic, num, weeksW } from './kit.js';
+import { PEACE_EXTRA } from './prewar.js';
 
 const nm = (M, r) => M.reg[r].city?.n || M.reg[r].n;
 const pc = (x) => `${Math.round(x * 100)}%`;
@@ -52,7 +53,7 @@ ${inc.ll ? `<div class="e-note">${ic('ship')}Ленд-лиз: +${num(inc.ll)} в
 ${qi ? `<div class="e-lines">${qi}</div>` : `<div class="e-note">${ic('info')}Очередь пуста. Нажмите на свою область на карте — там кнопки построек.</div>`}
 ${sug.length ? `<h4>${ic('fort')}Укрепить фронт</h4>${sug.map((r) => `<div class="e-li"><button class="e-lnk" data-a="region" data-r="${r}">${ic('city')}${esc(nm(M, r))}</button><span class="e-fl">${'▮'.repeat(S.fort[r])}${'▯'.repeat(3 - S.fort[r])}</span><button class="e-btn sm" data-a="bld" data-r="${r}" data-k="fort">${ic('fort')}<span>${E.bTime(S, P, r, 'fort')} нед.</span></button></div>`).join('')}` : ''}
 ${P === 'SOV' && S.evac.length ? `<h4>${ic('train')}Эвакуация</h4>${S.evac.map((e) => `<div class="e-li">${ic('factory')}<span>${esc(M.reg[e.r].n)} → ${esc(M.reg[e.to].n)}</span><small>${weeksW(e.left)}</small></div>`).join('')}` : ''}
-<button class="e-row e-toggle ${S.auto.build ? 'on' : ''}" data-a="auto" data-k="build">${ic('auto')}<span>Строить укрепления и ПВО самим<small>свободными бригадами</small></span><i></i></button>
+<button class="e-row e-toggle ${S.auto.build ? 'on' : ''}" data-a="auto" data-k="build">${ic('auto')}<span>${S.peace ? 'Строить заводы самим<small>мирное время: свободными бригадами — в тылу</small>' : 'Строить укрепления и ПВО самим<small>свободными бригадами</small>'}</span><i></i></button>
 ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" data-a="auto" data-k="evac">${ic('train')}<span>Эвакуировать заводы у фронта</span><i></i></button>` : ''}
 <h4>${ic('build')}Постройки <small>в карточке своей области</small></h4>
 <div class="e-blds">${E.BUILD_ORDER.map((k) => { const b = B[k]; return `<div class="e-bld">${ic(b.ic)}<b>${esc(b.n)}</b><small>${ic('hourglass')}${weeksW(Math.max(1, Math.ceil(E.bWeeks(S, P, k) / r0 - 1e-6)))}</small><small>${esc(b.d)}</small></div>`; }).join('')}</div>
@@ -64,7 +65,9 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
     const S = this.S, P = this.P, M = this.M, q = S.eq[P];
     const by = {}; let n = 0, str = 0, pocket = 0;
     for (const u of S.units) if (E.alive(u) && u.s === P) { by[u.t] = (by[u.t] || 0) + 1; n++; str += u.str; if (S.sup[P][u.r] <= 0) pocket++; }
-    const coming = S.units.filter((u) => !u.dead && u.s === P && u.r < 0 && u.arr !== undefined);
+    const coming = S.units.filter((u) => !u.dead && u.s === P && u.r < 0 && u.arr !== undefined && !u.pw);
+    const late = S.peace ? coming.filter((u) => u.arr > 0).length : 0; // мирное время: второй эшелон 1941 г. (после 22 июня)
+    const plan = S.peace ? S.units.filter((u) => !u.dead && u.s === P && u.r < 0 && u.pw).length : 0; // мирное время: план формирования
     const types = ['arm', 'mot', 'inf', 'mtn', 'cav', 'sec', 'abn'].filter((t) => by[t]);
     const canT = (P === 'SOV' ? ['inf', 'mtn', 'cav', 'mot', 'arm', 'abn'] : ['inf', 'mtn', 'mot', 'arm', 'abn']).filter((t) => TYPES[t] && (t !== 'abn' || this.canAbn?.()));
     const capN = E.armyCap(S, P), size = E.armySize(S, P), full = size >= capN;
@@ -97,12 +100,15 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
     return `${this.head(ic('helmet'), 'Армия', `${n} ${divW(n)} · в среднем ${n ? Math.round(str / n) : 0}% штата`)}<div class="e-pbody">
 <div class="e-types">${types.map((t) => `<div class="e-type"><img src="${counterURL(P, t)}" alt=""><b>${by[t]}</b><small>${esc(TYPES[t].sh)}</small></div>`).join('')}</div>
 ${pocket ? `<div class="e-warn">${ic('encircle')}В окружении: ${pocket} ${divW(pocket)}</div>` : ''}
-${coming.length ? `<div class="e-note">${ic('train')}В пути на фронт: ${coming.length} ${divW(coming.length)}</div>` : ''}
+${coming.length - late ? `<div class="e-note">${ic('train')}В пути на фронт: ${coming.length - late} ${divW(coming.length - late)}</div>` : ''}
+${late ? `<div class="e-note">${ic('train')}Второй эшелон: ${late} ${divW(late)} — подойдут к фронту после начала войны</div>` : ''}
+${plan ? `<div class="e-note">${ic('calendar')}По плану формирования к 22 июня 1941 г. — ещё ${plan} ${divW(plan)}: появятся сами, по датам истории</div>` : ''}
 <h4>${ic('equip')}Снаряжение и люди <small><button class="e-lnk" data-a="eco">${ic('prod')}производство</button></small></h4>
 <div class="e-eco e4"><span>${ic('rifle')}<b>${num(q.inf)}</b><small>стрелковое</small></span><span>${ic('art')}<b>${num(q.art)}</b><small>артиллерия</small></span><span>${ic('tank')}<b>${num(q.arm)}</b><small>танки</small></span><span>${ic('men')}<b>${num(S.men[P])}</b><small>люди</small></span></div>
 ${resH}${trH}
 <h4>${ic('plus')}Призыв <small>армия ${size}/${capN}</small></h4>
-${full ? `<div class="e-note">${ic('info')}Армия у предела: ${capN} ${divW(capN)}. Предел растёт с мобилизацией, запасы идут на пополнение.</div>` : ''}
+${S.peace ? `<div class="e-note">${ic('dove')}Мирное время: сверх плана формирования — не больше ${PEACE_EXTRA[P]} ${divW(PEACE_EXTRA[P])}${full ? ' (предел достигнут)' : ''}.</div>`
+    : full ? `<div class="e-note">${ic('info')}Армия у предела: ${capN} ${divW(capN)}. Предел растёт с мобилизацией, запасы идут на пополнение.</div>` : ''}
 <div class="e-rcs">${recB}</div>
 <div class="e-sub">${ic('camp')}Где обучать</div>
 <div class="e-zsel"><button class="e-zc ${camp < 0 ? 'on' : ''}" data-a="rqc" data-r="-1">В тылу</button>${camps.map((r) => `<button class="e-zc ${camp === r ? 'on' : ''}" data-a="rqc" data-r="${r}">${ic('camp')}${esc(nm(M, r))}</button>`).join('')}</div>

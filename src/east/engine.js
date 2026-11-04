@@ -12,6 +12,7 @@ import { produce, construct, evacWeek, hasEq, payEq, EQS, polOf, aaCover, qLost 
 import { tx, techWeek } from './tech.js';
 import { trainWeek } from './army.js';
 import { decK, decOn, decWeek } from './decisions.js';
+import { warStart, peaceCaps, peaceK, PEACE_EXTRA } from './prewar.js';
 export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, used, eqTot, hasEq, EQS, LINES, LINE, shiftLine, etaOf, unbuild, brigN, brigBusy, brigFree, bWeeks, bTime, bRate, bRate0, myQ, isActive, aaCover, allocFac } from './eco.js';
 
 export const SAVE_KEY = 'wf_east_v1';
@@ -264,6 +265,8 @@ export function computeSupply(S, side) {
     const n = pk.reduce((a, r) => a + S.at[r].filter((u) => u.s === side).length, 0);
     if (n > 0 && n <= 12) for (const r of pk) sup[r] = 0.25;
   }
+  // мирное время: своя земля снабжается вся (котлов нет)
+  if (S.peace) for (let r = 0; r < R; r++) if (sideOf(S, r) === side && sup[r] < 0.85) sup[r] = 0.85;
   S.supD ??= {}; S.supD[side] = d;
   return sup;
 }
@@ -295,7 +298,7 @@ export function reach(S, u, mp = u.mp) {
     if (r !== u.r && sideOf(S, r) !== u.s) continue; // захват — конец пути
     for (const e of M.reg[r].nb) {
       const b = e.r, sb = sideOf(S, b);
-      if (!sb) continue;
+      if (!sb || (S.peace && sb !== u.s)) continue; // нейтральные страны, в мирное время — и чужая земля
       if (sb !== u.s && (S.at[b].length || garOf(S, b) > 0)) continue; // в занятую противником или с гарнизоном — только атакой
       if (e.sp === 'sea' && !frozen(S, b) && sb !== u.s) continue;
       if (sb !== u.s && depthOf(S, r) + 1 > maxDepth(u)) continue; // за неделю — не глубже 1 области (подвижные — 2)
@@ -385,7 +388,7 @@ function natHome(S, r, nat) {
 // ——— бой ———
 // Финляндия воюет только на своём (Финском) направлении: Ленинград не штурмует
 export const natOK = (S, u, T) => u.nat !== 'FIN' || S.M.reg[T].z === 0;
-export function canAttack(S, u) { return alive(u) && !u.att && u.rdy >= 22 && u.t !== 'sec' && u.mp > 0.2; }
+export function canAttack(S, u) { return !S.peace && alive(u) && !u.att && u.rdy >= 22 && u.t !== 'sec' && u.mp > 0.2; }
 export function attackersFor(S, T, side) {
   const out = [];
   for (const e of S.M.reg[T].nb) {
@@ -535,7 +538,7 @@ export function beginPhase(S, side) {
   S.railCap[side] = side === 'GER' ? 12 : 20;
   computeSupply(S, side); computeSupply(S, other(side));
   S.airA = { GER: airAlloc(S, 'GER'), SOV: airAlloc(S, 'SOV') };
-  const shock = side === 'SOV' && S.turn === 0 ? 0.5 : 1; // первая неделя войны: управление нарушено
+  const shock = side === 'SOV' && S.turn === 0 && !S.flags.SOVready ? 0.5 : 1; // первая неделя войны: управление нарушено (если не «Боевая готовность»)
   if (shock < 1) S.railCap[side] = 6;
   for (const u of S.units) if (alive(u) && u.s === side) { u.mp = mpOf(S, u) * shock; u.att = 0; u.mv = 0; }
 }
@@ -586,7 +589,7 @@ export function endPhase(S, side) {
 }
 // ——— неделя ———
 export function endWeek(S) {
-  for (const side of ['GER', 'SOV']) { computeSupply(S, side); economy(S, side); }
+  for (const side of ['GER', 'SOV']) { computeSupply(S, side); economy(S, side); if (S.peace) peaceCaps(S, side); }
   railRepair(S, 'GER'); railRepair(S, 'SOV');
   // стройка (стройбригады) и эвакуация заводов
   construct(S, 'GER'); construct(S, 'SOV');
@@ -599,6 +602,7 @@ export function endWeek(S) {
   S.turn++;
   for (let z = 0; z < ZN; z++) S.wx[z] = weatherOf(S.turn, z, S.wxShift[(S.turn / 52) | 0] || 0, S.seed);
   S.air.GER = airBase(S, 'GER') * (S.airK?.GER ?? 1); S.air.SOV = airBase(S, 'SOV') * (S.airK?.SOV ?? 1);
+  if (S.peace && S.turn >= 0) warStart(S); // 22 июня 1941 г.: конец мирного времени (prewar.js)
   trainWeek(S);
   arrivals(S);
   director(S);
@@ -624,7 +628,7 @@ export function histDiff(S) {
   return { d, z };
 }
 function director(S) {
-  if (S.over) return;
+  if (S.over || S.peace) return;
   const h = histDiff(S), free = S.mode !== 'hist';
   S.dir = (S.dir ?? 0) * 0.7 + h.d * 0.3;
   // кто отстаёт от истории; помогать ли ему (сложность: лёгкая — только игроку, тяжёлая — только ИИ);
@@ -689,12 +693,21 @@ export function income(S, side) {
     for (let r = 0; r < M.R; r++) if (S.M.nats[S.own0[r]] === 'SOV') { const w = 1 + M.reg[r].vp; tot += w; if (sideOf(S, r) === 'SOV') have += w; }
     men *= 0.55 + 0.45 * (have / tot);
   }
+  // мирное время: хозяйство ещё не на военных рельсах (prewar.js)
+  if (S.peace) { const k = peaceK(S, side); pp *= k; men *= k; }
   // военное производство (вместе с самолётами: «норма» — 20 % на авиацию); стройка — бригадами (eco.js)
   return { pp: pp * ECO.W, men, fac, ll: ll * ECO.W };
 }
 // предел численности армии (дивизий, с союзниками): растёт с мобилизацией; у игрока — с поправкой на сложность
 export const ARMY = { SOV: [[1941.4, 320], [1942.0, 380], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
-export const armyCap = (S, side) => Math.round(lerpT(ARMY[side], yearF(S.turn)) * (side === S.side ? DIFF[S.diff].cap ?? 1 : 1));
+export const armyCap = (S, side) => {
+  const c = Math.round(lerpT(ARMY[side], yearF(S.turn)) * (side === S.side ? DIFF[S.diff].cap ?? 1 : 1));
+  if (!S.peace) return c;
+  // мирное время: сверх плана формирования (состав 22.06.1941, уже сформированный) — не больше PEACE_EXTRA
+  let h = 0;
+  for (const u of S.units) if (u.h41 && u.s === side && !u.dead && (u.r >= 0 || u.trn > 0 || u.res || (u.arr !== undefined && !u.hist))) h++;
+  return Math.min(c, h + PEACE_EXTRA[side]);
+};
 // дивизии на карте и новые в пути (исторические подкрепления не в счёт)
 // (и в обучении, и в резерве — army.js)
 export const armySize = (S, side) => S.units.filter((u) => u.s === side && !u.dead && (u.r >= 0 || u.trn > 0 || u.res || (u.arr !== undefined && !u.hist))).length;
@@ -825,7 +838,7 @@ function railRepair(S, side) {
 }
 // ——— исход войны ———
 export function checkEnd(S) {
-  if (S.over) return;
+  if (S.over || S.peace) return;
   const own = (n) => sideOf(S, regByName(S, n));
   if (own('Берлин') === 'SOV') return end(S, 'SOV', 'Красная армия взяла Берлин');
   const big = ['Ленинград', 'Сталинград', 'Горький', 'Куйбышев', 'Баку'].filter((n) => own(n) === 'GER').length;
@@ -839,7 +852,7 @@ export function checkEnd(S) {
 }
 function end(S, win, why) { S.over = { win, why, turn: S.turn }; note(S, { ic: 'trophy', side: win, txt: why }); }
 // ——— сохранение ———
-const TA = ['own', 'own0', 'fac', 'fort', 'afd', 'rail', 'capT', 'bd0', 'fz', 'fzo', 'civ', 'camp', 'dep', 'aa'];
+const TA = ['own', 'own0', 'fac', 'fort', 'afd', 'rail', 'capT', 'bd0', 'fz', 'fzo', 'civ', 'camp', 'dep', 'aa', 'facStd'];
 export function serialize(S) {
   const o = {};
   for (const k in S) {
@@ -856,7 +869,7 @@ export function deserialize(M, str) {
   S.M = M;
   S.own = Int16Array.from(S.own); S.own0 = Int16Array.from(S.own0); S.fac = Int8Array.from(S.fac); S.fort = Int8Array.from(S.fort);
   S.afd = Int8Array.from(S.afd); S.rail = Uint8Array.from(S.rail); S.capT = Int16Array.from(S.capT); S.bd0 = Int16Array.from(S.bd0);
-  for (const k of ['fz', 'fzo', 'civ', 'camp', 'dep', 'aa']) if (S[k]) S[k] = Int8Array.from(S[k]);
+  for (const k of ['fz', 'fzo', 'civ', 'camp', 'dep', 'aa', 'facStd']) if (S[k]) S[k] = Int8Array.from(S[k]);
   S.sup = {}; S.battles = []; S.news = [];
   reindex(S);
   computeSupply(S, 'GER'); computeSupply(S, 'SOV');

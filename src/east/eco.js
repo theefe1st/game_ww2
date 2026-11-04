@@ -104,7 +104,8 @@ export function produce(S, side, W) {
 // У стороны — N стройбригад (СССР 6 → 10, Ось 5 → 8 по годам; решения — ещё +2). Бригада ведёт один проект;
 // проекты идут по очереди: первые N — в работе, остальные ждут свободную бригаду. Срок — в неделях работы:
 // у фронта ×1,5, без железной дороги ×1,25; наука («стройка») и решения — быстрее.
-export const BRIG = { SOV: [[1941.4, 6], [1942.5, 8], [1944.0, 10]], GER: [[1941.4, 5], [1942.8, 6], [1943.8, 8]] };
+// (до 1941 г. — меньше: ранние старты, шаг 6.7)
+export const BRIG = { SOV: [[1936, 4], [1939.6, 5], [1941.4, 6], [1942.5, 8], [1944.0, 10]], GER: [[1936, 3], [1939.0, 4], [1941.4, 5], [1942.8, 6], [1943.8, 8]] };
 export const brigN = (S, side) => Math.round(lerpT(BRIG[side], yearF(S.turn))) + (S.flags[side + 'brig'] || 0);
 // w — недель работы одной бригады (в тылу, у железной дороги)
 export const BUILD = {
@@ -120,7 +121,8 @@ export const BUILD_ORDER = ['fac', 'fort', 'aa', 'afd', 'camp', 'dep'];
 export const bWeeks = (S, side, k) => BUILD[k].w * (k === 'fac' ? 1 + 0.12 * (S.built?.[side]?.fac || 0) : 1);
 const bump = (S, side, k, d) => { if (k !== 'fac') return; S.built ??= {}; const o = (S.built[side] ??= { fac: 0 }); o.fac = Math.max(0, (o.fac || 0) + d); };
 // темп работ в области: недель работы за неделю
-export const bRate0 = (S, side) => (1 + tx(S, side, 'cp')) * (S.flags[side + 'cp'] || 1);
+// мирное время: стройка вдвое медленнее (материалы и люди нужны и гражданской экономике)
+export const bRate0 = (S, side) => (1 + tx(S, side, 'cp')) * (S.flags[side + 'cp'] || 1) * (S.peace ? 0.5 : 1);
 export function bRate(S, side, r) {
   let k = bRate0(S, side);
   if (isFront(S, r, side)) k /= 1.5;
@@ -240,7 +242,7 @@ export function ensureEco(S, byName) {
   const M = S.M, R = M.R;
   if (!S.camp) {
     S.camp = new Int8Array(R);
-    for (const sd in CAMP0) for (const n of CAMP0[sd]) { const r = byName(n); if (r >= 0 && sideOf(S, r) === sd) S.camp[r] = 1; }
+    for (const sd in CAMP0) for (const n of CAMP0[sd]) { const r = byName(n); if (r >= 0 && SIDE0[M.nats[S.own0[r]]] === sd) S.camp[r] = 1; }
   }
   S.dep ??= new Int8Array(R);
   S.airK ??= { GER: 1, SOV: 1 };

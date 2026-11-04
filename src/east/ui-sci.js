@@ -42,7 +42,8 @@ export const SciUI = {
         let act = '';
         if (done) act = `<span class="e-tag good">${ic('check')}Изучено</span>`;
         else if (cur >= 0) act = `<button class="e-btn sm" data-a="tstop" data-i="${cur}">${ic('close')}<span>Остановить<small>прогресс сохранится</small></span></button>`;
-        else if (!can) act = `<span class="e-tag">${ic('cancel')}Сначала: ${esc(Tc.techName(prev, P))}</span>`;
+        else if (!can && prev && !X.done.includes(prev.k)) act = `<span class="e-tag">${ic('cancel')}Сначала: ${esc(Tc.techName(prev, P))}</span>`;
+        else if (!can) act = `<span class="e-tag">${ic('hourglass')}Не раньше: ${ym(t.y - Tc.EARLY)}</span>`;
         else if (free) act = `<button class="e-btn sm gold" data-a="tgo" data-k="${sel}">${ic('sci')}<span>Изучать<small>≈ ${weeksW(wk)}</small></span></button>`;
         else act = `<div class="e-trep"><small>Все слоты заняты. Заменить:</small>${X.cur.slice(0, n).map((c, i) => `<button class="e-btn sm" data-a="tgo" data-k="${sel}" data-i="${i}">${ic('swap')}<span>${esc(Tc.techName(Tc.TK[c], P))}</span></button>`).join('')}</div>`;
         det = `<div class="e-td"><b>${esc(Tc.techName(t, P))}</b><small>${esc(Tc.techHint(t, P) || '')}</small>

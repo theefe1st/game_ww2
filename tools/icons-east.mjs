@@ -27,6 +27,8 @@ const WANT = {
   aa: 'GiAntiAircraftGun', spade: 'GiSpade',
   // решения (шаг 6.6)
   stamp: 'GiStamper', tnt: 'GiDynamite', guard: 'GiRibbonMedal', mob: 'GiMegaphone', ally: 'GiShakingHands', wall: 'GiStoneWall', fist: 'GiFist', elite: 'GiSpartanHelmet', facarm: 'GiFactoryArm',
+  // ранние старты (шаг 6.7)
+  dove: 'GiPeaceDove', ff: 'MdFastForward', skip: 'MdSkipNext', siren: 'GiSiren',
 };
 const src = {};
 const grab = (name) => {

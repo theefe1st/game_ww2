@@ -8,7 +8,7 @@ import { GLMap } from './gl.js';
 import { Terrain } from './terrain.js';
 import { regionAt, ringPts, regionPath } from './mapdata.js';
 import { sideOf, natOf, alive } from './engine.js';
-import { NATC } from './rules.js';
+import { NATC, NAT_N } from './rules.js';
 import { iconPath, iconSize } from './icons.js';
 import { divSprite, divLabel, wmOf, drawDiv, styleOf } from './counters.js';
 
@@ -223,7 +223,7 @@ export class EastMap {
     for (let r = 0; r < M.R; r++) {
       const nat = natOf(S, r), C = NATC[nat], sd = sideOf(S, r);
       let col = C ? C.tint : [150, 146, 136, 40];
-      if (!sd && C) col = [150, 146, 136, 46];
+      if (!sd && C && !C.neu && !S.peace) col = [150, 146, 136, 46]; // вышли из войны (мирное время — свои цвета стран)
       if (sd && S.sup[sd] && S.sup[sd][r] <= 0 && S.at[r].length) col = [60, 40, 30, 80];
       if (hl.reach?.has(r)) col = [96, 186, 92, 112];
       if (hl.atk?.has(r)) col = [236, 92, 40, 128];
@@ -240,17 +240,19 @@ export class EastMap {
   updateLines() {
     this.linesDirty = false;
     const S = this.S, M = this.M;
-    const front = [], nat = [];
+    const front = [], nat = [], pb = [];
     for (const A of M.arcs) {
       if (A.t !== 0 || A.a < 0 || A.b < 0 || A.a >= M.R || A.b >= M.R) continue;
       const sa = sideOf(S, A.a), sb = sideOf(S, A.b);
-      if (sa && sb && sa !== sb) front.push({ p: A.p });
+      if (sa && sb && sa !== sb) (S.peace ? pb : front).push({ p: A.p }); // мирное время: граница, а не фронт
       else if (natOf(S, A.a) !== natOf(S, A.b)) nat.push({ p: A.p });
     }
-    this.front = front;
+    this.front = front; this.pbord = pb;
+    this.natLab = S.peace ? natLabels(S) : null;
     if (!this.G) return;
-    this.G.setLines('nat', nat, [{ w: 1.1, col: [70, 60, 50, 0.45] }]);
+    this.G.setLines('nat', nat, S.peace ? [{ w: 1.6, col: [70, 54, 42, 0.6] }] : [{ w: 1.1, col: [70, 60, 50, 0.45] }]);
     this.G.setLines('front', front, [{ w: (sc) => 4.4 + Math.min(2.6, sc * 1.3), col: [255, 120, 80, 0.24] }, { w: (sc) => 2.2 + Math.min(1.7, sc * 0.85), col: [238, 40, 16, 1] }]);
+    this.G.setLines('pbord', pb, [{ w: (sc) => 3 + Math.min(2, sc), col: [250, 236, 210, 0.45] }, { w: (sc) => 1.5 + Math.min(1, sc * 0.5), col: [140, 34, 24, 0.9] }]);
     const sel = this.hl.sel >= 0 ? this.rp[this.hl.sel].map((p) => ({ p, closed: true })) : [];
     this.G.setLines('sel', sel, [{ w: 5.5, col: [255, 236, 150, 0.55] }, { w: 2.4, col: [196, 128, 10, 1] }]);
   }
@@ -414,6 +416,19 @@ export class EastMap {
         c.lineWidth = 3.2; c.lineJoin = 'round'; c.strokeStyle = 'rgba(250,246,230,0.88)'; c.strokeText(ct.n, bx[0], p[1]);
         c.fillStyle = sd === 'SOV' ? '#d9462a' : sd === 'GER' ? '#3a4852' : '#5c5c52';
         c.fillText(ct.n, bx[0], p[1]);
+      }
+    }
+    // мирное время: названия стран (кроме Германии и СССР)
+    if (this.natLab && sc < 1.6) {
+      c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+      for (const L of this.natLab) {
+        const p = vis(L.x, L.y, 200);
+        if (!p) continue;
+        const fs = clamp(L.k * sc, 10, 30);
+        c.font = `italic 700 ${fs}px Georgia, "Noto Serif", "PT Serif", serif`;
+        const t = L.n.toUpperCase().split('').join('\u2009');
+        c.lineWidth = 3; c.strokeStyle = 'rgba(250,246,230,0.6)'; c.strokeText(t, p[0], p[1]);
+        c.fillStyle = 'rgba(84,62,44,0.78)'; c.fillText(t, p[0], p[1]);
       }
     }
     // постройки (крупный масштаб)
@@ -722,8 +737,24 @@ export class EastMap {
     for (let r = 0; r < M.R; r++) c.stroke(this.regP[r]);
     c.lineWidth = 2.6 / v.sc; c.strokeStyle = '#de2418';
     for (const f of this.front || []) { const p = f.p; c.beginPath(); c.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]); c.stroke(); }
+    c.lineWidth = 1.6 / v.sc; c.strokeStyle = '#8c2218';
+    for (const f of this.pbord || []) { const p = f.p; c.beginPath(); c.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]); c.stroke(); }
     c.restore();
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 }
 export { drawIcon, drawCounter };
+// подписи стран мирного времени: центр по площади областей (x, y), размер шрифта — от площади страны (k × масштаб)
+function natLabels(S) {
+  const M = S.M, acc = new Map();
+  for (let r = 0; r < M.R; r++) {
+    const n = natOf(S, r);
+    if (!n || n === 'GER' || n === 'SOV' || !NAT_N[n]) continue;
+    const g = M.reg[r], o = acc.get(n) || { x: 0, y: 0, a: 0 };
+    o.x += g.x * g.a; o.y += g.y * g.a; o.a += g.a;
+    acc.set(n, o);
+  }
+  const out = [];
+  for (const [n, o] of acc) out.push({ n: NAT_N[n], x: o.x / o.a, y: o.y / o.a, k: Math.sqrt(o.a) / 14 });
+  return out;
+}

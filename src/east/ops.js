@@ -81,6 +81,7 @@ export function opUnits(S, side, kind, r) {
 // почему нельзя начать операцию из области r (или null)
 export function opWhy(S, side, kind, r) {
   const O = OPS[kind];
+  if (S.peace) return 'мирное время: десанты — с началом войны';
   if (!hasU(S, side, kind)) return `нужна наука: «${O.tech}»`;
   if (sideOf(S, r) !== side) return 'не наша область';
   if (kind === 'sea' && !isPort(S, r)) return 'нужен порт';

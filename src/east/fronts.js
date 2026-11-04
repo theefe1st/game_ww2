@@ -111,6 +111,7 @@ const x1 = (v) => v.toFixed(1).replace('.', ',');
 // просьбы всех фронтов стороны (по сводкам fs[z]): подкрепления — где натиск заметно выше, чем на других фронтах;
 // авиация — где небо хуже всего; боеприпасы — при плохом подвозе или пустых складах; отход и наступление — при своих приказах
 export function frontReqs(S, side, fs = [...Array(E.ZN).keys()].map((z) => frontSum(S, side, z))) {
+  if (S.peace) return new Array(E.ZN).fill(null); // мирное время: просьб нет
   const hi = side === 'SOV' ? 'Товарищ Верховный' : 'Мой фюрер', en = side === 'SOV' ? 'немецкая' : 'советская';
   const live = fs.map((o, z) => z).filter((z) => fs[z].contact && fs[z].n && fs[z].nE >= 2), out = new Array(E.ZN).fill(null);
   const mean = (z) => { const o = live.filter((q) => q !== z); return o.length ? o.reduce((a, q) => a + fs[q].k, 0) / o.length : 1; };

@@ -4,6 +4,7 @@
 // Режим «Исторический» — все события по датам; «Свободный» — только не зависящие от планов сторон (и по условиям).
 import { turnOf } from './rules.js';
 import { sideOf, cityR, addMor, note, alive, mkUnit, rearSpot, room, reindex } from './engine.js';
+import { runPrewar, PWM } from './prewar.js';
 
 const T = turnOf;
 const own = (S, n) => sideOf(S, cityR(S, n));
@@ -191,6 +192,7 @@ const iso = (E, S) => (typeof E.at === 'object' ? E.at[S.mode] : E.at);
 // проверка событий в начале недели (после хода истории); случившиеся — в очередь карточек
 export function runEvents(S) {
   S.ev ||= {}; S.evq ||= [];
+  if (S.pev) runPrewar(S); // мирное время 1936–1941 гг. (границы меняются и без событий войны)
   if (S.noEv) return;
   if (S.boost) S.boost = S.boost.filter((b) => b.until > S.turn);
   for (const E of EVENTS) {
@@ -223,9 +225,9 @@ export function pendingChoices(S) {
 }
 // карточка для интерфейса: { id, ic, t, d, side, good (на пользу игроку), opts }
 export function evCard(S, id) {
-  const E = EVM.get(id);
+  const E = EVM.get(id) || PWM.get(id);
   if (!E) return null;
-  return { id, ic: E.ic, t: E.t, d: typeof E.d === 'function' ? E.d(S) : E.d, side: E.side, good: E.side === S.side, opts: E.opts?.map((o) => ({ t: o.t, ic: o.ic, d: o.d })) || null, turn: S.ev[id] };
+  return { id, ic: E.ic, t: E.t, d: typeof E.d === 'function' ? E.d(S) : E.d, side: E.side, good: E.side === S.side || E.side === 'both', opts: E.opts?.map((o) => ({ t: o.t, ic: o.ic, d: o.d })) || null, turn: E.pw ? S.pev?.[id] : S.ev[id], date: E.pw ? E.at : null };
 }
 // действующие усиления (для карточек направлений): [{ side, z, k, kind, left }]
 export function boostsNow(S, side = null) {

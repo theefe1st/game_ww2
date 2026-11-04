@@ -32,7 +32,7 @@ export const FrontsUI = {
       const pb = (p) => `<button class="e-pb ${(p === 'auto' ? au : !au && post === p) ? 'on' : ''}" data-a="post" data-z="${z}" data-p="${p}">${ic(POST[p].ic)}<span>${POST[p].n}</span></button>`;
       const bar = Math.max(4, Math.min(96, (fs.adv / (fs.adv + 1)) * 100));
       const req = reqs[z];
-      const orders = !fs.regs ? '' : man
+      const orders = !fs.regs ? '' : S.peace ? `<div class="e-dnow">${ic('dove')}мирное время: задачи фронтам — с началом войны</div>` : man
         ? `<div class="e-dnow">${ic('hand')}вы ведёте дивизии фронта сами: нажмите на область с войсками → «Марш» или удар</div>`
         : `<div class="e-posts">${pb('auto')}${pb('def')}${pb('atk')}${pb('ret')}</div>
 ${post === 'atk' ? `<button class="e-tgtc" data-a="tgt" data-z="${z}">${ic('target')}<span>Цель: <b>${tn}</b></span>${ic('right')}</button>` : `<div class="e-dnow">${au ? `сейчас: ${esc(POST[post].n.toLowerCase())}` : esc(POST[post].d)}</div>`}`;
@@ -90,6 +90,7 @@ ${bar}<div class="e-dvl">${rows || `<div class="e-note">${ic('info')}Дивиз�
   },
   setPost(z, p) {
     const S = this.S, P = this.P;
+    if (S.peace && p !== 'auto' && p !== 'def') { this.snd.play('error'); return this.toast(`${ic('dove')}Мирное время: наступать и отходить — с началом войны`); }
     if (p === 'auto') { S.pauto[z] = 1; this.applyAuto(); }
     else {
       S.pauto[z] = 0; S.post[P][z] = p;
@@ -103,6 +104,7 @@ ${bar}<div class="e-dvl">${rows || `<div class="e-note">${ic('info')}Дивиз�
   },
   setTarget(z, r) {
     const S = this.S, P = this.P;
+    if (S.peace) { this.snd.play('error'); return this.toast(`${ic('dove')}Мирное время: цели наступления — с началом войны`); }
     S.pauto[z] = 0; S.post[P][z] = 'atk'; S.tgt[P][z] = r;
     this.toast(`${ic('target')}${esc(frontShort(S.fr[P][z].n))}: цель — ${esc(this.M.reg[r].city?.n || this.M.reg[r].n)}`);
     this.refresh();

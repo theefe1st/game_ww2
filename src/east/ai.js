@@ -12,6 +12,7 @@ import { PLAN, GEN_HIST } from './hist.js';
 import { MIX, mixNow, eqTot, hasEq, brigFree } from './eco.js';
 export { MIX, mixNow };
 import { placeR } from './setup.js';
+import { PEACE_EXTRA } from './prewar.js';
 
 // ——— позиции и цели направлений ———
 export function planOf(S, side, z) {
@@ -46,6 +47,8 @@ export function zoneForce(S, side, z, fm = frontMap(S, side)) {
 }
 export function setPostures(S, side, isAI) {
   if (isAI && S.mode === 'hist') histGenerals(S, side);
+  // мирное время (ранние старты, prewar.js): все фронты — в обороне, целей нет
+  if (S.peace) { for (const z of frontsOn(S, side)) { S.post[side][z] = 'def'; S.tgt[side][z] = -1; } return; }
   const fm = frontMap(S, side);
   for (const z of frontsOn(S, side)) {
     if (!isAI) { if (S.post[side][z] === 'atk' && S.tgt[side][z] >= 0 && sideOf(S, S.tgt[side][z]) === side) S.tgt[side][z] = -1; continue; }
@@ -145,6 +148,7 @@ export function runSide(S, side, { isAI = true, begun = false } = {}) {
   if (!isAI && S.fr?.[side]) for (const u of S.units) if (u.s === side && alive(u) && S.fr[side][fzOf(S, u.r)]?.man) u.man = 1;
   const C = { side, en: other(side), thr: threatMap(S, side), fd: frontDist(S, side), isAI, fm: frontMap(S, side) };
   C.fzn = Array.from({ length: FN }, (_, f) => frontZone(S, side, f));
+  if (S.peace) return peaceSide(S, C);
   strategic(S, C);
   forward(S, C);
   breakout(S, C);
@@ -160,6 +164,29 @@ export function runSide(S, side, { isAI = true, begun = false } = {}) {
   endPhase(S, side);
   if (isAI || S.auto.recruit) economyAI(S, side, isAI);
   for (const u of S.units) if (u.s === side) u.man = 0;
+}
+// мирное время: ИИ стоит в местах развёртывания 1941 г. (prewar.js: warStart), генералы игрока прикрывают границу
+function peaceSide(S, C) {
+  const { side, isAI } = C;
+  if (!isAI) toPlan(S, side);
+  endPhase(S, side);
+  if (!isAI && (S.auto.recruit || S.auto.build)) economyAI(S, side, false);
+  for (const u of S.units) if (u.s === side) u.man = 0;
+}
+// мирное время: генералы игрока ведут дивизии на места по плану прикрытия 1941 г. (u.hp), когда та земля уже своя;
+// призыв игрока и дивизии, сдвинутые вручную, стоят, где их поставили (нейтральные соседи — не фронт, границу не оголять)
+function toPlan(S, side) {
+  for (const u of S.units) {
+    if (u.s !== side || !free(u) || u.hp === undefined || u.r < 0 || u.r === u.hp || sideOf(S, u.hp) !== side) continue;
+    const d = distTo(S, u.hp), near = (rs) => { let b = -1, bd = d[u.r]; for (const r of rs) if (d[r] < bd && room(S, r, side) > 0) (bd = d[r]), (b = r); return b; };
+    if (d[u.r] >= 999) { // остров без связей (Сааремаа) — морем
+      if (room(S, u.hp, side) > 0) { const a = S.at[u.r]; a.splice(a.indexOf(u), 1); u.r = u.hp; S.at[u.hp].push(u); u.mp = 0; u.mv = 1; u.ent = 0; }
+      continue;
+    }
+    if (d[u.r] > 2) { const b = near(railTargets(S, u)); if (b >= 0 && railMove(S, u, b)) continue; }
+    const Rr = reach(S, u), b = near(Rr.best.keys());
+    if (b >= 0) moveTo(S, u, b, Rr);
+  }
 }
 // окружённые: пробиваться к своим (сначала движением, затем атакой в сторону снабжаемых областей)
 function breakout(S, C) {
@@ -545,7 +572,9 @@ export function economyAI(S, side, isAI) {
   fr.sort((a, b) => b[1] - a[1]);
   // свободные стройбригады — на укрепления
   // (темп ИИ — как в v0.10: при скудных запасах снаряжения стройка идёт медленнее)
-  const autoB = isAI || S.auto.build;
+  // мирное время: «стройка — авто» — заводы в тылу (укрепления и ПВО — вручную)
+  if (S.peace && !isAI && S.auto.build) peaceBuild(S, side, fdd);
+  const autoB = (isAI || S.auto.build) && !S.peace;
   let forts = autoB ? Math.max(0, Math.min(3, brigFree(S, side), Math.floor((eqTot(S, side) - 50) / 35))) : 0;
   for (const [r, w] of fr) { if (forts <= 0 || w <= 0) break; if (S.post[side][fm[r]] === 'atk' && fdd[r] === 0 && w < 20) continue; if (build(S, side, r, 'fort')) forts--; }
   // ПВО — у крупных городов у фронта, где небо за противником (не чаще раза в 4 недели)
@@ -558,33 +587,60 @@ export function economyAI(S, side, isAI) {
     }
     if (best >= 0) build(S, side, best, 'aa');
   }
+  if (!isAI && !S.auto.recruit) return;
   // набор дивизий: запас — на пополнение
   const reserve = { pp: 30, men: side === 'SOV' ? 40 : 30 };
   const mix = mixNow(side, S.turn);
   const queued = S.units.filter((u) => u.s === side && u.r < 0 && !u.dead && u.arr !== undefined && !u.hist).length;
-  const army = armySize(S, side), capA = armyCap(S, side);
+  const army = armySize(S, side);
+  let capA = armyCap(S, side);
+  // мирное время: сверх плана — понемногу, равномерно до 22 июня (а не всё сразу в первые недели)
+  if (S.peace && S.t0 < 0) capA -= Math.floor(PEACE_EXTRA[side] * Math.max(0, Math.min(1, S.turn / S.t0)));
   let k = 0;
   while (k++ < 14 && queued + k < 40 && army + k <= capA) {
     let t = rndPick(S, mix);
     // по запасам: людей много, производства мало — пехота и кавалерия; наоборот — танки
     const st = eqTot(S, side), q = (st - reserve.pp) / Math.max(1, S.men[side] - reserve.men) / (newCost(side, 'inf').pp / newCost(side, 'inf').men);
     if (q < 0.55 && (t === 'arm' || t === 'mot')) t = mix.cav ? 'cav' : 'inf';
-    else if (q < 0.4 && t === 'inf' && mix.cav) t = 'cav';
+    else if (q < 0.4 && t === 'inf' && mix.cav && !S.peace) t = 'cav'; // в мирное время людей хватает — не повод для кавалерии
     else if (q > 1.8 && t === 'inf') t = (mix.arm || 0) > 0.1 ? 'arm' : 'mot';
     let c = newCost(side, t);
     // нет нужного снаряжения (танков) — пехота
     if (!hasEq(S, side, t, c.pp) && t !== 'inf') { t = 'inf'; c = newCost(side, t); }
     if (st - c.pp < reserve.pp || S.men[side] - c.men < reserve.men || !hasEq(S, side, t, c.pp)) break;
-    const z = needZone(S, side, thr, fm);
+    const z = S.peace ? peaceZone(S, side) : needZone(S, side, thr, fm);
     const u = recruit(S, side, t, z);
     if (!u) break;
     S.stats[side].made++;
   }
 }
+// мирное время: свободные стройбригады — на военные заводы (подальше от границы, у железной дороги, в крупных городах)
+function peaceBuild(S, side, fd) {
+  const M = S.M;
+  let n = brigFree(S, side);
+  if (n <= 0) return;
+  const cand = [];
+  for (let r = 0; r < M.R; r++) if (canBuild(S, side, r, 'fac')) cand.push([r, (S.rail[r] ? 2 : 0) + M.reg[r].vp + Math.min(4, fd[r]) * 0.5 + S.fac[r] * 0.1]);
+  cand.sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  for (const [r] of cand) { if (n <= 0) break; if (build(S, side, r, 'fac')) n--; }
+}
 function rndPick(S, mix) {
-  let x = ((S.turn * 7919 + S.nextId * 104729) % 1000) / 1000, acc = 0;
+  let x = ((((S.turn * 7919 + S.nextId * 104729) % 1000) + 1000) % 1000) / 1000, acc = 0;
   for (const [t, p] of Object.entries(mix)) { acc += p; if (x < acc) return t; }
   return 'inf';
+}
+// мирное время: новые дивизии — на участок, где войск меньше всего против плана прикрытия 1941 г. (а не все на север)
+function peaceZone(S, side) {
+  const M = S.M, w = new Array(ZN).fill(0);
+  for (const u of S.units) {
+    if (u.s !== side || u.dead) continue;
+    if (u.h41 && u.hp !== undefined) w[M.reg[u.hp].z]++;
+    if (u.r >= 0) w[M.reg[u.r].z]--;
+    else if (u.arr !== undefined && !u.hist && !u.pw) w[u.z ?? 2]--;
+  }
+  let best = 2, bw = -1e9;
+  w.forEach((v, z) => { if (v > bw) (bw = v), (best = z); });
+  return best;
 }
 function needZone(S, side, thr, fm) {
   const w = new Array(ZN).fill(0), M = S.M;

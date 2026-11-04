@@ -1,6 +1,7 @@
 // Прогон «Восточного фронта» без интерфейса: обе стороны — ИИ.
 // node tools/sim-east.mjs [--turns 236] [--seed 7] [--diff 1] [--side SOV] [--mode hist] [--v] [--q] [--player]
 // --player: сторона --side играет как игрок «на авто» (как в интерфейсе: приказы «авто», runSide isAI=false)
+// --start 36|39|41: ранний старт (мирное время до 22.06.1941, prewar.js); ходы считаются от 22.06.1941
 import fs from 'node:fs';
 import { decodeMap } from '../src/east/mapdata.js';
 import { newGame, placeR } from '../src/east/setup.js';
@@ -14,7 +15,9 @@ const turns = +arg('turns', 236), seed = +arg('seed', 7), diff = +arg('diff', 1)
 const M = decodeMap(JSON.parse(fs.readFileSync(new URL('../src/east/data/map.json', import.meta.url), 'utf8')));
 const NOEV = !!arg('noev', false), PL = !!arg('player', false);
 const run = (s) => { if (PL && s === side) { beginPhase(S, s); setPostures(S, s, true); runSide(S, s, { isAI: false, begun: true }); } else runSide(S, s, { isAI: true }); };
-const S = newGame(M, { side, mode, diff, seed, noAsk: 1, noEv: NOEV });
+const START = String(arg('start', '0'));
+const S = newGame(M, { side, mode, diff, seed, noAsk: 1, noEv: NOEV, start: START });
+if (PL) S.plSim = 1; // сторона игрока — «игрок на авто» (и в начале войны: prewar.js warStart)
 // ключевые города: [название, дата взятия Осью, дата освобождения] (история)
 const KEY = HIST_KEYS;
 const kr = KEY.map(([n, a, b]) => ({ n, r: placeR(S, n), a: a ? turnOf(a) : null, b: b ? turnOf(b) : null, lost: null, back: null, s: null })).filter((k) => k.r >= 0);
@@ -30,7 +33,8 @@ const sum = () => {
 };
 const regs = (s) => M.reg.filter((g) => sideOf(S, g.id) === s).length;
 console.log(`seed ${seed} diff ${diff} side ${side} mode ${mode}`);
-for (let t = 0; t < turns && !S.over; t++) {
+const PW = [];
+while (S.turn < turns && !S.over) {
   S.news = []; S.battles = [];
   let t0 = performance.now(); run('GER'); T.GER += performance.now() - t0;
   const bG = S.battles.length;
@@ -51,14 +55,15 @@ for (let t = 0; t < turns && !S.over; t++) {
     }
     console.log('     ' + zs.join(' | '));
   }
-  if (S.evq.length) { if (!Q) console.log('     события: ' + S.evq.map((e) => e.id).join(', ')); S.evq = []; }
+  if (S.evq.length) { if (!Q) console.log('     события: ' + S.evq.map((e) => e.id).join(', ')); if (turn < 0) PW.push(...S.evq.map((e) => e.id)); S.evq = []; }
   if (!Q && (V || ch.length || turn % 4 === 0)) {
     const iG = S.inc.GER, iS = S.inc.SOV;
     console.log(`${String(turn).padStart(3)} ${fmtTurn(turn).padEnd(12)} ${S.wx.map((w) => w[0]).join('')} | G ${o.GER.n}(${o.GER.arm}) ${o.GER.str}% eq${eqTot(S, 'GER') | 0}/${iG.pp | 0} b${brigBusy(S, 'GER')}/${brigN(S, 'GER')} q${S.q.filter((b) => b.s === 'GER').length} m${S.men.GER | 0}/${iG.men | 0} mor${S.mor.GER | 0} | S ${o.SOV.n}(${o.SOV.arm}) ${o.SOV.str}% eq${eqTot(S, 'SOV') | 0}/${iS.pp | 0} b${brigBusy(S, 'SOV')}/${brigN(S, 'SOV')} q${S.q.filter((b) => b.s === 'SOV').length} m${S.men.SOV | 0}/${iS.men | 0} mor${S.mor.SOV | 0} | G${regs('GER')} | b${bG}/${bS} L G${S.stats.GER.lost} S${S.stats.SOV.lost}(${S.stats.SOV.pow}) | ${S.post.GER.map((p) => p[0]).join('')} ${S.post.SOV.map((p) => p[0]).join('')} ${ch.join(' ')}`);
   }
 }
+if (PW.length) console.log('prewar', PW.join(' '));
 console.log('over', S.over, 'turn', S.turn, fmtTurn(S.turn));
-console.log('AI ms/turn', (T.GER / S.turn).toFixed(1), (T.SOV / S.turn).toFixed(1), 'stats', JSON.stringify(S.stats));
+console.log('AI ms/turn', (T.GER / (S.turn - (S.t0 ?? 0))).toFixed(1), (T.SOV / (S.turn - (S.t0 ?? 0))).toFixed(1), 'stats', JSON.stringify(S.stats));
 console.log('counts', counts.join(' | '), '| dir', (S.dir ?? 0).toFixed(1));
 const d = (x, h) => (x === null ? (h === null ? '·' : 'нет') : `${x}${h === null ? '' : (x - h >= 0 ? '+' : '') + (x - h)}`);
 console.log('timeline (ход взятия Δ к истории / ход освобождения Δ):');

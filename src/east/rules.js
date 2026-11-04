@@ -16,7 +16,14 @@ export const SIDES = ['GER', 'SOV'];
 export const other = (s) => (s === 'GER' ? 'SOV' : 'GER');
 export const SIDE_N = { GER: 'Германия', SOV: 'СССР' };
 export const SIDE_A = { GER: 'Ось', SOV: 'СССР' };
-export const NAT_N = { GER: 'Германия', SOV: 'СССР', FIN: 'Финляндия', ROM: 'Румыния', HUN: 'Венгрия', SVK: 'Словакия', BUL: 'Болгария', CRO: 'Хорватия', ITA: 'Италия' };
+export const NAT_N = {
+  GER: 'Германия', SOV: 'СССР', FIN: 'Финляндия', ROM: 'Румыния', HUN: 'Венгрия', SVK: 'Словакия', BUL: 'Болгария', CRO: 'Хорватия', ITA: 'Италия',
+  // v0.11 (шаг 6.7): страны 1936–1941 гг. (ранние старты) и нейтралы
+  POL: 'Польша', LIT: 'Литва', LAT: 'Латвия', EST: 'Эстония', CZE: 'Чехословакия', AUT: 'Австрия', YUG: 'Югославия', NOR: 'Норвегия', GRE: 'Греция',
+  SWE: 'Швеция', TUR: 'Турция', IRN: 'Иран',
+};
+// нации ранних стартов (нет в map.json — добавляются в M.nats при чтении карты, см. mapdata.js)
+export const NATS_PW = ['POL', 'LIT', 'LAT', 'EST', 'CZE', 'AUT', 'YUG', 'NOR', 'GRE'];
 export const SIDE0 = { GER: 'GER', FIN: 'GER', ROM: 'GER', HUN: 'GER', SVK: 'GER', CRO: 'GER', ITA: 'GER', BUL: 'GER', SOV: 'SOV' };
 // цвета наций: фишка (фон, кайма, знак) и заливка области (RGBA)
 export const NATC = {
@@ -29,6 +36,16 @@ export const NATC = {
   ITA: { bg: '#6d8a62', bd: '#34462c', fg: '#fffbe8', tint: [110, 140, 96, 50] },
   BUL: { bg: '#8c7a54', bd: '#4a3e22', fg: '#fffbe8', tint: [140, 120, 80, 50] },
   SOV: { bg: '#b23a2c', bd: '#5c1610', fg: '#fff4e4', tint: [200, 86, 58, 24] },
+  // нейтральные страны 1936–1941 гг.: бледные заливки (neu — без фишек и фронта)
+  POL: { bg: '#d8d2c8', bd: '#8a2a34', fg: '#8a2a34', tint: [214, 150, 156, 46], neu: 1 },
+  LIT: { bg: '#d8d2c8', bd: '#5e7a3a', fg: '#5e7a3a', tint: [196, 186, 110, 46], neu: 1 },
+  LAT: { bg: '#d8d2c8', bd: '#7a2e34', fg: '#7a2e34', tint: [190, 132, 128, 46], neu: 1 },
+  EST: { bg: '#d8d2c8', bd: '#2a5a94', fg: '#2a5a94', tint: [130, 160, 200, 46], neu: 1 },
+  CZE: { bg: '#d8d2c8', bd: '#22457e', fg: '#22457e', tint: [150, 160, 196, 46], neu: 1 },
+  AUT: { bg: '#d8d2c8', bd: '#9a2a30', fg: '#9a2a30', tint: [206, 160, 150, 46], neu: 1 },
+  YUG: { bg: '#d8d2c8', bd: '#2a4a8a', fg: '#2a4a8a', tint: [156, 170, 200, 46], neu: 1 },
+  NOR: { bg: '#d8d2c8', bd: '#8a2a34', fg: '#8a2a34', tint: [200, 160, 160, 46], neu: 1 },
+  GRE: { bg: '#d8d2c8', bd: '#2a5aa0', fg: '#2a5aa0', tint: [140, 176, 214, 46], neu: 1 },
 };
 // рода войск: сила атаки/обороны, ходы (очки движения за неделю), стоимость (⚙ производство, 👥 люди)
 export const TYPES = {

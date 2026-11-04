@@ -18,7 +18,7 @@ export const DecUI = {
   pDec() {
     const S = this.S, P = this.P, pol = S.pol?.[P] || 0, z = this.decFront(), fronts = frontsOn(S, P);
     Dc.decViewed(S, P);
-    const L = Dc.decOf(P).map((D) => ({ D, s: Dc.decStat(S, P, D) }));
+    const L = Dc.decOf(P, S).map((D) => ({ D, s: Dc.decStat(S, P, D) }));
     const act = (S.dfx || []).filter((x) => x.side === P && x.until > S.turn);
     const fdot = (f) => `<i class="e-dot" style="background:${FRONT_COL[S.fr[P][f].col]}"></i>`;
     const card = ({ D, s }) => {
@@ -34,7 +34,7 @@ export const DecUI = {
     const later = L.filter((x) => x.s.k === 'cd' || x.s.k === 'lock');
     const done = L.filter((x) => x.s.k === 'done' || x.s.k === 'gone');
     const actH = act.length ? `<h4>${ic('bolt')}Действуют</h4><div class="e-chips">${act.map((x) => { const D = Dc.DECM.get(x.id); return D ? `<span class="e-chip on">${ic(D.ic)}${esc(D.n)}${x.z !== undefined ? ` · ${esc(frontShort(S.fr[P][x.z].n))}` : ''}<small>${weeksW(x.until - S.turn)}</small></span>` : ''; }).join('')}</div>` : '';
-    const evN = Dc.decOf(P).filter((D) => D.ev).map((D) => D.n).join(', ');
+    const evN = Dc.decOf(P, S).filter((D) => D.ev).map((D) => D.n).join(', ');
     return `${this.head(ic('pol'), 'Решения', `★ ${num(pol)} · +${f1(polOf(S, P))} в неделю`)}<div class="e-pbody">
 ${actH}
 ${ok.length ? `<h4>${ic('dec')}Можно принять</h4><div class="e-dcs">${ok.map(card).join('')}</div>` : ''}

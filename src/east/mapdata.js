@@ -1,5 +1,6 @@
 // «Восточный фронт» (v0.10): разбор src/east/data/map.json (tools/build-east.mjs) — области, дуги границ,
 // соседства, реки, берега и сетка рельефа. Координаты — км карты (коническая проекция Ламберта, y вниз).
+import { NATS_PW } from './rules.js';
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const DEC = new Int8Array(128).fill(-1);
 for (let i = 0; i < 64; i++) DEC[B64.charCodeAt(i)] = i;
@@ -28,7 +29,7 @@ export function chaikin(p, it = 2, closed = false) {
 const b64u8 = (s) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
 export const TER_N = { pla: 'равнина', for: 'лес', mar: 'болота', hil: 'холмы', mnt: 'горы' };
 export function decodeMap(J) {
-  const M = { w: J.w, h: J.h, proj: J.proj, nats: J.nats, zones: J.zones };
+  const M = { w: J.w, h: J.h, proj: J.proj, nats: J.nats.concat(NATS_PW.filter((n) => !J.nats.includes(n))), zones: J.zones };
   M.arcs = J.arcs.map(([a, b, t, s]) => {
     const raw = decPts(s), closed = raw.length > 4 && raw[0] === raw[raw.length - 2] && raw[1] === raw[raw.length - 1];
     let p = chaikin(raw, 2, false);

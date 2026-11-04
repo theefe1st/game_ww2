@@ -47,6 +47,22 @@ const ssMen = (S) => 2 * E.newCost('GER', ssT(S)).men;
 const menNow = (S, side) => (S.inc?.[side]?.men ?? E.income(S, side).men);
 const mobN = (S) => Math.round(menNow(S, 'SOV') * 5);
 const offFx = (side) => (S, s, z) => { addBoost(S, side, z, 1.15, 4, 'att'); E.addMor(S, side, 1); tmp(S, side, side === 'SOV' ? 'offS' : 'offG', 4, null, z); return S.fr[side][z].n; };
+// мирное время (шаг 6.7): манёвры — опыт наименее опытным дивизиям фронта; «Линия Молотова» — у новой границы
+const DRILL = { n: 12, xp: 8, max: 35 };
+const drillCand = (S, side, z = -1) => S.units.filter((u) => E.alive(u) && u.s === side && u.xp < DRILL.max && (z < 0 || E.fzOf(S, u.r) === z)).sort((a, b) => a.xp - b.xp || a.id - b.id);
+const drillFx = (S, side, z) => {
+  const us = drillCand(S, side, z).slice(0, DRILL.n);
+  for (const u of us) u.xp = Math.min(DRILL.max, u.xp + DRILL.xp);
+  return `${S.fr[side][z].n}: ${us.length} ${divW(us.length)}`;
+};
+const drillDec = (side) => ({ id: side === 'SOV' ? 'drillS' : 'drillG', side, ic: 'binoc', n: 'Манёвры', cost: 20, cd: 13, to: '1941-06-21', peace: 1, pw: 1, pick: 'front',
+  d: `Большие учения войск выбранного фронта: опыт +${DRILL.xp} у ${DRILL.n} наименее опытных дивизий (не выше ${DRILL.max}).`,
+  cond: (S) => (drillCand(S, side).length ? true : 'все дивизии уже обучены'), fx: drillFx });
+const molotR = (S) => {
+  const L = [];
+  for (let r = 0; r < S.M.R; r++) if (E.sideOf(S, r) === 'SOV' && S.fort[r] < 3 && S.M.reg[r].nb.some((e) => E.sideOf(S, e.r) === 'GER')) L.push(r);
+  return L.sort((a, b) => S.fort[a] - S.fort[b] || S.M.reg[b].vp - S.M.reg[a].vp || a - b).slice(0, 8);
+};
 
 // id, сторона, значок, название, текст (строка или функция), цена ★, с даты (from) / до (to), условие (true или причина),
 // cd — недель до повтора (нет — один раз), pick: 'front' — выбор фронта, fx — действие (может вернуть подпись),
@@ -65,7 +81,7 @@ export const DEC = [
     d: 'Просим союзников ускорить поставки: ленд-лиз ×1,5 и авиация +5 % на 12 недель.',
     cond: (S) => (!(S.ev?.ll >= 0) ? 'после соглашения о ленд-лизе (октябрь 1941)' : !llRoutes(S) ? 'нет портов и путей для поставок' : true),
     fx: (S) => { tmp(S, 'SOV', 'lls', 12, { ll: 1.5, air: 1.05 }); } },
-  { id: 'mob', side: 'SOV', ic: 'mob', n: 'Мобилизация', cost: 20, cd: 26,
+  { id: 'mob', side: 'SOV', ic: 'mob', n: 'Мобилизация', cost: 20, cd: 26, peace: 1,
     d: (S) => `Призыв новых возрастов: сразу +${mobN(S)} людей. Боевой дух −1.`,
     fx: (S) => { const n = mobN(S); S.men.SOV += n; E.addMor(S, 'SOV', -1); return `+${n} людей`; } },
   { id: 'guard', side: 'SOV', ic: 'guard', n: 'Гвардейские звания', cost: 20, cd: 12, from: '1941-09-18', hist: '1941-09-18', rep: 1, ai: 1,
@@ -109,6 +125,15 @@ export const DEC = [
   { id: 'sap', side: 'SOV', ic: 'spade', n: 'Сапёрные армии', cost: 40, from: '1941-10-01', hist: '1941-10-15',
     d: 'Новые сапёрные армии строят рубежи: +2 строительные бригады навсегда.',
     fx: (S) => { S.flags.SOVbrig = (S.flags.SOVbrig || 0) + 2; } },
+  // мирное время (ранние старты): только до 22 июня 1941 г.
+  { id: 'ready', side: 'SOV', ic: 'siren', n: 'Боевая готовность', cost: 30, from: '1941-05-15', to: '1941-06-21', peace: 1, pw: 1,
+    d: 'Директива приграничным округам: войска — на рубежах и в боевой готовности. Внезапного удара не будет: в первую неделю войны управление не нарушено, дивизии у границы готовы к бою.',
+    fx: (S) => { S.flags.SOVready = 1; } },
+  { id: 'molot', side: 'SOV', ic: 'wall', n: 'Линия Молотова', cost: 35, from: '1940-07-01', to: '1941-06-21', peace: 1, pw: 1,
+    d: 'Укрепрайоны на новой западной границе: укрепления +1 в 8 приграничных областях.',
+    cond: (S) => (molotR(S).length ? true : 'нет общей границы с Германией'),
+    fx: (S) => { const L = molotR(S); for (const r of L) S.fort[r]++; return `${L.length} обл.`; } },
+  drillDec('SOV'),
   // ——— Ось ———
   { id: 'halt', side: 'GER', ic: 'fist', n: 'Стоять насмерть', cost: 30, cd: 26, from: '1941-12-01', hist: '1941-12-16', ai: 1,
     d: 'Приказ не отступать: оборона на всех фронтах +10 % на 6 недель, боевой дух +2.',
@@ -131,7 +156,7 @@ export const DEC = [
     d: `С оккупированного Запада снимают 4 пехотные дивизии — ${resTxt('GER')}.`,
     cond: (S) => (S.turn < T('1944-06-06') ? true : 'после высадки союзников во Франции — нельзя'),
     fx: (S) => { toRes(S, 'GER', 'GER', 'inf', 4, { str: 95, rdy: 80, xp: 20 }); } },
-  { id: 'todt', side: 'GER', ic: 'crane', n: 'Организация Тодт', cost: 40, hist: '1942-03-01',
+  { id: 'todt', side: 'GER', ic: 'crane', n: 'Организация Тодт', cost: 40, from: '1938-05-28', hist: '1942-03-01', peace: 1,
     d: 'Строители Рейха — на Восток: +2 строительные бригады навсегда.',
     fx: (S) => { S.flags.GERbrig = (S.flags.GERbrig || 0) + 2; } },
   { id: 'ostwall', side: 'GER', ic: 'wall', n: 'Восточный вал', cost: 40, from: '1943-08-11', hist: '1943-08-11',
@@ -147,9 +172,14 @@ export const DEC = [
     } },
   { id: 'offG', side: 'GER', ic: 'arrows', n: 'Главный удар', cost: 30, cd: 8, pick: 'front',
     d: 'Шверпункт: резервы и авиация — одному фронту. Атака выбранного фронта +15 % на 4 недели.', fx: offFx('GER') },
+  { id: 'four', side: 'GER', ic: 'prog', n: 'Четырёхлетний план', cost: 30, from: '1936-09-09', to: '1939-09-01', peace: 1, pw: 1,
+    d: 'Геринг перестраивает хозяйство под перевооружение: военное производство +15 % на 2 года.',
+    fx: (S) => { tmp(S, 'GER', 'four', 104, { pp: 1.15 }); } },
+  drillDec('GER'),
 ];
 export const DECM = new Map(DEC.map((D) => [D.id, D]));
-export const decOf = (side) => DEC.filter((D) => D.side === side);
+// решения мирного времени (pw) — только до войны (после — если приняты)
+export const decOf = (side, S) => DEC.filter((D) => D.side === side && (!D.pw || !S || S.peace || decSt(S, side).t[D.id] !== undefined));
 export const decText = (S, D) => (typeof D.d === 'function' ? D.d(S) : D.d);
 export const taken = (S, side, D) => decSt(S, side).t[D.id] !== undefined || (!!D.ev && S.ev?.[D.ev] >= 0);
 // состояние решения: k = ok | pol (не хватает ★) | lock (рано / условие) | cd (перерыв) | done (принято) | gone (время вышло)
@@ -158,6 +188,7 @@ export function decStat(S, side, D) {
   if (!D.cd && taken(S, side, D)) return { k: 'done', at: last ?? S.ev?.[D.ev] };
   if (D.to && S.turn > T(D.to)) return { k: 'gone', why: 'время прошло' };
   if (D.from && S.turn < T(D.from)) return { k: 'lock', why: `с ${isoTxt(D.from)}` };
+  if (S.peace && !D.peace) return { k: 'lock', why: 'с началом войны' };
   if (D.cd && last !== undefined && S.turn < last + D.cd) return { k: 'cd', left: last + D.cd - S.turn };
   const c = D.cond ? D.cond(S, side) : true;
   if (c !== true) return { k: 'lock', why: c || 'пока недоступно' };
@@ -183,17 +214,17 @@ export function takeDec(S, side, id, arg = -1, auto = false) {
 // новые доступные решения игрока (точка на ★): можно принять, а игрок не видел их с тех пор, как они стали доступны
 export function decNew(S, side) {
   const st = decSt(S, side);
-  return decOf(side).filter((D) => {
+  return decOf(side, S).filter((D) => {
     if (decStat(S, side, D).k !== 'ok') return false;
     const v = st.vw[D.id], since = st.t[D.id] !== undefined ? st.t[D.id] + (D.cd || 0) : -1;
     return v === undefined || v < since;
   });
 }
-export function decViewed(S, side) { const st = decSt(S, side); for (const D of decOf(side)) if (decStat(S, side, D).k === 'ok') st.vw[D.id] = S.turn; }
+export function decViewed(S, side) { const st = decSt(S, side); for (const D of decOf(side, S)) if (decStat(S, side, D).k === 'ok') st.vw[D.id] = S.turn; }
 // новая игра / старое сохранение: доступное с начала — не объявлять
 export function ensureDec(S) {
   if (S.dec) return;
-  for (const side of ['GER', 'SOV']) { const st = decSt(S, side); for (const D of decOf(side)) if (decStat(S, side, D).k !== 'lock') st.seen[D.id] = 1; }
+  for (const side of ['GER', 'SOV']) { const st = decSt(S, side); for (const D of decOf(side, S)) if (decStat(S, side, D).k !== 'lock') st.seen[D.id] = 1; }
   S.auto ??= {};
   S.auto.dec ??= true;
 }
@@ -204,7 +235,7 @@ export function decWeek(S) {
   for (const side of ['GER', 'SOV']) {
     const pl = side === S.side && !S.noAsk;
     // ИИ — решения с полем ai; игрок с «Ставка решает сама» — бывшие события истории (ev); оба — в дату hist
-    if (!pl || S.auto?.dec) for (const D of decOf(side)) {
+    if (!pl || S.auto?.dec) for (const D of decOf(side, S)) {
       if (!D.hist || S.turn < T(D.hist) || (pl ? !D.ev : !D.ai)) continue;
       const was = taken(S, side, D);
       if (was && !D.rep) continue;
@@ -213,7 +244,7 @@ export function decWeek(S) {
     }
     if (pl) {
       const st = decSt(S, side);
-      for (const D of decOf(side)) if (!st.seen[D.id] && decStat(S, side, D).k !== 'lock') { st.seen[D.id] = 1; E.note(S, { ic: 'dec', side, txt: `Новое решение: ${D.n}`, dec: D.id }); }
+      for (const D of decOf(side, S)) if (!st.seen[D.id] && decStat(S, side, D).k !== 'lock') { st.seen[D.id] = 1; E.note(S, { ic: 'dec', side, txt: `Новое решение: ${D.n}`, dec: D.id }); }
     }
   }
 }

@@ -92,7 +92,10 @@ export const T = (S, side) => S.tech[side];
 export const isDone = (S, side, k) => S.tech[side].done.includes(k);
 export const inCur = (S, side, k) => S.tech[side].cur.includes(k);
 const prevOf = (t) => (t.i > 0 ? TECH.find((x) => x.b === t.b && x.i === t.i - 1) : null);
-export const canStart = (S, side, k) => { const t = TK[k], p = prevOf(t); return !!t && !isDone(S, side, k) && !inCur(S, side, k) && (!p || isDone(S, side, p.k)); };
+// ранние старты (шаг 6.7): начать — не раньше чем за EARLY лет до исторического года
+export const EARLY = 3;
+export const tooEarly = (S, k) => TK[k].y - yearF(S.turn) > EARLY;
+export const canStart = (S, side, k) => { const t = TK[k], p = prevOf(t); return !!t && !isDone(S, side, k) && !inCur(S, side, k) && (!p || isDone(S, side, p.k)) && !tooEarly(S, k); };
 // множитель срока: опережение истории — дольше (×(1+1,5·лет)), отставание — быстрее (до ×0,5)
 export function penOf(S, k) { const dy = TK[k].y - yearF(S.turn); return dy > 0 ? 1 + 1.5 * dy : Math.max(0.5, 1 + 0.5 * dy); }
 export const weeksLeft = (S, side, k) => Math.max(1, Math.ceil(TK[k].w * penOf(S, k) * (1 - (S.tech[side].p[k] || 0)) - 1e-6));
