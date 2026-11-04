@@ -7,7 +7,7 @@ import { ALLG, genSide } from './gens41.js';
 import { REGIONS } from '../europe/regions.js';
 import {
   dayOf, fmtDate, yearF, rnd, SIDES, other, NSIDE0, sideOfH, natIdx, weather, winter41, alive, isMech, reindex, unitsAt, stackN,
-  STACK, placeAt, zoc, dailyMP, reach, pathTo, doMove, capture, railOK, repairRail, supplyMap, pockets, pocketName, gen, doAttack,
+  STACK, stackCap, placeAt, zoc, dailyMP, reach, pathTo, doMove, capture, railOK, repairRail, supplyMap, pockets, pocketName, gen, doAttack,
   forecast, attackers, canAttack, destroy, enemyAt, passable, genOf,
 } from './rules.js';
 import { runAI, frontDistance, railMove, posture } from './ai.js';
@@ -16,12 +16,23 @@ import { EVENTS, dueEvents, evByK } from './events.js';
 
 export const VER = 1;
 // запасы крепостей (суток в кольце)
-const FORT0 = { Брест: 25, Киев: 10, Ленинград: 120, Одесса: 75, Севастополь: 90, Кёнигсберг: 60, Познань: 30, Бреслау: 80, Кюстрин: 30 };
+const FORT0 = { Брест: 25, Киев: 10, Ленинград: 120, Москва: 40, Одесса: 75, Севастополь: 90, Кёнигсберг: 60, Познань: 30, Бреслау: 80, Кюстрин: 30 };
 export const SAVE_KEY = 'wf_war_v1';
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 // мораль: цена городов, котлов, разгромленных армий; потери (человек на 1 очко)
 export const cityMor = (c) => (c.vp >= 4 ? c.vp * 0.15 * (c.cap ? 1.3 : 1) : c.vp >= 2 ? 0.1 : 0.02);
-const MOR = { pk: { SOV: 0.1, GER: 0.45 }, pkWin: { SOV: 0.05, GER: 0.25 }, army: { SOV: 1, GER: 4 }, loss: (sd, y) => (sd === 'GER' ? 130000 : y < 1943 ? 300000 : 450000) };
+const MOR = { pk: { SOV: 0.1, GER: 0.3 }, pkWin: { SOV: 0.05, GER: 0.2 }, army: { SOV: 1, GER: 2 }, loss: (sd, y) => (sd === 'GER' ? 200000 : y < 1943 ? 300000 : 450000) };
+// изменение морали с учётом причины (S.mst — счёт за войну и за неделю для «Сводки»)
+export const MOR_WHY = { loss: 'потери', drift: 'настроения', city: 'города', pocket: 'котлы', army: 'армии', event: 'решения' };
+export function addMor(S, side, dv, why) {
+  const m0 = S.morale[side];
+  S.morale[side] = clamp(m0 + dv, 0, 130);
+  const d = S.morale[side] - m0;
+  if (!d) return;
+  const T = (S.mst ||= { GER: {}, SOV: {}, wk: { GER: {}, SOV: {} } });
+  T[side][why] = (T[side][why] || 0) + d;
+  T.wk[side][why] = (T.wk[side][why] || 0) + d;
+}
 // особые города: падение — удар по морали (и подъём у противника)
 const MOR_CITY = { Москва: [15, 6], Ленинград: [8, 4], Сталинград: [6, 4], Берлин: [30, 0], Киев: [2, 1] };
 
@@ -67,6 +78,7 @@ export function newGame(M, { side = 'SOV', diff = 1, seed } = {}) {
   for (const sd of SIDES) {
     const sp = supplyMap(S, sd);
     S.supL[sd] = sp.L;
+    (S.supC ||= {})[sd] = sp.conn;
     S.net[sd] = sp.net;
   }
   railCaps(S);
@@ -238,6 +250,7 @@ export function beginPhase(S, side) {
   const M = S.M, sup = supplyMap(S, side);
   if (side === 'GER') airBridge(S, sup);
   S.supL[side] = sup.L;
+  (S.supC ||= {})[side] = sup.conn;
   S.net[side] = sup.net;
   for (const c of M.cities) {
     if (!c.fort || sideOfH(S, c.h) !== side) continue;
@@ -250,6 +263,7 @@ export function beginPhase(S, side) {
     const L = sup.L[u.h] < 2 && fortStock(S, u) ? 2 : sup.L[u.h];
     if (L === 2) u.oos = 0;
     else if (L === 1) u.oos = u.oos > 1 ? u.oos - 1 : 1;
+    else if (sup.conn[u.h]) u.oos = Math.min(u.oos + 1, 5); // оторвались от станций, но не окружены: подвоз гужом
     else u.oos++;
     const d = dailyMP(S, u);
     u.mp = Math.min(u.mp + d, d * 2);
@@ -386,8 +400,8 @@ function trackPockets(S, side, sup) {
     const dead = q.ids.filter((id) => S.units.find((u) => u.id === id)?.dead).length;
     if (q.big && dead >= 2) {
       note(S, { k: 'pocket', side, t: `${q.n} ликвидирован: погибли или сдались ${dead} ${divW(dead)}`, h: q.h, big: 1 });
-      S.morale[side] = clamp(S.morale[side] - MOR.pk[side] * dead, 0, 130);
-      S.morale[other(side)] = clamp(S.morale[other(side)] + MOR.pkWin[side] * dead, 0, 130);
+      addMor(S, side, -MOR.pk[side] * dead, 'pocket');
+      addMor(S, other(side), MOR.pkWin[side] * dead, 'pocket');
     } else if (q.big) note(S, { k: 'pocket', side, t: `${q.n}: кольцо прорвано`, h: q.h });
   }
   S.pk[side] = out;
@@ -400,8 +414,8 @@ function cities(S) {
     const c = M.cities[e.k], to = e.side, from = e.from;
     if (sideOfH(S, c.h) !== to) continue;
     const dv = cityMor(c), sp = MOR_CITY[c.n];
-    S.morale[to] = clamp(S.morale[to] + dv * 0.6 + (sp ? sp[1] : 0), 0, 130);
-    if (from) S.morale[from] = clamp(S.morale[from] - dv - (sp ? sp[0] : 0), 0, 130);
+    addMor(S, to, dv * 0.6 + (sp ? sp[1] : 0), 'city');
+    if (from) addMor(S, from, -dv - (sp ? sp[0] : 0), 'city');
     const own0 = M.nations[M.own0[c.h]];
     if (to === 'GER' && S.stat.fall[c.n] == null) S.stat.fall[c.n] = S.day;
     if (to === 'SOV' && S.stat.fall[c.n] != null && S.stat.lib[c.n] == null) S.stat.lib[c.n] = S.day;
@@ -419,7 +433,6 @@ function checkOver(S) {
   const b = S.M.cityHex('Берлин');
   const sov = (why) => (S.over = { win: 'SOV', why, d: S.day, stars: S.day <= dayOf('1945-05-02') ? 3 : S.day <= dayOf('1945-05-20') ? 2 : 1 });
   if (sideOfH(S, b) === 'SOV') sov('Красная армия взяла Берлин');
-  else if (S.morale.GER <= 0) sov('Германия капитулировала');
   else if (S.morale.SOV <= 0) S.over = { win: 'GER', why: 'Советский Союз запросил мира', d: S.day, stars: 3 };
   else if (S.day >= dayOf('1945-05-31')) S.over = { win: 'GER', why: 'Берлин устоял до 31 мая 1945 г.', d: S.day, stars: 1 };
   if (S.over) note(S, { k: 'over', side: S.over.win, t: S.over.why, big: 1 });
@@ -429,10 +442,10 @@ function checkOver(S) {
 export function endDay(S) {
   const y = yearF(S.day);
   ecoDay(S, (o) => note(S, o));
-  repairRail(S, 'GER', y < 1942 ? 6 : y < 1943 ? 5 : 4);
+  repairRail(S, 'GER', y < 1942 ? 4.5 : y < 1943 ? 5 : 4);
   repairRail(S, 'SOV', y < 1943 ? 5 : y < 1944 ? 7 : 9);
   S.frontDist = { GER: frontDistance(S, 'GER'), SOV: frontDistance(S, 'SOV') };
-  for (const sd of SIDES) S.morale[sd] = clamp(S.morale[sd] - S.dayLoss[sd] / MOR.loss(sd, y) + drift(S, sd), 0, 130);
+  for (const sd of SIDES) addMor(S, sd, -S.dayLoss[sd] / MOR.loss(sd, y), 'loss'), addMor(S, sd, drift(S, sd), 'drift');
   hqTick(S);
   arrivals(S);
   militia(S);
@@ -440,6 +453,7 @@ export function endDay(S) {
   if (S.day % 7 === 6 || S.regroupSoon) regroup(S), (S.regroupSoon = 0);
   dedupeGens(S);
   S.day++;
+  if (S.day % 7 === 0 && S.mst) S.mst.wk = { GER: {}, SOV: {} };
   S.today = newToday();
   S.dayLoss = { GER: 0, SOV: 0 };
   S.wx = [0, 1, 2].map((z) => weather(S, z));
@@ -585,7 +599,7 @@ function axisArmy(S, [k, grp, , n, num, sub, gen, nat, city, codes, rn, gt]) {
 const MIL = {
   Ленинград: ['SOV', 10, 8000, 70, 'дивизия народного ополчения'], Москва: ['SOV', 10, 8000, 70, 'дивизия народного ополчения'],
   Киев: ['SOV', 3, 7000, 50, 'дивизия народного ополчения'], Одесса: ['SOV', 3, 6000, 40, 'бригада морской пехоты'], Севастополь: ['SOV', 3, 6000, 50, 'бригада морской пехоты'],
-  Сталинград: ['SOV', 4, 7000, 60, 'дивизия НКВД'], Тула: ['SOV', 2, 6000, 50, 'рабочий полк'], Харьков: ['SOV', 2, 6000, 40, 'дивизия народного ополчения'],
+  Сталинград: ['SOV', 4, 7000, 60, 'дивизия НКВД'], Тула: ['SOV', 3, 6000, 50, 'рабочий полк'], Харьков: ['SOV', 2, 6000, 40, 'дивизия народного ополчения'],
   'Ростов-на-Дону': ['SOV', 2, 6000, 40, 'дивизия народного ополчения'], Мурманск: ['SOV', 2, 5000, 40, 'бригада морской пехоты'], Новороссийск: ['SOV', 1, 5000, 40, 'бригада морской пехоты'],
   Воронеж: ['SOV', 1, 6000, 40, 'дивизия НКВД'], Грозный: ['SOV', 1, 6000, 40, 'дивизия НКВД'], Баку: ['SOV', 2, 7000, 50, 'дивизия НКВД'],
   Кёнигсберг: ['GER', 3, 9000, 80, 'фольксштурм'], Бреслау: ['GER', 3, 9000, 80, 'фольксштурм'], Познань: ['GER', 2, 8000, 70, 'фольксштурм'],
@@ -648,7 +662,7 @@ function armyDeaths(S) {
     if (H.empty >= 3) {
       H.dead = S.day;
       note(S, { k: 'army', side: H.side, t: `${H.n} разгромлена`, big: 1 });
-      S.morale[H.side] = clamp(S.morale[H.side] - MOR.army[H.side], 0, 130);
+      addMor(S, H.side, -MOR.army[H.side], 'army');
       for (const x of Object.values(S.hqs)) if (x.up === H.k && !x.dead) x.up = H.up;
     }
   }
@@ -710,7 +724,7 @@ function evX(S) {
       S.ev.fx[k] = v;
       if (days) S.ev.tfx.push([S.day + days, k]);
     },
-    morale: (side, d) => (S.morale[side] = clamp(S.morale[side] + d, 0, 130)),
+    morale: (side, d) => addMor(S, side, d, 'event'),
     ural: (ic, days, n) => (S.eco.SOV.evq.push([S.day + days, ic, n]), S.eco.SOV.evq.sort((a, b) => a[0] - b[0])),
     spawnN: (side, n, city, kind, o, arrIn) => {
       for (let i = 0; i < n; i++) {
@@ -750,7 +764,7 @@ function evX(S) {
         const A = assignArmy(S, u);
         u.hq = A ? A.k : '';
         S.units.push(u);
-        const spot = stackN(S, h) < STACK ? h : S.M.ring(h, 1).find((j) => S.M.terr[j] >= 2 && sideOfH(S, j) === side && stackN(S, j) < STACK);
+        const spot = stackN(S, h) < stackCap(S, h) ? h : S.M.ring(h, 1).find((j) => S.M.terr[j] >= 2 && sideOfH(S, j) === side && stackN(S, j) < stackCap(S, j));
         if (spot != null && spot >= 0) placeAt(S, u, spot);
         else u.dead = S.day;
       }
@@ -773,7 +787,7 @@ function evX(S) {
       // войска, оказавшиеся на нейтральной земле, — на ближайший свой гекс
       for (const u of S.units) {
         if (!alive(u) || sideOfH(S, u.h) === u.side || passable(S, u.h)) continue;
-        const j = M.nearLand(u.h, (k) => sideOfH(S, k) === u.side && stackN(S, k) < STACK);
+        const j = M.nearLand(u.h, (k) => sideOfH(S, k) === u.side && stackN(S, k) < stackCap(S, k));
         if (j >= 0) placeAt(S, u, j);
         else X.kill(u, 'интернирована');
       }
@@ -832,7 +846,7 @@ export function simDay(S) {
 // ——— действия игрока ———
 export function moveTo(S, u, h) {
   const R = reach(S, u);
-  if (!R.has(h) || h === u.h || stackN(S, h) >= STACK) return false;
+  if (!R.has(h) || h === u.h || stackN(S, h) >= stackCap(S, h)) return false;
   const path = pathTo(R, h), M = S.M;
   S.undo.push({ id: u.id, h: u.h, mp: u.mp, mv: u.mv, ent: u.ent, fu: u.fuelUse || 0, own: path.map((x) => [x, S.own[x], S.rok[x]]), cities: S.today.cities.length });
   doMove(S, u, path);
@@ -860,7 +874,7 @@ export function attack(S, att, tgt) {
 export function railTargets(S, u) {
   const side = u.side, net = S.net[side], out = [];
   if (!net || u.mv || u.at || u.ral || !railOK(S, u.h, side) || net[u.h] < 0 || zoc(S, u.h, side) || (S.railCap[side] || 0) <= 0) return out;
-  for (let h = 0; h < S.M.N; h++) if (h !== u.h && net[h] >= 0 && railOK(S, h, side) && !zoc(S, h, side) && stackN(S, h) < STACK) out.push(h);
+  for (let h = 0; h < S.M.N; h++) if (h !== u.h && net[h] >= 0 && railOK(S, h, side) && !zoc(S, h, side) && stackN(S, h) < stackCap(S, h)) out.push(h);
   return out;
 }
 export function railTo(S, u, h) {
@@ -897,7 +911,7 @@ const unb64 = (s) => {
 export function serialize(S) {
   const o = {};
   for (const k in S) {
-    if (['M', 'G', 'at', '_fc', 'supL', 'net', 'frontDist', 'undo', 'src', 'alift'].includes(k)) continue;
+    if (['M', 'G', 'at', '_fc', 'supL', 'supC', 'net', 'frontDist', 'undo', 'src', 'alift'].includes(k)) continue;
     o[k] = TA.includes(k) ? b64(S[k]) : S[k];
   }
   o.src = { GER: b64(S.src.GER), SOV: b64(S.src.SOV) };
@@ -914,6 +928,7 @@ export function deserialize(M, str) {
   for (const sd of SIDES) {
     const sp = supplyMap(S, sd);
     S.supL[sd] = sp.L;
+    (S.supC ||= {})[sd] = sp.conn;
     S.net[sd] = sp.net;
   }
   return S;

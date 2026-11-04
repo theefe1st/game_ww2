@@ -33,7 +33,8 @@ export function decodeEU(J) {
     k, n, h, sz, vp, cap: f.includes('c'), port: f.includes('p'), fort: f.includes('f'), hard: f.includes('h'), x: f.includes('x'),
   }));
   // Киевский укрепрайон (КиУР) — как крепость; запасы крепостей — см. FORT0 в engine.js
-  for (const c of cities) if (c.n === 'Киев' || c.n === 'Ленинград') c.fort = true;
+  // Москва — Можайская линия и Московская зона обороны
+  for (const c of cities) if (c.n === 'Киев' || c.n === 'Ленинград' || c.n === 'Москва') c.fort = true;
   const cityAt = new Int16Array(N).fill(-1);
   for (const c of cities) cityAt[c.h] = c.k;
   const byName = new Map(cities.map((c) => [c.n, c]));

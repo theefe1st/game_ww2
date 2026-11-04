@@ -115,7 +115,7 @@ const hasTr = (g, t) => g && g.tr.includes(t);
 export const TERR_DEF = [1, 1, 1, 1.35, 1.4, 1.9, 1.5, 0.95, 1.2];
 const ARMOR_TERR = [1, 1, 1, 0.55, 0.75, 0.4, 0.45, 1.1, 0.7];
 // укрепрайоны больших городов: Москва, Ленинград, Сталинград, Тула (hard), Киевский УР
-const HARD = { Ленинград: 2.8, Москва: 2.4, Киев: 1.7 };
+const HARD = { Ленинград: 2.8, Москва: 2.4, Киев: 1.7, Тула: 2.5, Одесса: 1.8, Севастополь: 1.8 };
 export const cityDef = (c) => (c ? (c.sz === 3 ? 1.5 : c.sz === 2 ? 1.3 : 1.15) * (c.hard ? HARD[c.n] || 2.1 : HARD[c.n] || 1) : 1);
 
 export function airF(S, side) {
@@ -170,6 +170,14 @@ export function reindex(S) {
 export const unitsAt = (S, h) => S.at.get(h) || [];
 export const stackN = (S, h) => unitsAt(S, h).length;
 export const STACK = 3;
+// предел стопки: крупные города вмещают больше дивизий (Москва и Ленинград — 5, остальные большие — 4)
+const BIGC = { Москва: 5, Ленинград: 5 };
+export const stackCap = (S, h) => {
+  const ci = S.M.cityAt[h];
+  if (ci < 0) return STACK;
+  const c = S.M.cities[ci];
+  return BIGC[c.n] || (c.sz === 3 ? 4 : STACK);
+};
 const setAt = (S, u, h) => {
   if (u.h >= 0) {
     const a = S.at.get(u.h);
@@ -261,7 +269,7 @@ export function pathTo(R, h) {
   return out;
 }
 // куда можно встать (лимит стопки)
-export const canEnd = (S, u, h) => h === u.h || stackN(S, h) < STACK;
+export const canEnd = (S, u, h) => h === u.h || stackN(S, h) < stackCap(S, h);
 // захват гекса
 export function capture(S, h, side, nat) {
   const prev = S.own[h], ps = S.nside[prev];
@@ -334,8 +342,17 @@ export function repairRail(S, side, k) {
   if (!cand.length) return 0;
   const fd = S.frontDist?.[side];
   cand.sort((a, b) => (fd ? fd[a] - fd[b] : 0));
-  let n = 0;
-  for (const h of cand.slice(0, k)) (S.rok[h] = 1), n++;
+  // распутица и снег замедляют перешивку и восстановление: «стоимость» гекса 1 / sup погоды; остаток — на завтра
+  const R = (S.rbud ||= { GER: 0, SOV: 0 });
+  let b = Math.min(k * 2, R[side] + k), n = 0;
+  for (const h of cand) {
+    const c = 1 / WX[S.wx[M.zone[h]]].sup;
+    if (b < c) break;
+    b -= c;
+    S.rok[h] = 1;
+    n++;
+  }
+  R[side] = Math.min(k, b);
   if (n) S.ver++;
   return n;
 }
@@ -365,7 +382,19 @@ export function supplyMap(S, side) {
   // частичные источники: порты Чёрного моря, Ладога для Ленинграда
   for (const [p, r, lv] of S.partial[side] || [])
     for (const h of M.ring ? M.ring(p, r) : []) if (sideOfH(S, h) === side && L[h] < lv) L[h] = lv;
-  return { L, dist, net };
+  // связь с тылом по своей земле (без предела расстояния): нет связи — окружение, есть — только отрыв от станций
+  const conn = new Uint8Array(N), cq = [];
+  for (let h = 0; h < N; h++) if (L[h] > 0) (conn[h] = 1), cq.push(h);
+  for (let i = 0; i < cq.length; i++) {
+    const h = cq[i];
+    for (let d = 0; d < 6; d++) {
+      const j = M.nb[h * 6 + d];
+      if (j < 0 || conn[j] || M.terr[j] < 2 || sideOfH(S, j) !== side) continue;
+      conn[j] = 1;
+      cq.push(j);
+    }
+  }
+  return { L, dist, net, conn };
 }
 
 // ——— бой ———
@@ -433,8 +462,9 @@ export function destroy(S, u, by, why = 'разгромлена') {
   u.men = 0;
   u.dead = S.day + 1;
   u.why = why;
+  const h = u.h;
   setAt(S, u, -1);
-  S.today.dead.push({ id: u.id, side: u.side, n: u.n, why, hq: u.hq });
+  S.today.dead.push({ id: u.id, side: u.side, n: u.n, why, hq: u.hq, h });
 }
 // отход: соседний свой гекс без врага, с местом в стопке, подальше от противника
 function retreatHex(S, u, from) {
@@ -442,7 +472,7 @@ function retreatHex(S, u, from) {
   let best = -1, bs = -1e9;
   for (let d = 0; d < 6; d++) {
     const j = M.nb[u.h * 6 + d];
-    if (j < 0 || !passable(S, j) || sideOfH(S, j) !== u.side || enemyAt(S, j, u.side) || stackN(S, j) >= STACK) continue;
+    if (j < 0 || !passable(S, j) || sideOfH(S, j) !== u.side || enemyAt(S, j, u.side) || stackN(S, j) >= stackCap(S, j)) continue;
     let s = -enemyNear(S, j, u.side) * 3 + (S.supL?.[u.side]?.[j] || 0) * 2 - M.dist(j, from) * -1.5 + rnd(S) * 0.2;
     if (M.cityAt[j] >= 0) s += 0.5;
     if (s > bs) (bs = s), (best = j);
@@ -454,7 +484,7 @@ function retreatHex(S, u, from) {
     if (j < 0 || !passable(S, j) || sideOfH(S, j) !== u.side || enemyAt(S, j, u.side)) continue;
     for (let e = 0; e < 6; e++) {
       const k = M.nb[j * 6 + e];
-      if (k < 0 || k === u.h || !passable(S, k) || sideOfH(S, k) !== u.side || enemyAt(S, k, u.side) || stackN(S, k) >= STACK) continue;
+      if (k < 0 || k === u.h || !passable(S, k) || sideOfH(S, k) !== u.side || enemyAt(S, k, u.side) || stackN(S, k) >= stackCap(S, k)) continue;
       const s = -enemyNear(S, k, u.side) * 3 + (S.supL?.[u.side]?.[k] || 0) * 2 + M.dist(k, from) * 1.5 + rnd(S) * 0.2;
       if (s > bs) (bs = s), (best = k);
     }
@@ -542,7 +572,8 @@ export function pockets(S, side, supply) {
   const M = S.M, N = M.N, seen = new Uint8Array(N), out = [];
   const L = supply.L;
   for (let h0 = 0; h0 < N; h0++) {
-    if (seen[h0] || !unitsAt(S, h0).some((u) => u.side === side) || L[h0] > 0) continue;
+    const cut = (h) => (supply.conn ? !supply.conn[h] : L[h] === 0);
+    if (seen[h0] || !unitsAt(S, h0).some((u) => u.side === side) || !cut(h0)) continue;
     // компонента своей земли без снабжения, содержащая войска
     const comp = [h0];
     seen[h0] = 1;
@@ -554,7 +585,7 @@ export function pockets(S, side, supply) {
       if (ci >= 0 && (!big || M.cities[ci].sz > big.sz || (M.cities[ci].sz === big.sz && M.cities[ci].vp > big.vp))) big = M.cities[ci];
       for (let d = 0; d < 6; d++) {
         const j = M.nb[h * 6 + d];
-        if (j < 0 || seen[j] || M.terr[j] < 2 || sideOfH(S, j) !== side || L[j] > 0) continue;
+        if (j < 0 || seen[j] || M.terr[j] < 2 || sideOfH(S, j) !== side || !cut(j)) continue;
         seen[j] = 1;
         comp.push(j);
       }

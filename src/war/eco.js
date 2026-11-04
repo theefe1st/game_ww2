@@ -2,7 +2,7 @@
 // фактическому контролю; эвакуация заводов на Урал; 5 линий производства с долями; людские резервы и раненые;
 // автопополнение дивизий; формирование новых дивизий по штатам (вручную и авто); ленд-лиз; горючее; авиация.
 import { REGIONS } from '../europe/regions.js';
-import { yearF, dayOf, sideOfH, alive, isMech, diffK, placeAt, stackN, STACK, railOK, natIdx, fmtDate } from './rules.js';
+import { yearF, dayOf, sideOfH, alive, isMech, diffK, placeAt, stackN, STACK, stackCap, railOK, natIdx, fmtDate } from './rules.js';
 import { SOV_LATER } from './plan.js';
 
 const lerp = (T, x) => {
@@ -299,7 +299,7 @@ export function rearSpot(S, side, base, minF = 4, maxF = 12) {
   const M = S.M, fd = S.frontDist?.[side], net = S.net?.[side];
   let best = -1, bs = 1e9;
   for (let h = 0; h < M.N; h++) {
-    if (M.terr[h] < 2 || sideOfH(S, h) !== side || stackN(S, h) >= STACK) continue;
+    if (M.terr[h] < 2 || sideOfH(S, h) !== side || stackN(S, h) >= stackCap(S, h)) continue;
     const f = fd ? fd[h] : 9;
     if (f < minF) continue;
     let s = (base >= 0 ? M.dist(h, base) : 0) + Math.max(0, f - maxF) * 2;
@@ -329,7 +329,7 @@ export function assignArmy(S, u) {
     if (side === 'GER' && A.nat !== u.nat && !(A.nat === 'GER' && !aliveNatArmy(S, u.nat))) continue;
     const [n, m] = cnt.get(A.k) || [0, 0];
     if (n === 0 && !A.fresh) continue; // разбитые армии не пополняются (кроме новых)
-    let s = n - (A.fr || 0) * 0.8;
+    let s = n - (A.fr || 0) * 0.5 - Math.min(A.pr || 0, 2.5) * 4;
     if (A.mech) s += mech ? -4 + m * 0.5 : n - m >= 2 ? 6 : 0;
     else if (mech && m >= 2) s += 2;
     if (A.fresh) s -= 3;
@@ -338,9 +338,16 @@ export function assignArmy(S, u) {
   return best;
 }
 const aliveNatArmy = (S, nat) => Object.values(S.hqs).some((A) => A.nat === nat && A.lv >= 2 && !A.dead && !A.arr);
+// предел числа соединений: командные кадры, связь, штабы (СССР ≈ 430–540 дивизий и корпусов)
+export function divCap(S, side) {
+  const y = yearF(S.day);
+  return side === 'SOV' ? (y < 1942 ? 430 : y < 1943 ? 470 : y < 1944 ? 510 : 540) : 250;
+}
+export const divCount = (S, side) => S.units.reduce((n, u) => n + (u.side === side && !u.dead && (u.h >= 0 || u.arr) && u.t !== 'gar' ? 1 : 0), 0);
 export function formDiv(S, side, key, note, quiet) {
   const T = tplOf(key), E = S.eco[side];
   if (!T || T.side !== side) return null;
+  if (divCount(S, side) >= divCap(S, side)) return null;
   const [men, gun, tnk] = T.z(yearF(S.day));
   if (E.men < men || E.gun < gun || E.tnk < tnk) return null;
   const N = E.num, nat = side;

@@ -4,7 +4,7 @@
 // по ближайшим армиям), второй эшелон; окружённые — на прорыв к своим; дальние резервы — по железной дороге.
 import { OPS } from './plan.js';
 import {
-  alive, isMech, reach, pathTo, doMove, doAttack, odds, unitsAt, stackN, STACK, zoc, enemyAt, sideOfH, passable, dayOf,
+  alive, isMech, reach, pathTo, doMove, doAttack, odds, unitsAt, stackN, STACK, stackCap, zoc, enemyAt, sideOfH, passable, dayOf,
   enemyNear, canAttack, defVal, atkVal, cvRaw, railOK, railNet, placeAt, other,
 } from './rules.js';
 
@@ -284,6 +284,9 @@ export function runAI(S, side, opt = {}) {
     const th = threat(S, h, side), c = M.cityAt[h] >= 0 ? M.cities[M.cityAt[h]] : null;
     need.set(h, th > 0 ? 1 + (th > 28 ? 1 : 0) + (th > 60 ? 1 : 0) + (c && (c.hard || c.sz >= 2) ? 1 : 0) : c && c.sz >= 2 ? 1 : 0.5);
   }
+  pressure(S, side, act, lab, need);
+  rebalance(S, side, act);
+  salients(S, side, act);
   for (const A of act) {
     const p = A._p, us = A._us.filter((u) => alive(u) && u.mp > 0 && !u.gar);
     if (!us.length) continue;
@@ -296,9 +299,82 @@ export function runAI(S, side, opt = {}) {
   railMoves(S, side, act, lab, opt);
   for (const A of act) (A._us = null);
 }
+// выход из мешков: дивизия, обойдённая с 4+ сторон (но ещё со связью с тылом), отходит к своим.
+// Германия — всегда, СССР — с лета 1942 г. (после «Блау» Ставка перестала держать обречённые рубежи)
+const nEn = (S, h, side) => {
+  let n = 0;
+  for (let d = 0; d < 6; d++) {
+    const j = S.M.nb[h * 6 + d];
+    if (j >= 0 && S.M.terr[j] >= 2 && sideOfH(S, j) === other(side)) n++;
+  }
+  return n;
+};
+function salients(S, side, act) {
+  if (side === 'SOV' && S.day < dayOf('1942-06-28')) return;
+  const C = S.supC?.[side];
+  if (!C) return;
+  for (const A of act) {
+    if (A._p.k === 'atk' || A._p.hold || A.order === 'def') continue;
+    for (const u of A._us) {
+      if (!alive(u) || u.mp <= 0 || u.mv || u.gar || !C[u.h]) continue;
+      const ci = S.M.cityAt[u.h];
+      if (ci >= 0 && (S.M.cities[ci].fort || S.M.cities[ci].vp >= 4)) continue;
+      const k = nEn(S, u.h, side);
+      if (k < 4) continue;
+      bestMove(S, u, (h, c) => (C[h] ? 0 : 50) + nEn(S, h, side) * 3 + enemyNear(S, h, side) * 0.5 + Math.max(0, stackN(S, h) - 1) * 0.5 + (c || 0) * 0.05);
+    }
+  }
+}
+// нагрузка участков армий: потребность фронта (fr), сила противника у участка (en), своя сила (ow), напряжение pr = en/ow
+function pressure(S, side, act, lab, need) {
+  const M = S.M, n = act.length, nd = new Float32Array(n), en = new Float32Array(n), ow = new Float32Array(n), seen = new Set();
+  for (const [h, v] of need) {
+    const i = lab[h];
+    if (i < 0) continue;
+    nd[i] += v;
+    for (let d = 0; d < 6; d++) {
+      const j = M.nb[h * 6 + d];
+      if (j >= 0) for (const e of unitsAt(S, j)) if (e.side !== side && !seen.has(e.id)) (seen.add(e.id), (en[i] += cvRaw(S, e)));
+    }
+  }
+  act.forEach((A, i) => {
+    for (const u of A._us) ow[i] += cvRaw(S, u);
+    A.fr = Math.round(nd[i] * 10) / 10;
+    A.en = Math.round(en[i]);
+    A.pr = Math.round((en[i] / Math.max(4, ow[i])) * 100) / 100;
+  });
+}
+// перегруппировка между армиями «Авто»: с тихих участков — на угрожаемые (раз в 2 дня, по 1–3 дивизии)
+function rebalance(S, side, act) {
+  if (S.day % 2) return;
+  const fd = S.frontDist?.[side], auto = (A) => !A.order || A.order === 'auto';
+  const rec = act.filter((A) => auto(A) && A.pr > (A._p.k === 'atk' ? 0.9 : 1.1)).sort((a, b) => b.pr - a.pr);
+  let left = side === 'SOV' ? 3 : 2;
+  for (const B of rec) {
+    if (left <= 0) break;
+    let best = null, bs = 1e9, bA = null;
+    for (const A of act) {
+      if (A === B || !auto(A) || A._p.k === 'atk' || A.pr > Math.min(0.55, B.pr * 0.4) || A._us.length <= Math.max(3, Math.ceil(A.fr) + 1)) continue;
+      for (const u of A._us) {
+        if (!alive(u) || u.gar || u.oos > 0 || u.nat !== B.nat || u.mv || u.at) continue;
+        const f = fd ? fd[u.h] : 3;
+        if (f < 1 && A._us.length <= A.fr * 1.3 + 1) continue;
+        const s = S.M.dist(u.h, B._us[0]?.h ?? u.h) * 0.2 - Math.min(f, 6) - u.men / 4000;
+        if (s < bs) (bs = s), (best = u), (bA = A);
+      }
+    }
+    if (!best) continue;
+    best.hq = B.k;
+    bA._us.splice(bA._us.indexOf(best), 1);
+    B._us.push(best);
+    bA.pr *= 1.1;
+    B.pr *= 0.92;
+    left--;
+  }
+}
 // директивы ставок: города, которые ИИ не штурмует, пока у защитников есть снабжение
 // (Гитлер: Ленинград — блокировать, не брать; Киев — взять окружением)
-const NOASS = { GER: [['Ленинград', '1941-06-22', '1945-12-31'], ['Киев', '1941-06-22', '1941-09-15'], ['Москва', '1941-06-22', '1942-03-31']], SOV: [] };
+const NOASS = { GER: [['Ленинград', '1941-06-22', '1945-12-31'], ['Киев', '1941-06-22', '1941-09-15']], SOV: [] };
 const NOASS2 = Object.fromEntries(Object.entries(NOASS).map(([k, a]) => [k, a.map(([n, x, y]) => [n, dayOf(x), dayOf(y)])]));
 function noAssault(S, side, t) {
   const ci = S.M.cityAt[t];
@@ -334,7 +410,7 @@ function bestMove(S, u, score) {
   const R = reach(S, u);
   let best = u.h, bs = score(u.h, 0);
   for (const [h, o] of R) {
-    if (h === u.h || stackN(S, h) >= STACK) continue;
+    if (h === u.h || stackN(S, h) >= stackCap(S, h)) continue;
     const s = score(h, o.c);
     if (s < bs - 1e-6) (bs = s), (best = h);
   }
@@ -409,11 +485,11 @@ function marchDef(S, A, us, lab, ai, need) {
       if (bi < 0 || bd > 14) break;
       const u = free.splice(bi, 1)[0];
       const R = reach(S, u);
-      if (R.has(h) && stackN(S, h) < STACK) doMove(S, u, pathTo(R, h));
+      if (R.has(h) && stackN(S, h) < stackCap(S, h)) doMove(S, u, pathTo(R, h));
       else {
         // ближе к цели
         let best = u.h, bs = M.dist(u.h, h);
-        for (const [x] of R) if (x !== u.h && stackN(S, x) < STACK && M.dist(x, h) < bs) (bs = M.dist(x, h)), (best = x);
+        for (const [x] of R) if (x !== u.h && stackN(S, x) < stackCap(S, x) && M.dist(x, h) < bs) (bs = M.dist(x, h)), (best = x);
         if (best !== u.h) doMove(S, u, pathTo(R, best));
       }
       have.set(h, have.get(h) + 1);
@@ -449,7 +525,7 @@ function railMoves(S, side, act, lab, opt) {
       // станция поближе к армии, не у самого фронта
       let best = -1, bs = 1e9;
       for (const h of M.ring(c, 6)) {
-        if (!railOK(S, h, side) || net[h] < 0 || zoc(S, h, side) || stackN(S, h) >= STACK) continue;
+        if (!railOK(S, h, side) || net[h] < 0 || zoc(S, h, side) || stackN(S, h) >= stackCap(S, h)) continue;
         if (fd && fd[h] < 2) continue;
         const s = M.dist(h, c);
         if (s < bs) (bs = s), (best = h);

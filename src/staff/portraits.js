@@ -526,6 +526,20 @@ export function portraitURL(id, k = 3) {
   urls.set(key, u);
   return u;
 }
+// v0.9: холст 40×48 по готовым параметрам (жетоны штабов на карте «Фронта 1941–1945»)
+const baseP = new Map();
+export function portraitCanvasP(key, por, nat) {
+  let c = baseP.get(key);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = PW;
+  c.height = PH;
+  const x = c.getContext('2d'), im = x.createImageData(PW, PH);
+  im.data.set(draw(por, nat));
+  x.putImageData(im, 0, 0);
+  baseP.set(key, c);
+  return c;
+}
 // v0.8: портрет по готовым параметрам (генералы глав «Барбароссы», не входящие в «Сталинград»)
 export function portraitURLP(key, por, nat, k = 3) {
   const kk = `p:${key}|${k}`;

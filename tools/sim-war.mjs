@@ -35,6 +35,10 @@ for (let run = 0; run < N; run++) {
       const pk = SIDES.map((sd) => (S.pk[sd] || []).length).join('/');
       console.log(`${fd(S.day)}: дивизий GER ${st(S, 'GER')} SOV ${st(S, 'SOV')} · сила ${Math.round(strength(S, 'GER'))}/${Math.round(strength(S, 'SOV'))} · мораль ${Math.round(S.morale.GER)}/${Math.round(S.morale.SOV)} · ПМ ${E.GER ? Math.round(E.GER.ip) : '?'}/${E.SOV ? Math.round(E.SOV.ip) : '?'} · авиа ${(S.air.GER * 100) | 0}% · котлы ${pk} · потери ${Math.round(S.loss.GER / 1000)}k/${Math.round(S.loss.SOV / 1000)}k`);
     }
+    if (verbose && process.env.MST === '1' && d.getUTCDate() === 1 && S.mst && d.getUTCMonth() % 3 === 0 && lastM === mo) {
+      const f = (o) => Object.entries(o).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(', ');
+      console.log(`      мораль GER: ${f(S.mst.GER)} | SOV: ${f(S.mst.SOV)}`);
+    }
     if (verbose) for (const n of S.log.filter((l) => l.d === S.day - 1 && (l.k === 'ev' || l.k === 'city' || l.k === 'dec') && l.big)) console.log('   ', fd(n.d), n.t);
   }
   const ms = Date.now() - t0;
