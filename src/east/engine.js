@@ -7,13 +7,14 @@
 import { TYPES, TER, WX, SIDE0, NAT_N, DIFF, LAST_TURN, quality, tankQ, weatherOf, winter41, rnd, other, yearF, lerpT, turnOf, fmtTurn, divW, isMech } from './rules.js';
 import { ALLG } from '../war/gens41.js';
 import { HIST_KEYS } from './hist.js';
+import { runEvents } from './events.js';
 
 export const SAVE_KEY = 'wf_east_v1';
 export const VER = 1;
 export const ZN = 5;
 // ——— справочные ———
 export const natOf = (S, r) => S.M.nats[S.own[r]] || '';
-export const sideOf = (S, r) => SIDE0[S.M.nats[S.own[r]]] || null;
+export const sideOf = (S, r) => { const n = S.M.nats[S.own[r]]; return S.out?.[n] ? null : SIDE0[n] || null; };
 export const cap = (S, r) => Math.max(8, Math.min(16, Math.round(Math.sqrt(S.M.reg[r].a) / 9)));
 export const alive = (u) => u.r >= 0 && !u.dead;
 export function reindex(S) {
@@ -71,8 +72,16 @@ export function attCV(S, u, T, from = u.r) {
   if (e?.sp === 'sea') v *= 0.55;
   v *= w.atk;
   if (u.s === 'GER' && u.nat === 'GER' && winter41(S.turn) && S.wx[g.z] !== 'dry') v *= S.flags.winterGear ? 0.85 : 0.62;
-  v *= genMod(S, u.s, S.M.reg[from].z, 'att', u, ter);
+  v *= genMod(S, u.s, S.M.reg[from].z, 'att', u, ter) * boostK(S, u.s, g.z, 'att');
   return v;
+}
+// временные усиления событий (S.boost): z < 0 — на всех направлениях
+export function boostK(S, side, z, kind) {
+  const B = S.boost;
+  if (!B || !B.length) return 1;
+  let k = 1;
+  for (const b of B) if (b.side === side && b.kind === kind && b.until > S.turn && (b.z < 0 || b.z === z)) k *= b.k;
+  return k;
 }
 // артиллерия прорыва: атакующий «снимает» часть уровней укреплений (СССР — с 1943 г.)
 export const ART = { SOV: [[1942.8, 0], [1943.5, 0.5], [1944.5, 1.0], [1945.2, 1.3]], GER: [[1941.4, 0.4], [1942.9, 0.4], [1943.5, 0.2]] };
@@ -87,7 +96,7 @@ export function defCV(S, u, aside = null) {
   if (g.f.includes('f')) v *= 1.3;
   v *= 1 + 0.1 * u.ent;
   if (u.s === 'GER' && u.nat === 'GER' && winter41(S.turn) && S.wx[g.z] !== 'dry') v *= S.flags.winterGear ? 0.92 : 0.8;
-  v *= genMod(S, u.s, g.z, 'def', u, ter);
+  v *= genMod(S, u.s, g.z, 'def', u, ter) * boostK(S, u.s, g.z, 'def');
   return v;
 }
 // гарнизон города или укреплений (ополчение, НКВД, тыловые части): в такую область нельзя просто войти — только атакой
@@ -487,6 +496,7 @@ export function endWeek(S) {
   S.air.GER = airBase(S, 'GER'); S.air.SOV = airBase(S, 'SOV');
   arrivals(S);
   director(S);
+  runEvents(S);
   S.hooks?.week?.(S);
   checkEnd(S);
 }
@@ -507,24 +517,25 @@ export function histDiff(S) {
   return { d, z };
 }
 function director(S) {
-  if (S.mode !== 'hist' || S.over) return;
-  const h = histDiff(S);
+  if (S.over) return;
+  const h = histDiff(S), free = S.mode !== 'hist';
   S.dir = (S.dir ?? 0) * 0.7 + h.d * 0.3;
-  // кто отстаёт от истории; помогать ли ему (сложность: лёгкая — только игроку, тяжёлая — только ИИ)
-  const x = Math.max(-1, Math.min(1, S.dir / 10)), lag = x > 0 ? 'SOV' : 'GER';
+  // кто отстаёт от истории; помогать ли ему (сложность: лёгкая — только игроку, тяжёлая — только ИИ);
+  // в «Свободном» режиме — слабее и только при большом отрыве (своя стратегия может переиграть историю)
+  const x = Math.max(-1, Math.min(1, (free ? S.dir - Math.sign(S.dir) * Math.min(Math.abs(S.dir), 3) : S.dir) / 10)), lag = x > 0 ? 'SOV' : 'GER';
   const allow = (side) => S.diff === 1 || (S.diff === 0 ? side === S.side : side !== S.side);
-  const k = allow(lag) ? Math.abs(x) : 0;
+  const k = (allow(lag) ? Math.abs(x) : 0) * (free ? 0.7 : 1);
   // «ход истории»: отстающая сторона сражается немного лучше, ведущая — хуже (до ±15 %)
   S.band = { GER: 1 + (x > 0 ? -0.15 : 0.15) * k, SOV: 1 + (x > 0 ? 0.15 : -0.15) * k };
   if (S.turn % 3 || !k) return;
   const pick = (sg) => { let best = 2, bv = -1e9; h.z.forEach((v, q) => { if (v * sg > bv) (bv = v * sg), (best = q); }); return best; };
   const n0 = S.units.filter((u) => alive(u) || (!u.dead && u.arr !== undefined));
-  if (lag === 'SOV' && S.dir >= 2 && n0.filter((u) => u.s === 'SOV').length < lerpT(ARMY_CAP.SOV, yearF(S.turn))) {
-    const n = Math.min(5, Math.round(S.dir)), z = pick(1);
+  if (lag === 'SOV' && S.dir >= (free ? 5 : 2) && n0.filter((u) => u.s === 'SOV').length < lerpT(ARMY_CAP.SOV, yearF(S.turn))) {
+    const n = Math.min(free ? 3 : 5, Math.round(S.dir - (free ? 3 : 0))), z = pick(1);
     for (let i = 0; i < n; i++) recruit(S, 'SOV', i % 4 === 3 && yearF(S.turn) > 1942.2 ? 'arm' : 'inf', z, { free: 1, wait: 1, str: 85, rdy: 70 });
     note(S, { ic: 'star', side: 'SOV', txt: `Резервы Ставки: ${n} ${divW(n)}` });
-  } else if (lag === 'GER' && S.dir <= -3 && n0.filter((u) => u.s === 'GER').length < lerpT(ARMY_CAP.GER, yearF(S.turn))) {
-    const n = Math.min(3, Math.round(-S.dir / 2)), z = pick(-1);
+  } else if (lag === 'GER' && S.dir <= (free ? -5 : -3) && n0.filter((u) => u.s === 'GER').length < lerpT(ARMY_CAP.GER, yearF(S.turn))) {
+    const n = Math.min(free ? 2 : 3, Math.round((-S.dir - (free ? 3 : 0)) / 2)), z = pick(-1);
     S.men.GER += 6 * n;
     for (let i = 0; i < n; i++) recruit(S, 'GER', i % 3 === 2 ? 'arm' : 'inf', z, { free: 1, wait: 1, str: 90, rdy: 80 });
     note(S, { ic: 'star', side: 'GER', txt: `Резервы с Запада: ${n} ${divW(n)}` });

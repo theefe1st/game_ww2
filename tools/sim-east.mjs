@@ -11,7 +11,8 @@ import { HIST_KEYS } from '../src/east/hist.js';
 const A = process.argv.slice(2), arg = (k, d) => { const i = A.indexOf('--' + k); return i < 0 ? d : A[i + 1] === undefined || A[i + 1].startsWith('--') ? true : A[i + 1]; };
 const turns = +arg('turns', 236), seed = +arg('seed', 7), diff = +arg('diff', 1), side = arg('side', 'SOV'), mode = arg('mode', 'hist'), V = !!arg('v', false), Q = !!arg('q', false), Z = +arg('z', 0);
 const M = decodeMap(JSON.parse(fs.readFileSync(new URL('../src/east/data/map.json', import.meta.url), 'utf8')));
-const S = newGame(M, { side, mode, diff, seed });
+const NOEV = !!arg('noev', false);
+const S = newGame(M, { side, mode, diff, seed, noAsk: 1, noEv: NOEV });
 // ключевые города: [название, дата взятия Осью, дата освобождения] (история)
 const KEY = HIST_KEYS;
 const kr = KEY.map(([n, a, b]) => ({ n, r: placeR(S, n), a: a ? turnOf(a) : null, b: b ? turnOf(b) : null, lost: null, back: null, s: null })).filter((k) => k.r >= 0);
@@ -48,6 +49,7 @@ for (let t = 0; t < turns && !S.over; t++) {
     }
     console.log('     ' + zs.join(' | '));
   }
+  if (S.evq.length) { if (!Q) console.log('     события: ' + S.evq.map((e) => e.id).join(', ')); S.evq = []; }
   if (!Q && (V || ch.length || turn % 4 === 0)) {
     const iG = S.inc.GER, iS = S.inc.SOV;
     console.log(`${String(turn).padStart(3)} ${fmtTurn(turn).padEnd(12)} ${S.wx.map((w) => w[0]).join('')} | G ${o.GER.n}(${o.GER.arm}) ${o.GER.str}% pp${S.pp.GER | 0}/${iG.pp | 0} m${S.men.GER | 0}/${iG.men | 0} mor${S.mor.GER | 0} | S ${o.SOV.n}(${o.SOV.arm}) ${o.SOV.str}% pp${S.pp.SOV | 0}/${iS.pp | 0} m${S.men.SOV | 0}/${iS.men | 0} mor${S.mor.SOV | 0} | G${regs('GER')} | b${bG}/${bS} L G${S.stats.GER.lost} S${S.stats.SOV.lost}(${S.stats.SOV.pow}) | ${S.post.GER.map((p) => p[0]).join('')} ${S.post.SOV.map((p) => p[0]).join('')} ${ch.join(' ')}`);

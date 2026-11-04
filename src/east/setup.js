@@ -5,6 +5,7 @@ import { makeProj, regionAt, nearestRegion } from './mapdata.js';
 import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, SAVE_KEY } from './engine.js';
 import { weatherOf, SIDE0, turnOf, rnd } from './rules.js';
 import { GEN_HIST, PLAN, REINF, parseMix } from './hist.js';
+import { runEvents } from './events.js';
 
 // область по названию города или области
 export function placeR(S, name) {
@@ -57,7 +58,7 @@ function settle(S) {
     u.r = r; S.at[r].push(u);
   }
 }
-export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math.random() * 1e9) | 0 } = {}) {
+export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math.random() * 1e9) | 0, noAsk = 0, noEv = 0 } = {}) {
   const R = M.R;
   const S = {
     v: 1, side, mode, diff, seed, rs: seed || 1, turn: 0, M,
@@ -108,6 +109,9 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
   reindex(S);
   computeSupply(S, 'GER'); computeSupply(S, 'SOV');
   S.airA = { GER: airAlloc(S, 'GER'), SOV: airAlloc(S, 'SOV') };
+  if (noAsk) S.noAsk = 1;
+  if (noEv) S.noEv = 1;
+  runEvents(S);
   return S;
 }
 export { SAVE_KEY };
