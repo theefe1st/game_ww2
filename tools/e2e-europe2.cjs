@@ -14,7 +14,7 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   const shot = async (n) => { await page.waitForTimeout(260); await page.screenshot({ path: `tools/shots/eu2_${TAG}_${n}.png` }); };
   const click = async (sel, w = 300) => { await page.evaluate((s) => { const b = document.querySelector(s); if (!b) throw new Error('no ' + s); b.click(); }, sel); await page.waitForTimeout(w); };
   const dlg = () => page.evaluate(() => { const m = document.querySelector('#eu .eu-dlg'); return m && m.offsetParent !== null ? m.innerText.replace(/\s+/g, ' ').slice(0, 200) : null; });
-  await page.goto('file:///data/game/dist-single/index.html');
+  await page.goto('file:///data/game/dist-single/index.html#arch');
   await page.waitForTimeout(1200);
   await click('#m-eu', 700);
   await click('[data-a=opt][data-k=nat][data-v=GER]');

@@ -27,3 +27,6 @@ android/keystore.properties
 # бинарные файлы Android хранятся в tools/android-binaries.b64 (распаковка: tools/unpack-binaries.sh)
 android/app/src/main/res/**/*.png
 android/gradle/wrapper/gradle-wrapper.jar
+tools/data/dem/
+tools/data/ne2/
+tools/data/ne2.zip

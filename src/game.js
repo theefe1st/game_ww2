@@ -12,6 +12,10 @@ import { kharkov42 as __mkKH } from "./ops/kharkov42.js";
 import { rzhev42 as __mkRZ } from "./ops/rzhev42.js";
 import { FrontMap, frontState } from "./front/frontmap.js";
 import { EuropeUI } from "./europe/ui.js";
+import { StaffUI } from "./staff/ui.js";
+import { BarbUI } from "./barb/ui.js";
+import { WarUI } from "./war/ui.js";
+import { EastUI } from "./east/ui.js";
 import { FRONT_STAGES, FRONT_OPS, FRONT_TEXT, FRONT_RESULT } from "./front/stages.js";
 var e = Object.defineProperty,
   t = (e, t, n) => () => {
@@ -917,10 +921,15 @@ var Le = class {
         this.resize(),
         window.addEventListener(`resize`, () => this.resize()),
         this.bindInput());
+      // v0.10: цикл кадров ставится на паузу, пока открыт «Восточный фронт» (бережём батарею)
       let n = () => {
+        if (this.paused) return void (this.rafOn = !1);
         (this.frame(), requestAnimationFrame(n));
       };
-      requestAnimationFrame(n);
+      ((this.loopFn = n), (this.rafOn = !0), requestAnimationFrame(n));
+    }
+    pause(e) {
+      ((this.paused = !!e), !e && !this.rafOn && ((this.rafOn = !0), (this.dirty = !0), requestAnimationFrame(this.loopFn)));
     }
     setGame(e) {
       this.G = e;
@@ -9240,7 +9249,7 @@ function Eo(e) {
 var Do = `wf_save_v1`,
   Oo = (e) =>
     `${e} ${e % 10 == 1 && e % 100 != 11 ? `приказ` : e % 10 >= 2 && e % 10 <= 4 && (e % 100 < 12 || e % 100 > 14) ? `приказа` : `приказов`}`,
-  ko = `v0.6.1 · прототип`,
+  ko = `v0.10 · архив прототипов`,
   Ao = {
     smolensk41: Ua,
     moscow41: Wa,
@@ -9353,6 +9362,8 @@ var Do = `wf_save_v1`,
         this.menuCamera(),
         this.euRestore(),
         this.showMenu(),
+        // v0.10: по умолчанию — новая игра «Восточный фронт 1941–1945»; #arch / #legacy — старое меню прототипов
+        /arch|legacy/.test(location.hash) || this.openEast(),
         document.addEventListener(`visibilitychange`, () => {
           document.hidden && this.save();
         }),
@@ -9388,6 +9399,10 @@ var Do = `wf_save_v1`,
 <div id="menu" class="hidden"></div>
 <div id="front" class="hidden"></div>
 <div id="eu" class="hidden"></div>
+<div id="st" class="hidden"></div>
+<div id="bb" class="hidden"></div>
+<div id="war" class="hidden"></div>
+<div id="east" class="hidden"></div>
 <div id="modal" class="hidden"></div>`;
       for (let e of this.ui.querySelectorAll(`[id]`)) this.$[e.id] = e;
       (this.$[`b-obj`].prepend(_o(`star`)),
@@ -9446,7 +9461,11 @@ var Do = `wf_save_v1`,
       ((this.$.modal.className = `hidden`), (this.$.modal.innerHTML = ``));
     }
     onBack() {
+      if (this.east && !this.$.east.classList.contains(`hidden`)) return this.east.back();
       if (this.eu && !this.$.eu.classList.contains(`hidden`)) return this.eu.back();
+      if (this.war && !this.$.war.classList.contains(`hidden`)) return this.war.back();
+      if (this.bb && !this.$.bb.classList.contains(`hidden`)) return this.bb.back();
+      if (this.st && !this.$.st.classList.contains(`hidden`)) return this.st.back();
       return this.modalOpen
         ? (this.$.modal.dataset.nodismiss !== `1` &&
             (Z.click(), this.closeModal()),
@@ -9564,8 +9583,12 @@ var Do = `wf_save_v1`,
         } catch {}
     }
     showMenu() {
+      this.closeEast();
       this.closeFront();
       this.closeEurope();
+      this.closeStaff();
+      this.closeBarb();
+      this.closeWar();
       let euAbort = this.euDeep;
       euAbort && ((this.euDeep = null), this.euRestore());
       ((this.menuBack = null),
@@ -9595,13 +9618,27 @@ var Do = `wf_save_v1`,
           i && a
             ? `${ha[a.rank]} ${i.short} · операций ${a.done} из ${J.length}`
             : `Красная армия 1941–1945 · Бзура 1939`;
+      if (this.menuArch === undefined) {
+        // архив прототипов: помнить выбор игрока; #arch в адресе — сразу открыт (для старых автотестов)
+        let t0 = ``;
+        try {
+          t0 = localStorage.getItem(`wf_menu_arch`) || ``;
+        } catch {}
+        this.menuArch = /arch/.test(location.hash) || t0 === `1`;
+      }
       t.innerHTML = `<div class="logo">МИРОВОЙ<br> ФРОНТ</div>
 <div class="tagline">Вторая мировая · пошаговая стратегия</div>
 <div class="mbtns">
-${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</small></button>` : ``}
-<button class="btn ${e ? `` : `gold`}" id="m-new">Новая кампания</button>
+<button class="btn gold" id="m-east"><span class="newtag">новое</span>Восточный фронт 1941–1945<small>${$(EastUI.menuLabel())}</small></button>
+<button class="btn" id="m-war">Фронт 1941–1945 (v0.9)<small>${$(WarUI.menuLabel())}</small></button>
+${this.menuArch ? `<div class="march">Архив прототипов v0.1–v0.8</div>
+<button class="btn" id="m-bb">Барбаросса 1941<small>${$(BarbUI.menuLabel())}</small></button>
+${e ? `<button class="btn" id="m-cont">Продолжить<small>${$(r)}</small></button>` : ``}
+<button class="btn" id="m-new">Новая кампания</button>
 <button class="btn" id="m-car">Карьера генерала<small>${$(o)}</small></button>
-<button class="btn" id="m-eu"><span class="newtag">новое</span>Европа 1939–1945<small>${$(EuropeUI.menuLabel())}</small></button>
+<button class="btn" id="m-st">Сталинград 1942–1943<small>${$(StaffUI.menuLabel())}</small></button>
+<button class="btn" id="m-eu">Европа 1939–1945<small>${$(EuropeUI.menuLabel())}</small></button>
+<button class="btn" id="m-arch">Скрыть архив</button>` : `<button class="btn" id="m-arch">Архив прототипов<small>кампании, карьера, Сталинград, Европа, Барбаросса</small></button>`}
 <div class="mrow"><button class="btn" id="m-help">Как играть</button><button class="btn" id="m-snd">Звук: ${co.on ? `вкл` : `выкл`}</button></div>
 </div>
 <div class="ver">${ko}</div>`;
@@ -9609,14 +9646,33 @@ ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</
       (s(`m-cont`)?.addEventListener(`click`, () => {
         (Z.click(), this.continueGame());
       }),
-        s(`m-new`).addEventListener(`click`, () => {
+        s(`m-new`)?.addEventListener(`click`, () => {
           (Z.click(), this.showSetup());
         }),
-        s(`m-car`).addEventListener(`click`, () => {
+        s(`m-car`)?.addEventListener(`click`, () => {
           (Z.click(), this.showCareerHub());
         }),
-        s(`m-eu`).addEventListener(`click`, () => {
+        s(`m-eu`)?.addEventListener(`click`, () => {
           (Z.click(), this.openEurope());
+        }),
+        s(`m-st`)?.addEventListener(`click`, () => {
+          (Z.click(), this.openStaff());
+        }),
+        s(`m-bb`)?.addEventListener(`click`, () => {
+          (Z.click(), this.openBarb());
+        }),
+        s(`m-war`).addEventListener(`click`, () => {
+          (Z.click(), this.openWar());
+        }),
+        s(`m-east`).addEventListener(`click`, () => {
+          (Z.click(), this.openEast());
+        }),
+        s(`m-arch`).addEventListener(`click`, () => {
+          this.menuArch = !this.menuArch;
+          try {
+            localStorage.setItem(`wf_menu_arch`, this.menuArch ? `1` : `0`);
+          } catch {}
+          (Z.click(), this.showMenu());
         }),
         s(`m-help`).addEventListener(`click`, () => {
           (Z.click(), this.showHelp());
@@ -9628,7 +9684,7 @@ ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</
     }
     // ——— «Европа 1939–1945»: стратегический режим и тактические битвы из него ———
     openEurope() {
-      (this.closeFront(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      (this.closeFront(), this.closeStaff(), this.closeBarb(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
       for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
       this.eu ||
         (this.eu = new EuropeUI(this.$.eu, {
@@ -9643,6 +9699,51 @@ ${e ? `<button class="btn gold" id="m-cont">Продолжить<small>${$(r)}</
     closeEurope() {
       this.eu && !this.$.eu.classList.contains(`hidden`) && this.eu.close();
       this.$.eu.classList.add(`hidden`);
+    }
+    // ——— «Сталинград 1942–1943»: штабной режим «Операция «Уран»» (v0.7) ———
+    openStaff() {
+      (this.closeFront(), this.closeEurope(), this.closeBarb(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
+      this.st || (this.st = new StaffUI(this.$.st, { sfx: Z, exit: () => this.showMenu() }));
+      (this.$.st.classList.remove(`hidden`), this.st.open());
+    }
+    closeStaff() {
+      this.st && !this.$.st.classList.contains(`hidden`) && this.st.close();
+      this.$.st.classList.add(`hidden`);
+    }
+    // ——— «Барбаросса 1941» (v0.8): кампания по главам, глава 1 «Граница» ———
+    openBarb() {
+      (this.closeFront(), this.closeEurope(), this.closeStaff(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
+      this.bb || (this.bb = new BarbUI(this.$.bb, { sfx: Z, exit: () => this.showMenu() }));
+      (this.$.bb.classList.remove(`hidden`), this.bb.open());
+    }
+    closeBarb() {
+      this.bb && !this.$.bb.classList.contains(`hidden`) && this.bb.close();
+      this.$.bb.classList.add(`hidden`);
+    }
+    // ——— «Фронт 1941–1945» (v0.9): вся война на Восточном фронте, день за ходом ———
+    openWar() {
+      (this.closeFront(), this.closeEurope(), this.closeStaff(), this.closeBarb(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
+      this.war || (this.war = new WarUI(this.$.war, { sfx: Z, exit: () => this.showMenu() }));
+      (this.$.war.classList.remove(`hidden`), this.war.open());
+    }
+    closeWar() {
+      this.war && !this.$.war.classList.contains(`hidden`) && this.war.close();
+      this.$.war.classList.add(`hidden`);
+    }
+    // ——— v0.10 «Восточный фронт 1941–1945»: регионы, неделя за ход, направления и генералы ———
+    openEast() {
+      (this.closeFront(), this.closeEurope(), this.closeStaff(), this.closeBarb(), this.closeWar(), this.closeModal(), this.$.menu.classList.add(`hidden`));
+      for (let e of [`top`, `rail`, `bottom`, `aiwait`, `banner`]) this.$[e].classList.add(`hidden`);
+      this.east || (this.east = new EastUI(this.$.east, { exit: () => this.showMenu() }));
+      (this.$.east.classList.remove(`hidden`), this.east.open(), this.view.pause?.(!0));
+    }
+    closeEast() {
+      if (!this.$.east) return;
+      this.east && !this.$.east.classList.contains(`hidden`) && this.east.close();
+      (this.$.east.classList.add(`hidden`), this.view.pause?.(!1));
     }
     euDeepStart(e, t, n, r) {
       let i = ma[e];
