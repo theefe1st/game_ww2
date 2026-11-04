@@ -38,8 +38,9 @@ export const TYPES = {
   mot: { n: 'Моторизованные', sh: 'мот.', att: 6.5, def: 5, mp: 4.6, pp: 13, mp$: 8, mech: 1 },
   arm: { n: 'Танковые', sh: 'танк.', att: 10, def: 6, mp: 4.6, pp: 22, mp$: 7, mech: 1 },
   sec: { n: 'Охранные', sh: 'охр.', att: 1.2, def: 2.6, mp: 1.8, pp: 3, mp$: 5, mech: 0 },
+  abn: { n: 'Воздушно-десантные', sh: 'вдд', att: 4.5, def: 4.5, mp: 2.6, pp: 9, mp$: 8, mech: 0 },
 };
-export const TYPE_ORDER = ['arm', 'mot', 'inf', 'mtn', 'cav', 'sec'];
+export const TYPE_ORDER = ['arm', 'mot', 'inf', 'mtn', 'abn', 'cav', 'sec'];
 export const isMech = (u) => TYPES[u.t].mech === 1;
 // местность: оборона, стоимость входа, штраф подвижных войск в атаке
 export const TER = {

@@ -28,7 +28,7 @@ export const MIX = {
 export function mixNow(side, turn) { let m = MIX[side][0][1]; for (const [y, x] of MIX[side]) if (yearF(turn) >= y) m = x; return m; }
 export const AIR_SH = 0.2; // «норма» доли самолётов: при ней ВВС как в истории
 const E_NEW = 0.35, E_REC = 0.08;
-export const effCap = (S, side) => 1 + (S.tech?.[side]?.ind || 0) * 0.05;
+export const effCap = () => 1; // предел эффективности линий (наука даёт +% к производству, см. tech.js)
 export const eqTot = (S, side) => { const q = S.eq[side]; return q.inf + q.art + q.arm; };
 export const eqNeed = (t, pp) => { const s = EQS[t] || EQS.inf, o = {}; for (const c in s) o[c] = pp * s[c]; return o; };
 export function hasEq(S, side, t, pp) { const s = EQS[t] || EQS.inf, q = S.eq[side]; for (const c in s) if (q[c] + 1e-6 < pp * s[c]) return false; return true; }

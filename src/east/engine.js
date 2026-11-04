@@ -9,6 +9,7 @@ import { ALLG } from '../war/gens41.js';
 import { HIST_KEYS } from './hist.js';
 import { runEvents } from './events.js';
 import { produce, construct, evacWeek, hasEq, payEq, EQS, polOf } from './eco.js';
+import { tx, techWeek } from './tech.js';
 export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, used, eqTot, hasEq, EQS, LINES, LINE, shiftLine, etaOf, cpPlanned, cpNow, bCost, unbuild } from './eco.js';
 
 export const SAVE_KEY = 'wf_east_v1';
@@ -110,9 +111,11 @@ export const qualOf = (S, u) => quality(u.nat, S.turn) * (isMech(u) ? tankQ(u.s,
 const diffMod = (S, side) => (side === S.side ? DIFF[S.diff].pl : DIFF[S.diff].ai) * (S.band?.[side] ?? 1);
 const morMod = (S, side) => 0.9 + (0.2 * S.mor[side]) / 100;
 const supF = (S, u) => { const s = S.sup[u.s][u.r]; return s <= 0 ? 0.45 : 0.5 + 0.5 * Math.min(1, s); };
+// наука (относительно истории): все войска, пехота или танковые и моторизованные
+export const techK = (S, u, kind) => 1 + (kind === 'att' ? tx(S, u.s, 'att') + (isMech(u) ? tx(S, u.s, 'tank') : tx(S, u.s, 'infAtt')) : tx(S, u.s, 'def') + (isMech(u) ? tx(S, u.s, 'tank') : tx(S, u.s, 'infDef')));
 export function baseCV(S, u, kind) {
   const T = TYPES[u.t];
-  return (kind === 'att' ? T.att : T.def) * qualOf(S, u) * (u.str / 100) * (0.42 + (0.58 * u.rdy) / 100) * (1 + u.xp / 260) * diffMod(S, u.s) * morMod(S, u.s) * supF(S, u);
+  return (kind === 'att' ? T.att : T.def) * qualOf(S, u) * techK(S, u, kind) * (u.str / 100) * (0.42 + (0.58 * u.rdy) / 100) * (1 + u.xp / 260) * diffMod(S, u.s) * morMod(S, u.s) * supF(S, u);
 }
 export function wxOf(S, r) { return WX[S.wx[S.M.reg[r].z]]; }
 const frozen = (S, r) => !!wxOf(S, r).frozen;
@@ -124,6 +127,7 @@ export function attCV(S, u, T, from = u.r) {
   const e = S.M.edge.get(from * 4096 + T);
   if (e && !frozen(S, T)) v *= e.riv === 2 ? 0.68 : e.riv === 1 ? 0.86 : 1;
   if (e?.sp === 'sea') v *= 0.55;
+  if (u._opK) v *= u._opK; // десант (ops.js)
   v *= w.atk;
   if (u.s === 'GER' && u.nat === 'GER' && winter41(S.turn) && S.wx[g.z] !== 'dry') v *= S.flags.winterGear ? 0.85 : 0.62;
   v *= genMod(S, u.s, fzOf(S, from), 'att', u, ter) * boostK(S, u.s, g.z, 'att');
@@ -139,7 +143,7 @@ export function boostK(S, side, z, kind) {
 }
 // артиллерия прорыва: атакующий «снимает» часть уровней укреплений (СССР — с 1943 г.)
 export const ART = { SOV: [[1942.8, 0], [1943.5, 0.5], [1944.5, 1.0], [1945.2, 1.3]], GER: [[1941.4, 0.4], [1942.9, 0.4], [1943.5, 0.2]] };
-const fortEff = (S, r, aside) => Math.max(0, S.fort[r] - (aside ? lerpT(ART[aside], yearF(S.turn)) : 0));
+const fortEff = (S, r, aside) => Math.max(0, S.fort[r] - (aside ? Math.max(0, lerpT(ART[aside], yearF(S.turn)) + tx(S, aside, 'fortPen')) : 0));
 export function defCV(S, u, aside = null) {
   const g = S.M.reg[u.r], ter = g.t;
   let v = baseCV(S, u, 'def') * TER[ter].def;
@@ -224,6 +228,8 @@ export function computeSupply(S, side) {
     const g = genOf(S, side, fzOf(S, r)), k = d[r] - (hasTr(g, 'log') ? 1 : 0) - (depB?.[r] || 0);
     sup[r] = k >= 90 ? 0 : k <= 1 ? 1 : k <= 2 ? 0.85 : k <= 3 ? 0.66 : k <= 4 ? 0.5 : 0.36;
   }
+  const ts = tx(S, side, 'sup');
+  if (ts) for (let r = 0; r < R; r++) if (sup[r] > 0) sup[r] = Math.min(1, sup[r] * (1 + ts));
   // растянутые коммуникации: чем дальше от своей довоенной территории, тем хуже снабжение (подвоз, партизаны)
   const dp = new Int16Array(R).fill(99), qd = [];
   for (let r = 0; r < R; r++) if (sideOf(S, r) === side && SIDE0[M.nats[S.own0[r]]] === side) (dp[r] = 0), qd.push(r);
@@ -238,6 +244,8 @@ export function computeSupply(S, side) {
       for (const e of g.nb) if (sideOf(S, e.r) === side && sup[e.r] <= 0) sup[e.r] = 0.3;
     }
   }
+  // плацдармы десантов: первые недели снабжаются морем или по воздуху
+  if (S.bridge) for (const k in S.bridge) { const r = +k; if (S.bridge[k] <= S.turn) delete S.bridge[k]; else if (sideOf(S, r) === side && sup[r] <= 0) sup[r] = 0.45; }
   // воздушный мост Люфтваффе (до 1943 г.): небольшие котлы получают немного снабжения
   if (side === 'GER' && yearF(S.turn) < 1943.4) {
     const pk = [];
@@ -375,14 +383,14 @@ export function attackersFor(S, T, side) {
   }
   return out;
 }
-export function odds(S, T, us) {
+export function odds(S, T, us, extraD = 0) {
   const side = us[0]?.s;
   if (!side) return { A: 0, D: 0, R: 0 };
   let A = 0, D = 0;
   const byR = new Map();
   for (const u of us) { const l = byR.get(u.r) || []; l.push(attCV(S, u, T, u.r)); byR.set(u.r, l); }
   for (const l of byR.values()) A += sumFW(l);
-  D = sumFW(S.at[T].filter((v) => v.s !== side).map((v) => defCV(S, v, side))) + garOf(S, T, side);
+  D = sumFW(S.at[T].filter((v) => v.s !== side).map((v) => defCV(S, v, side))) + garOf(S, T, side) + extraD;
   const z = S.M.reg[T].z, ar = airRatio(S, side, z), wa = wxOf(S, T).air, e = 0.5 + (ar - 0.5) * wa;
   A *= (0.8 + 0.4 * e) / (0.8 + 0.4 * (1 - e));
   return { A, D, R: D > 0 ? A / D : 99 };
@@ -418,7 +426,7 @@ function retreatTo(S, r, side) {
 export function resolveAttack(S, T, us, opt = {}) {
   const side = us[0].s, dside = other(side), g = S.M.reg[T];
   const defs = S.at[T].filter((v) => v.s === dside);
-  const o = odds(S, T, us);
+  const o = odds(S, T, us, opt.gar || 0);
   const R = o.R * (0.82 + rnd(S) * 0.36);
   const res = { T, side, R, n: us.length, d: defs.length, win: false, lostA: 0, lostD: 0, pow: 0 };
   const wl = wxOf(S, T).atk < 0.7 ? 0.8 : 1;
@@ -462,7 +470,7 @@ export function resolveAttack(S, T, us, opt = {}) {
       S.at[T].splice(S.at[T].indexOf(v), 1); v.r = to2; S.at[to2].push(v); v.ent = 0; v.mp = 0;
     }
   }
-  if (!S.at[T].some((v) => v.s === dside)) {
+  if (!S.at[T].some((v) => v.s === dside) && !(opt.need && R < opt.need)) {
     res.win = true;
     // наступают: подвижные и пехота основной области (без оголения соседних участков — решает ИИ через adv)
     const adv = opt.adv || us;
@@ -547,6 +555,7 @@ export function endWeek(S) {
   // стройка (очки гражданских фабрик) и эвакуация заводов
   construct(S, 'GER'); construct(S, 'SOV');
   evacWeek(S);
+  techWeek(S);
   // настроения: понемногу возвращаются к «настрою эпохи»
   for (const sd of ['GER', 'SOV']) addMor(S, sd, (lerpT(MOR0[sd], yearF(S.turn)) - S.mor[sd]) * 0.05);
   S.turn++;
@@ -617,7 +626,7 @@ export const ECO = {
   W: 1, cpK: 0.8, cpB: { GER: [[1941.4, 10], [1943.0, 12], [1944.5, 9]], SOV: [[1941.4, 8], [1943.0, 12], [1945.5, 14]] },
   air: { GER: [[1941.4, 100], [1942.0, 70], [1942.5, 85], [1943.0, 70], [1943.6, 60], [1944.4, 42], [1945.0, 32]], SOV: [[1941.4, 46], [1941.9, 40], [1942.5, 62], [1943.0, 90], [1943.6, 120], [1944.4, 150], [1945.0, 170]] },
 };
-const airBase = (S, side) => lerpT(ECO.air[side], yearF(S.turn)) * (S.flags[side + 'air'] || 1);
+const airBase = (S, side) => lerpT(ECO.air[side], yearF(S.turn)) * (S.flags[side + 'air'] || 1) * (1 + tx(S, side, 'air'));
 export function income(S, side) {
   const M = S.M, y = yearF(S.turn);
   let fac = 0, civ = 0;
@@ -627,7 +636,7 @@ export function income(S, side) {
     fac += S.fac[r] * k; civ += (S.civ?.[r] || 0) * k;
   }
   const ec = side === S.side ? DIFF[S.diff].eco : 1;
-  let pp = (fac * ECO.ppK[side] + lerpT(ECO.base[side], y)) * lerpT(ECO.mult[side], y) * ec * (S.flags[side + 'pp'] || 1);
+  let pp = (fac * ECO.ppK[side] + lerpT(ECO.base[side], y)) * lerpT(ECO.mult[side], y) * ec * (S.flags[side + 'pp'] || 1) * (1 + tx(S, side, 'pp'));
   let ll = 0;
   if (side === 'SOV') {
     const routes = ['Мурманск', 'Архангельск', 'Астрахань', 'Баку'].filter((n) => sideOf(S, regByName(S, n)) === 'SOV').length;
@@ -641,7 +650,7 @@ export function income(S, side) {
     men *= 0.55 + 0.45 * (have / tot);
   }
   // военное производство (вместе с самолётами: «норма» — 20 % на авиацию) и стройка
-  const cp = (civ * ECO.cpK + lerpT(ECO.cpB[side], y)) * ec * (S.flags[side + 'cp'] || 1);
+  const cp = (civ * ECO.cpK + lerpT(ECO.cpB[side], y)) * ec * (S.flags[side + 'cp'] || 1) * (1 + tx(S, side, 'cp'));
   return { pp: pp * ECO.W, men, fac, ll: ll * ECO.W, civ, cp };
 }
 // предел численности армии (дивизий, с союзниками): растёт с мобилизацией; у игрока — с поправкой на сложность
@@ -665,8 +674,9 @@ function economy(S, side) {
   // бюджет пополнения: доля запасов каждого вида снаряжения и людей
   const rp = S.repF?.[side] ?? lerpT(REP[side], yearF(S.turn)), q = S.eq[side], B = { inf: q.inf * rp, art: q.art * rp, arm: q.arm * rp }, U = { inf: 0, art: 0, arm: 0 }, budgetMen = S.men[side] * rp;
   let usedPP = 0, usedMen = 0, dry = 0;
+  const recK = 1 + tx(S, side, 'rec');
   for (const u of us) {
-    const s = S.sup[side][u.r], want = Math.min(top - u.str, (isFront(S, u.r, side) ? 8 : 16) * s * (u.oos ? 0 : 1)), c = costOf(u), m = EQS[u.t] || EQS.inf;
+    const s = S.sup[side][u.r], want = Math.min(top - u.str, (isFront(S, u.r, side) ? 8 : 16) * s * (u.oos ? 0 : 1) * recK), c = costOf(u), m = EQS[u.t] || EQS.inf;
     if (want <= 0) continue;
     let k = Math.min(want, (budgetMen - usedMen) / c.men);
     for (const e in m) k = Math.min(k, (B[e] - U[e]) / (c.pp * m[e]));
@@ -759,7 +769,7 @@ export function frontDist(S, side) {
 // перешивка и восстановление железных дорог за наступающими
 function railRepair(S, side) {
   const M = S.M, y = yearF(S.turn);
-  let k = side === 'GER' ? (y < 1942 ? 3 : 4) : y < 1943 ? 4 : y < 1944 ? 5 : 6;
+  let k = Math.max(1, (side === 'GER' ? (y < 1942 ? 3 : 4) : y < 1943 ? 4 : y < 1944 ? 5 : 6) + Math.round(tx(S, side, 'rail')));
   const d = S.supD?.[side];
   const cand = [];
   for (let r = 0; r < M.R; r++) {

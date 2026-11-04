@@ -14,7 +14,7 @@ import { divSprite, divLabel, wmOf, drawDiv, styleOf } from './counters.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const SIDE_COL = { GER: [72, 84, 100], SOV: [178, 58, 44] };
-const TYPE_RANK = { arm: 0, mot: 1, mtn: 2, inf: 3, cav: 4, sec: 5 };
+const TYPE_RANK = { arm: 0, mot: 1, mtn: 2, abn: 2, inf: 3, cav: 4, sec: 5 };
 const now = () => performance.now();
 // цвета фронтов (групп армий) — как линии планов в Hearts of Iron
 export const FRONT_COL = ['#9b5de5', '#2f80ed', '#27ae60', '#f2994a', '#17b8c8', '#e0479e', '#d4b106', '#a0673a'];
@@ -621,7 +621,7 @@ export class EastMap {
       if (!p) continue;
       const age = (t - m.t0) / m.life, a = clamp(1 - (age - 0.6) / 0.4, 0, 1), pulse = 1 + 0.15 * Math.sin((t - m.t0) / 120);
       c.globalAlpha = a;
-      drawIcon(c, 'boom', p[0] + 9, p[1] - 12, 20 * pulse, m.win ? '#f0a020' : '#c8c0b0', '#5a1a08');
+      drawIcon(c, m.op === 'abn' ? 'para' : m.op === 'sea' ? 'landing' : 'boom', p[0] + 9, p[1] - 12, (m.op ? 24 : 20) * pulse, m.win ? '#f0a020' : '#c8c0b0', '#5a1a08');
       c.globalAlpha = 1;
     }
   }

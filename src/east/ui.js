@@ -13,13 +13,15 @@ import * as E from './engine.js';
 import { runSide, setPostures, autoTarget, nearTarget, zoneForce, frontsOn } from './ai.js';
 import { FrontsUI, FRONT_ACT, frontShort } from './ui-fronts.js';
 import { EcoUI, ECO_ACT } from './ui-eco.js';
+import { SciUI, SCI_ACT } from './ui-sci.js';
+import { OpsUI, OPS_ACT } from './ui-ops.js';
 import { FRONT_COL } from './map.js';
 import { evCard, chooseEvent, boostsNow, pendingChoices } from './events.js';
 import { EastMap } from './map.js';
 import { counterURL, divLabel, wmOf } from './counters.js';
 import { Sound } from './audio.js';
 import { icon } from './icons.js';
-import { fmtTurn, turnOf, SIDE_N, SIDE0, NAT_N, TYPES, TER, WX, DIFF, MODES, other, divW, plural } from './rules.js';
+import { fmtTurn, turnOf, SIDE_N, SIDE0, NAT_N, TYPES, TYPE_ORDER, TER, WX, DIFF, MODES, other, divW, plural } from './rules.js';
 import { ZONES } from './sites.js';
 import { ALLG, POR_NAT, TRAITS } from '../war/gens41.js';
 import { portraitURLP } from '../staff/portraits.js';
@@ -63,7 +65,7 @@ export class EastUI {
     <button class="e-tab" data-a="dirs">${ic('compass')}<span>Фронты</span></button>
     <button class="e-tab" data-a="army">${ic('helmet')}<span>Армия</span></button>
     <button class="e-tab" data-a="eco">${ic('mil')}<span>Экономика</span></button>
-    <button class="e-tab" data-a="log">${ic('book')}<span>Журнал</span></button>
+    <button class="e-tab" data-a="sci">${ic('sci')}<span>Наука</span></button>
     <button class="e-next" data-a="next">${ic('next')}<span>Ход</span></button>
   </div>
   <div class="e-modebar hidden"></div>
@@ -117,7 +119,7 @@ export class EastUI {
   back() {
     if (!this.$('.e-modal').classList.contains('hidden')) { if (this.modalLock) return true; this.closeModal(); return true; }
     if (!this.$('.e-panel').classList.contains('hidden')) { this.closePanel(); return true; }
-    if (this.pick || this.sel) { this.cancelMode(); return true; }
+    if (this.pick || this.sel || this.opSel) { this.cancelMode(); return true; }
     if (this.mode === 'game') { this.gameMenu(); return true; }
     if (this.mode === 'new' || this.mode === 'help') { this.showMenu(); return true; }
     return false;
@@ -479,6 +481,7 @@ ${this.histCmp(o)}
 <span class="e-chip" title="Политическая власть">${ic('pol')}<b>${num(S.pol?.[P] || 0)}</b></span>
 <span class="e-mor" title="Боевой дух: ${Math.round(S.mor[P])}">${flagHTML(P, 'xs')}<i><em style="width:${Math.round(S.mor[P])}%"></em></i></span>`;
     this.$('.e-next').disabled = !!this.isBusy;
+    this.$('.e-tab[data-a="sci"]')?.classList.toggle('dot', !S.tech[P].auto && this.sciFree() > 0);
     this.map.flags = [];
     for (const z of frontsOn(S, P)) if (S.post[P][z] === 'atk' && S.tgt[P][z] >= 0 && !S.fr[P][z].man) this.map.flags.push({ r: S.tgt[P][z], label: frontShort(S.fr[P][z].n), col: FRONT_COL[S.fr[P][z].col] });
     this.map.refresh();
@@ -517,7 +520,7 @@ ${this.histCmp(o)}
     const k = this.panelKind, p = this.$('.e-panel');
     const st = this.pkLast === `${k}:${this.panelArg}` ? p.querySelector('.e-pbody')?.scrollTop || 0 : 0;
     this.pkLast = `${k}:${this.panelArg}`;
-    const html = k === 'dirs' ? this.pDirs() : k === 'army' ? this.pArmy() : k === 'eco' ? this.pEco() : k === 'log' ? this.pLog() : k === 'reg' ? this.pRegion(this.panelArg) : '';
+    const html = k === 'dirs' ? this.pDirs() : k === 'army' ? this.pArmy() : k === 'eco' ? this.pEco() : k === 'sci' ? this.pSci() : k === 'log' ? this.pLog() : k === 'reg' ? this.pRegion(this.panelArg) : '';
     p.innerHTML = html;
     const b = p.querySelector('.e-pbody'); if (b) b.scrollTop = st;
   }
@@ -529,7 +532,7 @@ ${this.histCmp(o)}
     b.classList.remove('hidden');
   }
   cancelMode(silent = false) {
-    this.pick = null; this.sel = null;
+    this.pick = null; this.sel = null; this.opSel = null;
     this.$('.e-modebar').classList.add('hidden');
     this.map?.setHL({ sel: -1, reach: null, atk: null, pick: null, paint: null });
     if (!silent && this.panelKind === 'reg') this.closePanel();
@@ -561,7 +564,7 @@ ${this.histCmp(o)}
   }
   pRegion(r) {
     const S = this.S, P = this.P, M = this.M, g = M.reg[r], sd = E.sideOf(S, r), nat = E.natOf(S, r);
-    const us = S.at[r].slice().sort((a, b) => ['arm', 'mot', 'inf', 'mtn', 'cav', 'sec'].indexOf(a.t) - ['arm', 'mot', 'inf', 'mtn', 'cav', 'sec'].indexOf(b.t) || b.str - a.str);
+    const us = S.at[r].slice().sort((a, b) => TYPE_ORDER.indexOf(a.t) - TYPE_ORDER.indexOf(b.t) || b.str - a.str);
     const sup = sd ? S.sup[sd]?.[r] ?? 1 : 1;
     const supT = !sd ? '' : sup <= 0 ? `<span class="e-tag bad">${ic('encircle')}окружение</span>` : sup < 0.5 ? `<span class="e-tag warn">${ic('truck')}слабое снабжение</span>` : `<span class="e-tag">${ic('truck')}снабжение</span>`;
     const name = g.city && g.city.n !== g.n ? `${esc(g.city.n)} <small>${esc(g.n)}</small>` : esc(g.n);
@@ -571,7 +574,8 @@ ${this.histCmp(o)}
     let act = '';
     if (sd === P) {
       const mv = us.filter((u) => u.s === P && u.mp > 0.2 && !u.att);
-      act = mv.length || (P === 'SOV' && E.canEvac(S, r)) ? `<div class="e-acts">${mv.length ? `<button class="e-btn gold" data-a="move" data-r="${r}">${ic('move')}<span>Переместить<small>${mv.length} ${divW(mv.length)}</small></span></button>` : ''}${P === 'SOV' && E.canEvac(S, r) ? `<button class="e-btn sm" data-a="evac" data-r="${r}">${ic('train')}<span>Эвакуация</span></button>` : ''}</div>` : '';
+      const ops = this.opBtns(r);
+      act = mv.length || ops || (P === 'SOV' && E.canEvac(S, r)) ? `<div class="e-acts">${mv.length ? `<button class="e-btn gold" data-a="move" data-r="${r}">${ic('move')}<span>Переместить<small>${mv.length} ${divW(mv.length)}</small></span></button>` : ''}${P === 'SOV' && E.canEvac(S, r) ? `<button class="e-btn sm" data-a="evac" data-r="${r}">${ic('train')}<span>Эвакуация</span></button>` : ''}${ops}</div>` : '';
     } else if (sd === other(P)) {
       const at = this.attackers(r);
       if (at.length) {
@@ -589,6 +593,7 @@ ${this.histCmp(o)}
     const S = this.S;
     if (!S || this.mode !== 'game' || this.isBusy) return;
     if (this.pick?.paint !== undefined) return this.paintTap(r);
+    if (this.opSel) return this.tapOp(r);
     if (this.pick) {
       if (r >= 0 && E.sideOf(S, r) === other(this.P)) { this.snd.play('select'); const z = this.pick.z; this.cancelMode(true); this.setTarget(z, r); return this.openPanel('dirs'); }
       this.snd.play('error'); return this.toast(`${ic('target')}Выберите область противника`);
@@ -753,5 +758,5 @@ ${this.histCmp(o)}
   }
   tipSoon() { clearTimeout(this.tipT); this.tipT = setTimeout(() => this.maybeTip(), 700); }
 }
-Object.assign(EastUI.prototype, FrontsUI, EcoUI);
-const ACTX = { ...FRONT_ACT, ...ECO_ACT };
+Object.assign(EastUI.prototype, FrontsUI, EcoUI, SciUI, OpsUI);
+const ACTX = { ...FRONT_ACT, ...ECO_ACT, ...SCI_ACT, ...OPS_ACT };

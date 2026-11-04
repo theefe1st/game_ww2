@@ -63,6 +63,7 @@ export function drawDiv(c, nat, t, lab, s, o = {}) {
   // род войск — мелкий знак: горные ▲, кавалерия — косая черта
   c.fillStyle = xx; c.strokeStyle = xx;
   if (t === 'mtn') { c.beginPath(); c.moveTo(s * 0.12, s * 0.88); c.lineTo(s * 0.24, s * 0.68); c.lineTo(s * 0.36, s * 0.88); c.closePath(); c.globalAlpha = 0.7; c.fill(); c.globalAlpha = 1; }
+  if (t === 'abn') { c.globalAlpha = 0.75; c.lineWidth = Math.max(1, s / 20); c.beginPath(); c.arc(s * 0.25, s * 0.8, s * 0.13, Math.PI, 0); c.closePath(); c.fill(); c.beginPath(); c.moveTo(s * 0.12, s * 0.8); c.lineTo(s * 0.25, s * 0.93); c.lineTo(s * 0.38, s * 0.8); c.stroke(); c.globalAlpha = 1; }
   if (t === 'cav') { c.globalAlpha = 0.45; c.lineWidth = Math.max(1, s / 16); c.beginPath(); c.moveTo(s * 0.14, s * 0.86); c.lineTo(s * 0.86, s * 0.14); c.stroke(); c.globalAlpha = 1; }
   // «XX» — дивизия
   c.textAlign = 'center'; c.textBaseline = 'middle';

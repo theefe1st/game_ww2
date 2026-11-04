@@ -427,3 +427,42 @@
 .e-bt:disabled>.ic,.e-bt:disabled small{opacity:.6}
 .e-bsub{font-size:11.5px;opacity:.65;display:flex;align-items:center;gap:5px}
 .e-bsub .ic{width:14px;height:14px}
+/* v0.11 наука */
+.e-tab{position:relative}
+.e-tab.dot::after{content:'';position:absolute;top:6px;right:calc(50% - 16px);width:9px;height:9px;border-radius:50%;background:#e9604a;box-shadow:0 0 0 2px #241d16}
+.e-sl.free{opacity:.75;border:1px dashed rgba(255,240,210,.25)}
+.e-tbr{margin-top:10px}
+.e-tbr h5{display:flex;align-items:center;gap:6px;margin:0 0 5px;font-size:13.5px;font-weight:600;color:#ffe8b0}
+.e-tbr h5 .ic{width:18px;height:18px;color:var(--gold)}
+.e-tbr h5 small{margin-left:auto;font-weight:400;opacity:.6;font-size:12px}
+.e-trow{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.e-tt{display:flex!important;flex-direction:column;justify-content:space-between;gap:3px;min-height:62px;padding:6px 5px 7px!important;border-radius:10px;background:rgba(255,240,210,.07)!important;border:1px solid rgba(255,240,210,.14)!important;text-align:left;position:relative}
+.e-tt b{font-size:11.5px;line-height:1.15;font-weight:600;overflow-wrap:anywhere}
+.e-tt small{font-size:10.5px;opacity:.7;display:flex;align-items:center;gap:2px}
+.e-tt small .ic{width:11px;height:11px}
+.e-tt.done{background:rgba(111,180,78,.16)!important;border-color:rgba(140,200,100,.35)!important}
+.e-tt.done small{color:#bfe6a0;opacity:1}
+.e-tt.cur{border-color:rgba(233,200,103,.8)!important;background:rgba(226,182,78,.14)!important}
+.e-tt.cur small{color:#ffe4a0;opacity:1}
+.e-tt.can{border-color:rgba(255,240,210,.32)!important}
+.e-tt.lock{opacity:.5}
+.e-tt.sel{box-shadow:0 0 0 2px #e9c867}
+.e-td{margin-top:6px;padding:8px 9px;border-radius:12px;background:rgba(0,0,0,.22);display:flex;flex-direction:column;gap:6px}
+.e-td>b{font-size:14px}
+.e-td>small{font-size:12px;opacity:.75;margin-top:-4px}
+.e-td .e-acts{display:flex;gap:6px;flex-wrap:wrap}
+.e-trep{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.e-trep small{width:100%;font-size:12px;opacity:.75}
+.e-tag.good{background:rgba(111,180,78,.22);color:#d4f0c0}
+.e-vs{margin-bottom:6px}
+.e-vs{align-items:center;margin-top:6px}
+.e-vsl{font-size:12.5px;opacity:.7}
+/* v0.11 операции */
+.e-opr{display:flex;align-items:center;gap:6px;font-size:15px;margin:2px 0 8px}
+.e-opr .ic{width:16px;height:16px;color:var(--gold)}
+.e-units.sm{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.e-note.warn{color:#ffd8a0;opacity:1}
+.e-modal.op .e-odds{margin:6px 0 8px}
+.e-modal.op .e-odds{background:#3a3128;color:#f3ead8;border-color:#6a5a44}
+.e-modal.op .e-units.sm .e-tag{background:rgba(60,48,36,.1);color:inherit}
+.e-modal.op .e-note.warn{color:#9a4a10}
