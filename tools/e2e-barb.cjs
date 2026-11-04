@@ -57,13 +57,13 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
 
   await page.goto('file:///data/game_ww2/dist-single/index.html');
   await page.waitForTimeout(900);
-  ok(await has('#m-bb'), 'menu: кнопка «Барбаросса 1941»');
-  ok((await txt('#menu .ver')).includes('0.8'), 'menu: версия 0.8');
+  // v0.9: «Барбаросса 1941» перенесена в архив прототипов, наверху меню — «Фронт 1941–1945»
+  ok(await has('#m-war'), 'menu: кнопка «Фронт 1941–1945»');
+  ok((await txt('#menu .ver')).includes('0.9'), 'menu: версия 0.9');
   await shot('menu');
-  await click('#m-arch');
-  ok(await has('#m-st') && await has('#m-eu') && await has('#m-new'), 'menu: архив раскрывается');
+  if (!(await has('#m-bb'))) await click('#m-arch');
+  ok(await has('#m-bb') && await has('#m-st') && await has('#m-eu') && await has('#m-new'), 'menu: архив раскрывается');
   await shot('menu_arch');
-  await click('#m-arch');
   await click('#m-bb', 700);
   ok(await has('#bb .bb-hub [data-a="new"]'), 'hub открыт');
   await click(`#bb [data-a="o-side"][data-v="${SIDE}"]`, 300);
@@ -235,6 +235,7 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   await ev(() => __app.onBack());
   await page.waitForTimeout(250);
   if (await has('#bb .bb-modal [data-a="exit"]')) await click('#bb .bb-modal [data-a="exit"]', 500);
+  if (!(await has('#m-bb')) && (await has('#m-arch'))) await click('#m-arch');
   ok(await has('#m-bb'), 'возврат в главное меню');
   ok((await txt('#m-bb')).length > 16, 'меню: подпись сохранения');
   await click('#m-bb', 600);

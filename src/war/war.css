@@ -2,7 +2,8 @@
 #war{position:absolute;top:0;bottom:0;left:0;right:0;overflow:hidden;background:#2a5079;pointer-events:auto;color:var(--txt);z-index:5;font-family:var(--px);font-size:15px;line-height:1.3;-webkit-user-select:none;user-select:none;--toph:58px;--railb:120px;--cardh:0px;--cardw:0px;--railw:0px}
 #war .wr-cv{position:absolute;top:0;left:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
 #war .wr-cv:active{cursor:grabbing}
-#war.wr-hubmode .wr-top,#war.wr-hubmode .wr-rail,#war.wr-hubmode .wr-bot,#war.wr-hubmode .wr-card{display:none}
+#war.wr-hubmode .wr-top,#war.wr-hubmode .wr-rail,#war.wr-hubmode .wr-bot,#war.wr-hubmode .wr-card{display:none!important}
+#menu #m-war{position:relative}
 #war small{font-size:12.5px}
 #war b{font-weight:600}
 #war h3{margin:0 0 4px;font-size:20px;font-weight:700;line-height:1.2}
@@ -40,10 +41,14 @@
 #war .wr-dec{flex:none;min-height:46px;padding:4px 12px;font-size:15px;font-weight:700}
 #war .wr-pulse{animation:wrPulse 1.2s ease-in-out infinite}
 @keyframes wrPulse{0%,100%{box-shadow:inset 2px 2px #ffffff4d,inset -2px -2px #00000059,0 0 0 0 #ffd34a00}50%{box-shadow:inset 2px 2px #ffffff4d,inset -2px -2px #00000059,0 0 0 5px #ffd34a99}}
-#war.wr-narrow .wr-top{flex-wrap:wrap}
-#war.wr-narrow .wr-eco{order:5;flex-basis:100%;min-height:34px;padding:2px 8px}
-#war.wr-narrow .wr-ec{flex-direction:row;gap:10px;flex-wrap:wrap}
-#war.wr-narrow .wr-date{flex:1 1 0}
+#war.wr-narrow .wr-top{display:grid;grid-template-columns:46px minmax(0,1fr) auto}
+#war.wr-narrow .wr-bmenu{grid-row:1;grid-column:1}
+#war.wr-narrow .wr-date{grid-row:1;grid-column:2}
+#war.wr-narrow .wr-mor{grid-row:1;grid-column:3}
+#war.wr-narrow .wr-eco{grid-row:2;grid-column:1 / -1;min-height:34px;padding:2px 8px}
+#war.wr-narrow.wr-hasdec .wr-eco{grid-column:1 / 3}
+#war.wr-narrow .wr-dec{grid-row:2;grid-column:3;min-height:34px}
+#war.wr-narrow .wr-ec{flex-direction:row;column-gap:10px;flex-wrap:wrap}
 #war.wr-narrow .wr-dt small{display:none}
 #war.wr-narrow .wr-mb{width:30px}
 /* колонка */
@@ -93,7 +98,9 @@
 #war .wr-mini{min-height:30px;min-width:30px;padding:2px 8px;font-size:14px;line-height:1}
 #war .wr-mini2{min-height:36px;padding:3px 10px;font-size:13.5px;flex:none}
 #war .wr-ords{flex-wrap:wrap;margin-top:6px}
-#war .wr-ords button{flex:1 1 30%;min-height:34px;font-size:13px;padding:4px 2px}
+#war .wr-seg.wr-ords button{flex:1 1 30%;min-height:34px;font-size:13px;padding:4px 2px}
+#war .wr-tl{display:flex;flex-direction:column;line-height:1.2}
+#war .wr-tl small{margin-top:1px}
 #war .wr-fc{margin-top:8px;border-top:2px solid #0b0d0f;padding-top:6px}
 #war .wr-fh{display:flex;flex-direction:column;font-size:14px;padding-right:4px}
 #war .wr-fbar{height:14px;margin:6px 0 5px;box-shadow:0 0 0 2px #0b0d0f;background:#5a2420;position:relative}
@@ -168,7 +175,7 @@
 #war .wr-orb img{width:30px;height:36px;image-rendering:pixelated;flex:none}
 #war .wr-orb span{display:flex;flex-direction:column;min-width:0}
 #war .wr-orb b{font-size:14px}
-#war .wr-orb small{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#war .wr-orb small{font-size:12px}
 #war .wr-sel{flex:none;width:118px;min-height:40px;font:inherit;font-size:14px;color:var(--txt);background:#1a1d20;border:2px solid #0b0d0f;padding:2px 4px}
 #war .wr-ln{display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;align-items:center;padding:4px 0;border-bottom:1px solid #2f353c}
 #war .wr-lnn{display:flex;flex-direction:column;min-width:0}

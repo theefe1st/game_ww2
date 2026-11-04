@@ -9,7 +9,7 @@ import { decodeEU, TERR_N } from './map41.js';
 import * as E from './engine.js';
 import * as R from './rules.js';
 import { ORDERS, planOp, armyUnits } from './ai.js';
-import { LINES, tplNow, formDiv, hqHex, strength, divCount, divCap, llRoutes } from './eco.js';
+import { LINES, tplNow, formDiv, hqHex, strength, divCount, divCap, llRoutes, outNow } from './eco.js';
 import { evByK } from './events.js';
 import { WarMap, LOD_HEX } from './map.js';
 import { warCounter, flagURL } from './art.js';
@@ -22,7 +22,7 @@ const KEY = E.SAVE_KEY, KEY_META = 'wf_war_meta', KEY_OPT = 'wf_war_opt';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const f0 = (v) => Math.round(v).toLocaleString('ru-RU');
 const f1 = (v) => (Math.round(v * 10) / 10).toLocaleString('ru-RU');
-const tys = (v) => (Math.abs(v) >= 1e6 ? `${f1(v / 1e6)} млн` : `${f0(v / 1000)} тыс.`);
+const tys = (v) => (Math.abs(v) >= 1e6 ? `${f1(v / 1e6)} млн` : Math.abs(v) >= 1000 ? `${f0(v / 1000)} тыс.` : `${f0(Math.round(v / 10) * 10)} чел.`);
 const sgn = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + f1(Math.abs(v));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const raf = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -146,7 +146,7 @@ export class WarUI {
     this.seen = 0;
     this.onResize = () => this.layout();
     window.addEventListener('resize', this.onResize);
-    if (typeof window !== 'undefined') window.__war = this;
+    if (typeof window !== 'undefined') (window.__war = this), (window.__warX = { E, R }); // для автотестов
   }
   static menuLabel() {
     const m = readMeta();
@@ -248,7 +248,7 @@ export class WarUI {
       const q = SIDE_HQ[s], g = this.genP(q.g);
       return `<button class="wr-side panel ${o.side === s ? 'on' : ''}" data-a="o-side" data-v="${s}"><img class="wr-por" src="${g}" alt="">
 <span class="wr-sw"><b class="wr-nat"><img class="wr-flag" src="${flagURL(s)}" alt="">${s === 'GER' ? 'Германия' : 'СССР'}</b><span class="wr-sn">${q.n}</span><small>${q.who}</small>
-<small class="wr-dim">${s === 'SOV' ? 'Выстоять в 1941-м, отстоять Москву, Ленинград и Сталинград — и взять Берлин до 9 мая 1945 г.' : 'Разгромить Красную армию, взять Москву — или удержать Берлин до 31 мая 1945 г.'}</small></span></button>`;
+<small class="wr-dim">${s === 'SOV' ? 'Выстоять в 1941-м, отстоять Москву, Ленинград и Сталинград и взять Берлин: до 2 мая 1945 г. — три звезды.' : 'Сломить волю СССР к сопротивлению — или удержать Берлин до 31 мая 1945 г.'}</small></span></button>`;
     };
     this.$.hub.innerHTML = `<div class="wr-hubw">
 <div class="wr-hh"><div class="wr-ht">Фронт 1941–1945</div><div class="wr-hs">Восточный фронт целиком · 22 июня 1941 — май 1945 · день за ходом</div></div>
@@ -316,11 +316,12 @@ export class WarUI {
     requestAnimationFrame(() => (this.inset(), this.map.center(this.focusHex() ?? h0, false, 0, this.map.defScale())));
   }
   focusHex() {
-    // середина своей линии фронта
+    // середина своей линии фронта (без Финского и Мурманского участков севернее Ладоги — иначе камера уходит в Карелию)
     const S = this.S, fd = S.frontDist?.[S.side];
     if (!fd) return null;
+    const yN = this.M.llXY ? this.M.llXY(30, 60.4)[1] : -1e9;
     let x = 0, y = 0, n = 0;
-    for (let h = 0; h < this.M.N; h += 3) if (fd[h] === 0 && R.sideOfH(S, h) === S.side) {
+    for (let h = 0; h < this.M.N; h += 3) if (fd[h] === 0 && R.sideOfH(S, h) === S.side && this.M.xy(h)[1] >= yN) {
       const [a, b] = this.M.xy(h);
       x += a;
       y += b;
@@ -412,7 +413,10 @@ export class WarUI {
       else if (e.k === 'eco' && e.side === me) evac.push(e);
       else if (e.k === 'gds' && e.side === me) gds.push(e);
     }
-    const nm = (a) => a.slice(0, 6).map((x) => x[0]).join(', ') + (a.length > 6 ? ` и ещё ${a.length - 6}` : '');
+    const nm = (a0) => {
+      const a = [...new Set(a0.map((x) => x[0]))];
+      return a.slice(0, 6).join(', ') + (a.length > 6 ? ` и ещё ${a.length - 6}` : '');
+    };
     if (lost.length) this.toast(`${me === 'SOV' ? 'Оставлены' : 'Потеряны'}: ${nm(lost)}`, '', 'bad', lost.find((x) => x[2])?.[1] ?? lost[0][1]);
     if (won.length) this.toast(`${me === 'SOV' ? 'Взяты' : 'Заняты'}: ${nm(won)}`, '', 'ok', won.find((x) => x[2])?.[1] ?? won[0][1]);
     if (lib.length) this.toast(`Освобождены: ${nm(lib)}`, '', 'ok', lib[0][1]);
@@ -442,6 +446,7 @@ export class WarUI {
     this.$.eco.innerHTML = `<span class="wr-ec"><small>ПО ${f0(Ec.ip)} · резерв ${tys(Ec.men)}</small><small>танков ${f0(Ec.tnk)} · <span class="${fuelLow ? 'wr-bad' : ''}">горючее ${f0(Ec.fuel)}</span>${supLow ? ' · <span class="wr-bad">склады пусты</span>' : ''}</small></span>`;
     const pend = S.ev.pending.length;
     this.$.dec.classList.toggle('hidden', !pend);
+    this.root.classList.toggle('wr-hasdec', !!pend);
     this.$.dec.classList.toggle('wr-pulse', !!pend);
     this.$.dec.textContent = pend > 1 ? `Решения: ${pend}` : 'Решение';
     const nx = dmy(S.day + 1);
@@ -452,6 +457,7 @@ export class WarUI {
     this.$.lod.innerHTML = `${icon(lod === 'army' ? 'army' : 'div')}<span>${lod === 'army' ? 'Армии' : 'Дивизии'}</span>`;
   }
   onZoom() {
+    if (!this.map) return; // вызов из конструктора карты
     const lod = this.map.lod();
     if (lod !== this._lod) {
       this._lod = lod;
@@ -722,6 +728,8 @@ export class WarUI {
 <p class="wr-hint">Сила противника — по данным разведки. Выберите свою дивизию рядом, чтобы ударить.</p>`;
     }
     const sup = u.oos <= 0 ? '<span class="wr-tag wr-okc">снабжение</span>' : u.oos > 2 ? `<span class="wr-tag wr-bad">без снабжения ${u.oos} сут.</span>` : '<span class="wr-tag wr-warn">перебои снабжения</span>';
+    // режим удара: коротко о своей дивизии и прогноз боя
+    if (this.atk) return `${head}<div class="wr-tags"><span class="wr-tag">${tys(u.men)}</span><span class="wr-tag">орг. ${f0(u.org)}</span>${u.tnkM > 0 ? `<span class="wr-tag">танков ${f0(u.tnk)}</span>` : ''}${sup}</div>${this.forecastHTML()}`;
     const tags = [`<span class="wr-tag">${T.n}</span>`, `<span class="wr-tag">орудий ${f0(u.gun)}</span>`];
     if (u.tnkM > 0) tags.push(`<span class="wr-tag">танков ${f0(u.tnk)}/${f0(u.tnkM)}</span>`);
     tags.push(sup);
@@ -1105,7 +1113,7 @@ ${F ? `<div class="wr-fbar"><i style="width:${ch}%"></i></div>
   economy() {
     const S = this.S, me = S.side, Ec = S.eco[me];
     if (!S) return;
-    const out = Ec.out || {}, unit = { men: 'чел.', gun: 'орудий', tnk: 'танков', air: 'самолётов', sup: 'ед.' };
+    const out = outNow(S, me), unit = { men: 'чел.', gun: 'орудий', tnk: 'танков', air: 'самолётов', sup: 'ед.' };
     const lines = LINES.map((L) => {
       const sh = Ec.share[L.k] || 0, v = out[L.k] || 0;
       return `<div class="wr-ln"><span class="wr-lnn"><b>${L.n}</b><small>${esc(L.d)}</small></span><span class="wr-lnv">${L.k === 'men' ? f0(v) : f1(v)} ${unit[L.k]}/сут.</span>
@@ -1132,7 +1140,7 @@ ${F ? `<div class="wr-fbar"><i style="width:${ch}%"></i></div>
 ${ll ? `<div class="wr-kv"><span>Ленд-лиз (получено)</span><b>танков ${f0(Ec.ll.tnk)} · самолётов ${f0(Ec.ll.air)} · орудий ${f0(Ec.ll.gun)}</b></div>
 <div class="wr-kv"><span>Маршруты</span><b>Арктика ${ll.arc ? '✓' : '✗'} · Иран ${ll.per ? '✓' : '✗'} · Дальний Восток ✓</b></div>` : ''}
 <h4>Новые дивизии · ${dc} из ${cap}</h4>
-<button class="btn wr-tog ${Ec.auto ? 'on' : ''}" data-a="m-auto"><i class="wr-chk"></i>Формировать автоматически <small>${me === 'SOV' ? 'по мобилизационному плану' : 'из излишков'}</small></button>
+<button class="btn wr-tog ${Ec.auto ? 'on' : ''}" data-a="m-auto"><i class="wr-chk"></i><span class="wr-tl">Формировать автоматически<small>${me === 'SOV' ? 'по мобилизационному плану' : 'из излишков людей и техники'}</small></span></button>
 ${tpl}`, 'wr-tall');
   }
   summary() {

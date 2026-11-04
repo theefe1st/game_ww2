@@ -115,7 +115,7 @@ const hasTr = (g, t) => g && g.tr.includes(t);
 export const TERR_DEF = [1, 1, 1, 1.35, 1.4, 1.9, 1.5, 0.95, 1.2];
 const ARMOR_TERR = [1, 1, 1, 0.55, 0.75, 0.4, 0.45, 1.1, 0.7];
 // укрепрайоны больших городов: Москва, Ленинград, Сталинград, Тула (hard), Киевский УР
-const HARD = { Ленинград: 2.8, Москва: 2.4, Киев: 1.7, Тула: 2.5, Одесса: 1.8, Севастополь: 1.8 };
+const HARD = { Ленинград: 2.8, Москва: 2.4, Сталинград: 2.4, Киев: 1.7, Тула: 2.5, Одесса: 1.8, Севастополь: 1.8 };
 export const cityDef = (c) => (c ? (c.sz === 3 ? 1.5 : c.sz === 2 ? 1.3 : 1.15) * (c.hard ? HARD[c.n] || 2.1 : HARD[c.n] || 1) : 1);
 
 export function airF(S, side) {
@@ -366,9 +366,52 @@ export function repairRail(S, side, k) {
 // ——— снабжение ———
 // уровень по гексам: 2 — полное, 1 — частичное, 0 — нет; dist — расстояние подвоза от станции
 const SUPC = [99, 99, 1, 1.5, 1.5, 2, 2, 1, 1.5];
+// Советская Карелия и Заполярье: тайга, озёра и тундра без дорог — подвоз Оси вдвое-полтора дороже (наступления 1941 г.
+// встали на Лице, Вермане, у Кестеньги и на Свири); множитель стоимости подвоза по гексу, только для земли СССР 1941 г.
+// Карелия — к востоку от Ладоги (без Карельского перешейка и Приладожья у Сортавалы), севернее Свири; Заполярье — севернее 64,4° с. ш.
+export function northK(M) {
+  if (M._north) return M._north;
+  const A = new Float32Array(M.N).fill(1), sov = M.nations.indexOf('SOV');
+  const yK = M.llXY(33, 60.5)[1], xK = M.llXY(31, 62)[0], yP = M.llXY(33, 64.4)[1];
+  for (let h = 0; h < M.N; h++) {
+    if (M.own0[h] !== sov) continue;
+    const [x, y] = M.xy(h);
+    if (y < yP) A[h] = 2;
+    else if (y < yK && x > xK) A[h] = 1.5;
+  }
+  return (M._north = A);
+}
+// удаление гекса земли СССР от границы 22.06.1941 (1 — приграничный гекс), для «стоп-линий» ИИ
+export function border41(M) {
+  if (M._bd41) return M._bd41;
+  const sov = M.nations.indexOf('SOV'), N = M.N, D = new Uint8Array(N).fill(99);
+  let q = [];
+  for (let h = 0; h < N; h++) {
+    if (M.terr[h] < 2 || M.own0[h] !== sov) continue;
+    for (let d = 0; d < 6; d++) {
+      const j = M.nb[h * 6 + d];
+      if (j >= 0 && M.terr[j] >= 2 && M.own0[j] !== sov && M.nations[M.own0[j]]) {
+        D[h] = 1;
+        q.push(h);
+        break;
+      }
+    }
+  }
+  while (q.length) {
+    const nq = [];
+    for (const h of q)
+      for (let d = 0; d < 6; d++) {
+        const j = M.nb[h * 6 + d];
+        if (j >= 0 && M.terr[j] >= 2 && M.own0[j] === sov && D[j] > D[h] + 1) (D[j] = D[h] + 1), nq.push(j);
+      }
+    q = nq;
+  }
+  return (M._bd41 = D);
+}
 export function supplyMap(S, side) {
   const M = S.M, N = M.N, net = railNet(S, side), L = new Uint8Array(N), dist = new Float32Array(N).fill(99);
   const base = side === 'GER' ? (S.day < 140 ? 5 : 4.5) : S.day >= dayOf('1943-03-01') ? 4.5 : 3.5; // грузовики: ленд-лиз «студебеккеры» с 1943 г.
+  const NK = side === 'GER' && M.llXY ? northK(M) : null;
   const q = [];
   for (let h = 0; h < N; h++) if (net[h] >= 0) (dist[h] = 0), q.push(h);
   // Дейкстра по своей земле (простая очередь со вставкой: дешёвые рёбра ≤ 2)
@@ -380,7 +423,7 @@ export function supplyMap(S, side) {
       const j = M.nb[h * 6 + d];
       if (j < 0 || M.terr[j] < 2 || sideOfH(S, j) !== side) continue;
       const w = WX[S.wx[M.zone[j]]];
-      const c = c0 + SUPC[M.terr[j]] / w.sup + (M.river(h, d) ? 0.5 : 0);
+      const c = c0 + (SUPC[M.terr[j]] / w.sup) * (NK ? NK[j] : 1) + (M.river(h, d) ? 0.5 : 0);
       if (c < dist[j] && c <= base + 3.5) (dist[j] = c), qq.push(j);
     }
   }
@@ -420,6 +463,11 @@ export function odds(S, att, tgt) {
   let A = 0, D = 0;
   for (const a of att) A += atkVal(S, a, tgt);
   for (const d of ds) D += defVal(S, d);
+  // Заполярье и Карелия: бездорожье, реки и сопки — советская оборона держится лучше (Лица, Верман, Кестеньга, Свирь)
+  if (ds[0].side === 'SOV' && S.M.llXY) {
+    const k = northK(S.M)[tgt];
+    if (k > 1) D *= k >= 2 ? 1.45 : 1.2;
+  }
   // окружённый со всех сторон обороняется хуже
   const sur = encircled(S, tgt, ds[0].side);
   if (sur) D *= 0.8;

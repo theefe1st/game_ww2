@@ -14,6 +14,32 @@ const FRONT = rgb('#1b120d'), FRONT2 = rgb('#f3dfb0');
 const COR = [...Array(6)].map((_, i) => [Math.cos(((60 * i - 30) * Math.PI) / 180), Math.sin(((60 * i - 30) * Math.PI) / 180)]);
 export const LOD_HEX = 26; // гекс ≥ 26 CSS px — дивизии, меньше — армии
 
+// рёбра ж/д для рисования: без «треугольников» (три соседних гекса, попарно связанные) — убираем ребро
+// с наименьшей суммой степеней, чтобы магистраль шла прямо, а ответвление стало коротким отростком
+function railDraw(M) {
+  const N = M.N, nb = M.nb, rd = Uint8Array.from(M.rail);
+  const on = (a, k) => (rd[a] >> k) & 1;
+  const deg = (a) => { let n = 0; for (let k = 0; k < 6; k++) n += on(a, k); return n; };
+  const cut = (a, k) => { const b = nb[a * 6 + k]; rd[a] &= ~(1 << k); if (b >= 0) rd[b] &= ~(1 << (k + 3) % 6); };
+  for (let pass = 0; pass < 3; pass++) {
+    let n = 0;
+    for (let h = 0; h < N; h++) {
+      if (!rd[h]) continue;
+      for (let k = 0; k < 6; k++) {
+        const k1 = (k + 1) % 6, j = nb[h * 6 + k], c = nb[h * 6 + k1];
+        // h→j (k), h→c (k+1), c→j (k−1)
+        if (j < 0 || c < 0 || !on(h, k) || !on(h, k1) || !on(c, (k + 5) % 6)) continue;
+        const dh = deg(h), dj = deg(j), dc = deg(c);
+        const e = [[dh + dj, h, k], [dh + dc, h, k1], [dc + dj, c, (k + 5) % 6]].sort((a, b) => a[0] - b[0])[0];
+        cut(e[1], e[2]);
+        n++;
+      }
+    }
+    if (!n) break;
+  }
+  return rd;
+}
+
 export class WarMap {
   constructor(cv, M, opt = {}) {
     this.cv = cv;
@@ -29,6 +55,7 @@ export class WarMap {
     this.oy = 0;
     this.paused = 0;
     this.lodMode = 'auto'; // auto | army | div
+    this.rd = railDraw(M);
     const T = warTerrain(M);
     this.T = T;
     this.comp = document.createElement('canvas');
@@ -391,7 +418,7 @@ export class WarMap {
     const x = this.cx, M = this.M, S = this.S, d = this.dpr, big = this.hexCSS() >= 30;
     const ok = new Path2D(), bad = new Path2D();
     for (const h of this.visHexes(1)) {
-      const r = M.rail[h];
+      const r = this.rd[h];
       if (!r) continue;
       const [ax, ay] = this.hexXYs(h);
       for (let k = 0; k < 3; k++) {
@@ -406,13 +433,15 @@ export class WarMap {
       }
     }
     x.lineCap = 'round';
-    x.strokeStyle = 'rgba(40,30,24,0.32)';
-    x.lineWidth = (big ? 2.2 : 1.4) * d;
+    x.lineJoin = 'round';
+    const sm = this.hexCSS() < LOD_HEX; // мелкий масштаб — тоньше и светлее, чтобы не забивать карту
+    x.strokeStyle = sm ? 'rgba(40,30,24,0.22)' : 'rgba(40,30,24,0.32)';
+    x.lineWidth = (big ? 2.2 : sm ? 1 : 1.4) * d;
     x.setLineDash([3 * d, 3 * d]);
     x.stroke(bad);
     x.setLineDash([]);
-    x.strokeStyle = 'rgba(30,22,18,0.78)';
-    x.lineWidth = (big ? 2.6 : 1.6) * d;
+    x.strokeStyle = sm ? 'rgba(30,22,18,0.5)' : 'rgba(30,22,18,0.78)';
+    x.lineWidth = (big ? 2.6 : sm ? 1.1 : 1.6) * d;
     x.stroke(ok);
     if (big) {
       x.strokeStyle = 'rgba(235,225,200,0.55)';
@@ -453,11 +482,12 @@ export class WarMap {
       this.outline(new Set([...o.reach, ...(o.sel >= 0 ? [o.sel] : [])]), 'rgba(255,248,215,0.85)', 1.6 * d);
     }
     if (o.rail) {
-      x.fillStyle = 'rgba(120,190,255,0.30)';
+      x.fillStyle = 'rgba(80,165,255,0.42)';
       for (const h of o.rail) {
         this.hexPath(h, 0.9);
         x.fill();
       }
+      this.outline(new Set(o.rail), 'rgba(170,220,255,0.95)', 1.5 * d);
     }
     if (o.atk) {
       for (const h of o.atk) {
@@ -653,7 +683,7 @@ export class WarMap {
     for (const t of tk) {
       const [cx, cy] = this.hexXYs(t.h);
       if (cx < -60 || cy < -60 || cx > this.cv.width + 60 || cy > this.cv.height + 60) continue;
-      this._hq.push({ A: t.A, x: cx, y: cy, w: pw, h: ph });
+      this._hq.push({ A: t.A, x: cx, y: cy, w: pw, h: ph, lab: t.lab, ic: t.ic });
     }
     // наложение: сдвиг жетонов, стоящих слишком близко
     const L = this._hq;
