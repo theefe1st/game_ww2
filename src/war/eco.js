@@ -374,9 +374,14 @@ export function formDiv(S, side, key, note, quiet) {
   } else (num = String(N.sec++)), (n = `${num}-я охранная дивизия`);
   const u = mkUnit(S, { side, nat, t: T.t, n, num, men, gun, tnk, org: side === 'SOV' ? 45 : 70, xp: side === 'SOV' ? 0 : 15 });
   let A = assignArmy(S, u);
+  const A0 = A;
   if (side === 'SOV') A = newArmyIfNeeded(S, A, u, note) || A;
   u.hq = A ? A.k : '';
-  const base = A ? hqHex(S, A) : -1;
+  // новая армия (ещё без дивизий) формируется за армией, которой нужнее подкрепление, а не «первым гексом карты»
+  // (раньше rearSpot(-1) выбирал самый северный подходящий гекс — армии рождались в Карелии)
+  let base = A ? hqHex(S, A) : -1;
+  if (base < 0 && A0) base = hqHex(S, A0);
+  if (base < 0) base = S.M.cityHex(side === 'SOV' ? 'Москва' : 'Берлин');
   const h = rearSpot(S, side, base);
   if (h < 0) return null;
   E.men -= men;

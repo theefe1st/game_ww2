@@ -288,6 +288,7 @@ export function runAI(S, side, opt = {}) {
   keyCities(S, side, need);
   pressure(S, side, act, lab, need);
   rebalance(S, side, act);
+  regroup(S, side, act);
   salients(S, side, act);
   for (const A of act) {
     const p = A._p, us = A._us.filter((u) => alive(u) && u.mp > 0 && !u.gar);
@@ -387,6 +388,30 @@ function rebalance(S, side, act) {
     bA.pr *= 1.1;
     B.pr *= 0.92;
     left--;
+  }
+}
+// стратегическая перегруппировка Ставки (с осени 1944 г.): армии без фронта (Карелия после выхода Финляндии,
+// тыл) и совсем тихие участки отдают дивизии армиям наступательных операций (к Берлинской операции Ставка стянула
+// армии из Прибалтики и Восточной Пруссии); дальше их везёт железная дорога (railMoves)
+const D_REGROUP = dayOf('1944-09-01');
+function regroup(S, side, act) {
+  if (side !== 'SOV' || S.day < D_REGROUP || S.day % 2) return;
+  const fd = S.frontDist?.[side], auto = (A) => !A.order || A.order === 'auto';
+  const rec = act.filter((A) => auto(A) && A.nat === 'SOV' && A._p.k === 'atk' && A._us.length < (A.fr || 0) * 2.5 + 8).sort((a, b) => b.pr - a.pr);
+  if (!rec.length) return;
+  const don = act.filter((A) => auto(A) && A._p.k !== 'atk' && ((A.fr || 0) < 0.5 || A.pr < 0.12));
+  let left = 4, ri = 0;
+  for (const A of don) {
+    const keep = Math.max(2, Math.ceil((A.fr || 0) * 1.5) + 1);
+    const us = A._us.filter((u) => alive(u) && !u.gar && !u.oos && !u.mv && !u.at && u.nat === 'SOV').sort((a, b) => (fd ? fd[b.h] - fd[a.h] : 0));
+    while (left > 0 && us.length && A._us.length > keep) {
+      const u = us.shift(), B = rec[ri++ % rec.length];
+      u.hq = B.k;
+      A._us.splice(A._us.indexOf(u), 1);
+      B._us.push(u);
+      left--;
+    }
+    if (left <= 0) break;
   }
 }
 // директивы ставок: города, которые ИИ не штурмует, пока у защитников есть снабжение
