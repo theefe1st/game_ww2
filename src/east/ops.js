@@ -2,7 +2,7 @@
 // (дивизии ВДВ с аэродрома). Открываются наукой (ветка «Операции»), сила — от изученного (opK).
 // Моря — по растру суши (8 км): связные куски воды; прибрежные области — по береговым дугам карты.
 import { TYPES, isMech, other, yearF, quality } from './rules.js';
-import { sideOf, garOf, resolveAttack, moveUnit, capture, alive, room, airRatio, note, odds, computeSupply } from './engine.js';
+import { sideOf, garOf, resolveAttack, moveUnit, capture, alive, room, airRatio, note, odds, computeSupply, aaCover } from './engine.js';
 import { hasU, unV } from './tech.js';
 
 const ST = 8; // км на клетку растра
@@ -104,7 +104,8 @@ export function opTargets(S, side, kind, r) {
 const seaOf = (S, r, t) => { const sr = seas(S.M).sr; return (sr[r] || []).find((s) => sr[t]?.includes(s)); };
 // сила операции: ×k (+ наука), на море — господство флота; ВДВ без прикрытия ВВС несут потери ещё в воздухе
 export function opK(S, side, kind, r, t) { return (OPS[kind].k + unV(S, side, 'opK')) * (kind === 'sea' ? seaK(S, side, seaOf(S, r, t)) : 1); }
-export const airLoss = (S, side, t) => { const ar = airRatio(S, side, S.M.reg[t].z); return ar < 0.35 ? Math.round(((0.35 - ar) / 0.35) * 30) : 0; };
+// ВДВ: потери от истребителей (при слабой своей авиации) и от ПВО противника в области и по соседству
+export const airLoss = (S, side, t) => { const ar = airRatio(S, side, S.M.reg[t].z); return Math.round(Math.max(0, (0.35 - ar) / 0.35) * 30 + aaCover(S, t, other(side)) * 30); };
 // береговая оборона (батареи, тыловые части): в порту сильнее; воздушный десант на пустую область — без боя
 export const coastDef = (S, side, kind, t) => (kind === 'sea' ? (isPort(S, t) ? 2.5 : 0.8) * quality(other(side), S.turn) : 0);
 export const opFree = (S, side, kind, t) => !S.at[t].some((v) => v.s !== side) && garOf(S, t, side) <= 0 && !coastDef(S, side, kind, t);

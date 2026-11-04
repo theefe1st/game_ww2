@@ -53,7 +53,7 @@ export const OpsUI = {
 <div class="e-units sm">${us.map((u) => `<span class="e-tag">${esc(u.n)} · ${Math.round(u.str)}%</span>`).join('')}</div>
 <div class="e-odds ${lab[1]}"><div class="e-oh">${ic('atk')}<b>${lab[0]}</b><small>${o.free ? 'область никто не защищает' : `×${R.toFixed(1)}`}</small></div>
 <div class="e-force"><span>${flagHTML(P, 'xs')}${us.length}</span><i><em style="width:${w}%"></em></i><span>${en}${E.garOf(S, t, P) > 0 || O.coastDef(S, P, kind, t) ? '+' + ic('fort') : ''}${flagHTML(E.natOf(S, t), 'xs')}</span></div></div>
-${al ? `<p class="e-note warn">${ic('air')}Слабое прикрытие с воздуха: потери до ${al} % ещё в полёте</p>` : ''}
+${al ? `<p class="e-note warn">${E.aaCover(S, t, other(P)) ? `${ic('aa')}ПВО противника` : `${ic('air')}Слабое прикрытие с воздуха`}: потери до ${al} % ещё в полёте</p>` : ''}
 <p class="e-note">${ic('info')}${kind === 'sea' ? 'Высадка с моря слабее обычной атаки, порт защищают береговые батареи.' : 'Десант с воздуха слабее обычной атаки, но может ударить глубоко в тыл.'} Плацдарм снабжается ${kind === 'sea' ? 'морем' : 'по воздуху'} ${weeksW(kind === 'sea' ? 5 : 3)}; следующая операция — через ${weeksW(K.cd)}.</p>
 <div class="e-btns"><button class="e-btn" data-a="close">${ic('cancel')}<span>Отмена</span></button><button class="e-btn ${o.free || R >= 1.2 ? 'gold' : 'warn'}" data-a="opgo">${ic(K.ic)}<span>${kind === 'sea' ? 'Высадка' : 'Выброска'}</span></button></div>`, { cls: 'op' });
   },

@@ -5,11 +5,11 @@
 import {
   ZN, sideOf, isFront, attackersFor, odds, resolveAttack, reach, moveTo, room, railTargets, railMove, beginPhase, endPhase, baseCV, defCV,
   attCV, garOf, isSource, frontDist, recruit, build, canBuild, evacuate, canEvac, regionDef, alive, cap, genOf, hasTr, unitsAt, newCost, BUILD, note, natOf,
-  armyCap, armySize, FN, fzOf, frontMap, frontZone,
+  armyCap, armySize, FN, fzOf, frontMap, frontZone, airRatio,
 } from './engine.js';
 import { other, isMech, yearF, turnOf, TYPES, SIDE0, dateOf, lerpT } from './rules.js';
 import { PLAN, GEN_HIST } from './hist.js';
-import { MIX, mixNow, eqTot, hasEq, cpPlanned, cpNow } from './eco.js';
+import { MIX, mixNow, eqTot, hasEq, brigFree } from './eco.js';
 export { MIX, mixNow };
 import { placeR } from './setup.js';
 
@@ -537,11 +537,21 @@ export function economyAI(S, side, isAI) {
     fr.push([r, w * (1 + M.reg[r].vp * 0.15) - S.fort[r] * 4]);
   }
   fr.sort((a, b) => b[1] - a[1]);
-  // свободная стройка (очки гражданских фабрик) — на укрепления
-  const freeCP = cpNow(S, side) - cpPlanned(S, side);
+  // свободные стройбригады — на укрепления
   // (темп ИИ — как в v0.10: при скудных запасах снаряжения стройка идёт медленнее)
-  let forts = isAI || S.auto.build ? Math.max(0, Math.min(3, Math.floor(freeCP / BUILD.fort.cap), Math.floor((eqTot(S, side) - 50) / 35))) : 0;
+  const autoB = isAI || S.auto.build;
+  let forts = autoB ? Math.max(0, Math.min(3, brigFree(S, side), Math.floor((eqTot(S, side) - 50) / 35))) : 0;
   for (const [r, w] of fr) { if (forts <= 0 || w <= 0) break; if (S.post[side][fm[r]] === 'atk' && fdd[r] === 0 && w < 20) continue; if (build(S, side, r, 'fort')) forts--; }
+  // ПВО — у крупных городов у фронта, где небо за противником (не чаще раза в 4 недели)
+  if (autoB && S.turn % 4 === 0 && brigFree(S, side) > 0 && eqTot(S, side) > 80) {
+    let best = -1, bw = 0;
+    for (let r = 0; r < M.R; r++) {
+      if (sideOf(S, r) !== side || fdd[r] > 2 || M.reg[r].vp < 2 || S.aa[r] || airRatio(S, side, M.reg[r].z) > 0.38) continue;
+      const w = (thr[r] + 1) * (1 + M.reg[r].vp);
+      if (w > bw && canBuild(S, side, r, 'aa')) (bw = w), (best = r);
+    }
+    if (best >= 0) build(S, side, best, 'aa');
+  }
   // набор дивизий: запас — на пополнение
   const reserve = { pp: 30, men: side === 'SOV' ? 40 : 30 };
   const mix = mixNow(side, S.turn);

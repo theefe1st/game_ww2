@@ -517,3 +517,17 @@
 .e-rq{display:flex!important;align-items:center;gap:8px;padding:7px 10px!important;border-radius:10px;background:rgba(120,90,50,.12)!important;border:1px solid rgba(120,90,50,.3)!important;color:var(--ink);text-align:left;font-size:13.5px}
 .e-rq span{flex:1}
 .e-rq .ic{width:18px;height:18px;color:#8a5a1a}
+/* v0.11 (отзыв 04.11): стройбригады, доли производства в % или заводах, ПВО */
+.e-seg{display:inline-flex;margin-left:auto;text-transform:none;letter-spacing:0;opacity:1;border-radius:10px;overflow:hidden;border:1px solid rgba(255,240,210,.18)}
+.e-seg button{padding:4px 9px!important;min-height:28px;font-size:12px;background:rgba(255,240,210,.05)!important;border:0!important;border-radius:0!important;display:inline-flex;align-items:center;gap:3px}
+.e-seg button .ic{width:14px;height:14px}
+.e-seg button.on{background:rgba(226,182,78,.28)!important;color:#ffe8b0}
+.e-seg button:disabled{opacity:.45}
+.e-lsh small{font-size:10px;opacity:.7;margin-left:1px}
+.e-brig{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 6px}
+.e-brig i{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.28);border:1px solid rgba(255,240,210,.12)}
+.e-brig i .ic{width:16px;height:16px;opacity:.35}
+.e-brig i.on{background:rgba(159,208,122,.2);border-color:rgba(159,208,122,.5)}
+.e-brig i.on .ic{opacity:1;color:#bfe6a0}
+.e-qi.wait{opacity:.72}
+.e-qi.wait .e-eff.q em{background:rgba(255,240,210,.35)}

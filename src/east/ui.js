@@ -38,7 +38,7 @@ const TIP_TEXT = {
   next: ['next', 'Ход = неделя', 'Нажмите «Ход» — генералы выполнят приказы, противник ответит. Война идёт с июня 1941 до мая 1945.'],
   attack: ['atk', 'Удар', 'Нажмите на область противника рядом с вашими войсками — увидите шансы и кнопку «Атаковать».'],
   pocket: ['encircle', 'Котёл!', 'Войска без снабжения слабеют и сдаются. Вырывайтесь к своим или деблокируйте их ударом извне.'],
-  build: ['crane', 'Стройка', 'Гражданские фабрики строят: заводы, укрепления, аэродромы, лагеря, склады. Нажмите на свою область.'],
+  build: ['spade', 'Стройка', 'Стройбригады строят заводы, укрепления, ПВО, аэродромы, лагеря и склады: одна бригада — один проект. Нажмите на свою область.'],
 };
 // флаги наций (без запрещённой символики: Германия — крест вермахта)
 
@@ -109,17 +109,17 @@ export class EastUI {
     this.map.onTap = (r, x, y) => this.onTap(r, x, y);
     this.map.onLong = (r) => { if (r >= 0) { this.snd.play('select'); this.openRegion(r); } };
     this.map.onHQ = (f) => { this.snd.play('click'); this.openPanel('dirs'); setTimeout(() => this.$(`.e-front[data-f="${f}"]`)?.scrollIntoView({ block: 'center' }), 30); };
-    // значки построек на карте (крупный масштаб): свои — все, у противника — укрепления
+    // значки построек на карте (крупный масштаб): свои — все, у противника — укрепления и ПВО
     this.map.bldItems = (S, r) => {
       const sd = E.sideOf(S, r), o = [];
       if (!sd) return o;
       if (S.fort[r]) o.push(['fort', S.fort[r]]);
+      if (S.aa?.[r]) o.push(['aa', 1]);
       if (sd !== this.P) return o;
       if (S.fac[r]) o.push(['factory', S.fac[r]]);
-      if (S.civ[r]) o.push(['civ', S.civ[r]]);
       if (S.camp[r]) o.push(['camp', 1]);
       if (S.dep[r]) o.push(['depot', 1]);
-      if (S.q.some((b) => b.r === r && b.s === this.P)) o.push(['crane', 1]);
+      if (S.q.some((b) => b.r === r && b.s === this.P)) o.push(['spade', 1]);
       return o;
     };
     const GI = new Map();

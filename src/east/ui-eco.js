@@ -1,5 +1,5 @@
-// «Мировой фронт» v0.11, «Восточный фронт»: хозяйство в интерфейсе. «Экономика» — заводы и фабрики, производственные
-// линии (доли ±5 %, эффективность, «авто»), очередь стройки (порядок, отмена), советы по укреплениям, эвакуация;
+// «Мировой фронт» v0.11, «Восточный фронт»: хозяйство в интерфейсе. «Экономика» — заводы, производственные линии
+// (доли ±5 % или ±1 завод, эффективность, «авто»), стройбригады и очередь стройки (порядок, отмена), советы по укреплениям, эвакуация;
 // «Армия» — состав, запасы снаряжения, новые дивизии (куда: авто, тыл фронта или учебный лагерь);
 // карточка области — постройки и кнопки стройки.
 import * as E from './engine.js';
@@ -7,50 +7,55 @@ import { frontsOn, zoneForce } from './ai.js';
 import { counterURL } from './counters.js';
 import { frontShort } from './ui-fronts.js';
 import { FRONT_COL } from './map.js';
-import { TYPES, SIDE0, divW } from './rules.js';
+import { TYPES, SIDE0, divW, plural } from './rules.js';
 import { esc, ic, num, weeksW } from './kit.js';
 
 const nm = (M, r) => M.reg[r].city?.n || M.reg[r].n;
 const pc = (x) => `${Math.round(x * 100)}%`;
+const facW = (n) => plural(Math.round(n), 'завод', 'завода', 'заводов');
 const EQN = { inf: 'стрелкового оружия', art: 'артиллерии', arm: 'танков' };
 export const EcoUI = {
   incOf() { const S = this.S, P = this.P; return S.inc[P]?.pp !== undefined ? S.inc[P] : E.income(S, P); },
   // ——— Экономика ———
+  facTot() { const S = this.S, P = this.P; let n = 0; for (let r = 0; r < this.M.R; r++) if (E.sideOf(S, r) === P) n += S.fac[r]; return n; },
   pEco() {
     const S = this.S, P = this.P, M = this.M, inc = this.incOf(), L = S.line[P], q = S.eq[P];
-    const my = S.q.filter((b) => b.s === P), planned = E.cpPlanned(S, P);
-    let facT = 0, civT = 0;
-    for (let r = 0; r < M.R; r++) if (E.sideOf(S, r) === P) { facT += S.fac[r]; civT += S.civ[r]; }
+    const my = E.myQ(S, P), N = E.brigN(S, P), busy = Math.min(N, my.length), facT = this.facTot();
+    // доли производства: в % или числом заводов (переключатель)
+    const fm = L.fm && facT > 0, al = fm ? E.allocFac(L.sh, facT) : null;
     const lines = E.LINES.map((c) => {
       const o = inc.out?.[c] ?? inc.pp * L.sh[c] * L.e[c], st = c === 'air' ? `ВВС ${num(S.air[P])}` : `запас ${num(q[c])}`;
+      const lo = fm ? al[c] <= 0 : L.sh[c] < 0.01, hi = fm ? (al[c] + 1) / facT > 0.851 : L.sh[c] > 0.84;
       return `<div class="e-line"><span class="e-lic">${ic(E.LINE[c].ic)}</span><div class="e-lm"><b>${esc(E.LINE[c].n)}</b><small>+${num(o)} в нед. · ${st} · эфф. ${pc(L.e[c])}</small><i class="e-eff"><em style="width:${Math.round(Math.min(1, L.e[c]) * 100)}%"></em></i></div>
-<button class="e-ib sm" data-a="lsh" data-c="${c}" data-d="-1" aria-label="Меньше" ${L.sh[c] < 0.01 ? 'disabled' : ''}>${ic('minus')}</button><b class="e-lsh">${pc(L.sh[c])}</b><button class="e-ib sm" data-a="lsh" data-c="${c}" data-d="1" aria-label="Больше" ${L.sh[c] > 0.84 ? 'disabled' : ''}>${ic('plus')}</button></div>`;
+<button class="e-ib sm" data-a="lsh" data-c="${c}" data-d="-1" aria-label="Меньше" ${lo ? 'disabled' : ''}>${ic('minus')}</button><b class="e-lsh">${fm ? `${al[c]}<small>${fm ? 'зав.' : ''}</small>` : pc(L.sh[c])}</b><button class="e-ib sm" data-a="lsh" data-c="${c}" data-d="1" aria-label="Больше" ${hi ? 'disabled' : ''}>${ic('plus')}</button></div>`;
     }).join('');
     const qi = my.map((b, i) => {
-      const B = E.BUILD[b.k], eta = E.etaOf(S, P, b);
-      return `<div class="e-qi">${ic(B.ic)}<div class="e-lm"><b>${esc(B.n)}${b.k === 'fort' ? ` ${S.fort[b.r] + 1}` : ''}</b><small><button class="e-lnk" data-a="region" data-r="${b.r}">${esc(nm(M, b.r))}</button> · ${eta >= 99 ? 'ждёт очереди' : `≈ ${weeksW(eta)}`}</small><i class="e-eff q"><em style="width:${Math.round((1 - b.left / b.tot) * 100)}%"></em></i></div>${i ? `<button class="e-ib sm" data-a="qup" data-i="${i}" aria-label="Раньше">${ic('up')}</button>` : '<span class="e-ib sm ph"></span>'}<button class="e-ib sm" data-a="qdel" data-i="${i}" aria-label="Отменить">${ic('close')}</button></div>`;
+      const B = E.BUILD[b.k], eta = E.etaOf(S, P, b), act = i < N;
+      return `<div class="e-qi ${act ? '' : 'wait'}">${ic(B.ic)}<div class="e-lm"><b>${esc(B.n)}${b.k === 'fort' ? ` ${S.fort[b.r] + 1}` : ''}</b><small><button class="e-lnk" data-a="region" data-r="${b.r}">${esc(nm(M, b.r))}</button> · ${act ? 'строится' : 'ждёт бригаду'} · ≈ ${weeksW(eta)}</small><i class="e-eff q"><em style="width:${Math.round((1 - b.left / b.tot) * 100)}%"></em></i></div>${i ? `<button class="e-ib sm" data-a="qup" data-i="${i}" aria-label="Раньше">${ic('up')}</button>` : '<span class="e-ib sm ph"></span>'}<button class="e-ib sm" data-a="qdel" data-i="${i}" aria-label="Отменить">${ic('close')}</button></div>`;
     }).join('');
     // советы: укрепить угрожаемые участки фронта
     const fd = E.frontDist(S, P), thr = new Float32Array(M.R);
     for (let r = 0; r < M.R; r++) if (fd[r] === 0) for (const e of M.reg[r].nb) for (const u of S.at[e.r]) if (u.s !== P) thr[r] += u.str / 100;
     const sug = [...Array(M.R).keys()].filter((r) => fd[r] === 0 && thr[r] > 0 && E.canBuild(S, P, r, 'fort')).sort((a, b) => thr[b] * (1 + M.reg[b].vp * 0.2) - thr[a] * (1 + M.reg[a].vp * 0.2)).slice(0, 4);
-    const B = E.BUILD;
-    return `${this.head(ic('mil'), 'Экономика', `${ic('prod')} ${num(inc.pp)} в неделю · ${ic('crane')} ${num(E.cpNow(S, P))} стройки`)}<div class="e-pbody">
-<div class="e-eco"><span>${ic('factory')}<b>${num(facT)}</b><small>военных заводов${facT - inc.fac > 0.5 ? `, в работе ${num(inc.fac)}` : ''}</small></span><span>${ic('civ')}<b>${num(civT)}</b><small>гражданских фабрик</small></span><span>${ic('men')}<b>+${num(inc.men || 0)}</b><small>призыв в неделю</small></span></div>
+    const B = E.BUILD, r0 = E.bRate0(S, P);
+    const pips = Array.from({ length: N }, (_, i) => `<i class="${i < busy ? 'on' : ''}">${ic('spade')}</i>`).join('');
+    return `${this.head(ic('mil'), 'Экономика', `${ic('prod')} ${num(inc.pp)} в неделю · ${ic('spade')} ${busy}/${N} бригад`)}<div class="e-pbody">
+<div class="e-eco"><span>${ic('factory')}<b>${num(facT)}</b><small>военных заводов${facT - inc.fac > 0.5 ? `, в работе ${num(inc.fac)}` : ''}</small></span><span>${ic('spade')}<b>${busy}/${N}</b><small>стройбригад заняты</small></span><span>${ic('men')}<b>+${num(inc.men || 0)}</b><small>призыв в неделю</small></span></div>
 ${inc.ll ? `<div class="e-note">${ic('ship')}Ленд-лиз: +${num(inc.ll)} в неделю к военному производству</div>` : ''}
-<h4>${ic('prod')}Производство <small>доли военного производства</small></h4>
+<h4>${ic('prod')}Производство <span class="e-seg"><button class="${fm ? '' : 'on'}" data-a="lmode" data-m="0">%</button><button class="${fm ? 'on' : ''}" data-a="lmode" data-m="1" ${facT > 0 ? '' : 'disabled'}>${ic('factory')}заводы</button></span></h4>
 <div class="e-lines">${lines}</div>
 <button class="e-row e-toggle ${L.auto ? 'on' : ''}" data-a="lauto">${ic('auto')}<span>Генштаб сам делит производство<small>по составу армии и запасам</small></span><i></i></button>
-<div class="e-note">${ic('info')}Больше доля — ниже эффективность линии (переналадка); затем она растёт на 8 % в неделю. Самолёты пополняют ВВС: норма — 20 %.</div>
-<h4>${ic('crane')}Стройка <small>${num(planned)} из ${num(E.cpNow(S, P))} в неделю</small></h4>
+<div class="e-note">${ic('info')}${fm ? `Все ${num(facT)} ${facW(facT)} поделены между линиями: «+» переводит завод на линию. ` : ''}Больше доля — ниже эффективность линии (переналадка); затем она растёт на 8 % в неделю. Самолёты пополняют ВВС: норма — 20 %.</div>
+<h4>${ic('spade')}Стройбригады <small>${busy} из ${N} заняты</small></h4>
+<div class="e-brig">${pips}</div>
 ${qi ? `<div class="e-lines">${qi}</div>` : `<div class="e-note">${ic('info')}Очередь пуста. Нажмите на свою область на карте — там кнопки построек.</div>`}
-${sug.length ? `<h4>${ic('fort')}Укрепить фронт</h4>${sug.map((r) => `<div class="e-li"><button class="e-lnk" data-a="region" data-r="${r}">${ic('city')}${esc(nm(M, r))}</button><span class="e-fl">${'▮'.repeat(S.fort[r])}${'▯'.repeat(3 - S.fort[r])}</span><button class="e-btn sm" data-a="bld" data-r="${r}" data-k="fort">${ic('fort')}<span>${B.fort.cp}</span></button></div>`).join('')}` : ''}
+${sug.length ? `<h4>${ic('fort')}Укрепить фронт</h4>${sug.map((r) => `<div class="e-li"><button class="e-lnk" data-a="region" data-r="${r}">${ic('city')}${esc(nm(M, r))}</button><span class="e-fl">${'▮'.repeat(S.fort[r])}${'▯'.repeat(3 - S.fort[r])}</span><button class="e-btn sm" data-a="bld" data-r="${r}" data-k="fort">${ic('fort')}<span>${E.bTime(S, P, r, 'fort')} нед.</span></button></div>`).join('')}` : ''}
 ${P === 'SOV' && S.evac.length ? `<h4>${ic('train')}Эвакуация</h4>${S.evac.map((e) => `<div class="e-li">${ic('factory')}<span>${esc(M.reg[e.r].n)} → ${esc(M.reg[e.to].n)}</span><small>${weeksW(e.left)}</small></div>`).join('')}` : ''}
-<button class="e-row e-toggle ${S.auto.build ? 'on' : ''}" data-a="auto" data-k="build">${ic('auto')}<span>Строить укрепления самим<small>на свободную стройку</small></span><i></i></button>
+<button class="e-row e-toggle ${S.auto.build ? 'on' : ''}" data-a="auto" data-k="build">${ic('auto')}<span>Строить укрепления и ПВО самим<small>свободными бригадами</small></span><i></i></button>
 ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" data-a="auto" data-k="evac">${ic('train')}<span>Эвакуировать заводы у фронта</span><i></i></button>` : ''}
 <h4>${ic('build')}Постройки <small>в карточке своей области</small></h4>
-<div class="e-blds">${E.BUILD_ORDER.map((k) => { const b = B[k], c = E.bCost(S, P, k); return `<div class="e-bld">${ic(b.ic)}<b>${esc(b.n)}</b><small>${ic('crane')}${c} · от ${weeksW(Math.ceil(c / b.cap))}</small><small>${esc(b.d)}</small></div>`; }).join('')}</div>
-<div class="e-note">${ic('info')}Каждый новый завод и фабрика — на 12 % дороже прежнего.</div>
+<div class="e-blds">${E.BUILD_ORDER.map((k) => { const b = B[k]; return `<div class="e-bld">${ic(b.ic)}<b>${esc(b.n)}</b><small>${ic('hourglass')}${weeksW(Math.max(1, Math.ceil(E.bWeeks(S, P, k) / r0 - 1e-6)))}</small><small>${esc(b.d)}</small></div>`; }).join('')}</div>
+<div class="e-note">${ic('info')}Одна бригада ведёт один проект. У фронта стройка идёт в 1,5 раза дольше, без железной дороги — в 1,25 раза. Каждый новый завод строится на 12 % дольше прежнего.</div>
 </div>`;
   },
   // ——— Армия ———
@@ -113,27 +118,27 @@ ${full ? `<div class="e-note">${ic('info')}Армия у предела: ${capN}
   // ——— постройки в карточке области ———
   bGrid(r) {
     const S = this.S, P = this.P, M = this.M, B = E.BUILD;
-    const lv = { fac: S.fac[r], civ: S.civ[r], fort: S.fort[r], afd: S.afd[r], camp: S.camp[r], dep: S.dep[r] };
+    const lv = { fac: S.fac[r], fort: S.fort[r], aa: S.aa[r], afd: S.afd[r], camp: S.camp[r], dep: S.dep[r] };
     const home = E.sideOf(S, r) === P;
     if (!home) {
       const has = E.BUILD_ORDER.filter((k) => lv[k]);
-      return has.length ? `<div class="e-bl">${has.map((k) => `<span title="${esc(B[k].n)}">${ic(B[k].ic)}${k === 'fac' || k === 'civ' || k === 'fort' ? `<b>${lv[k]}</b>` : ''}</span>`).join('')}</div>` : '';
+      return has.length ? `<div class="e-bl">${has.map((k) => `<span title="${esc(B[k].n)}">${ic(B[k].ic)}${k === 'fac' || k === 'fort' ? `<b>${lv[k]}</b>` : ''}</span>`).join('')}</div>` : '';
     }
     const tiles = E.BUILD_ORDER.map((k) => {
       const b = S.q.find((x) => x.r === r && x.k === k), why = E.whyNot(S, P, r, k);
-      const lvl = k === 'fort' ? `${lv[k]}/3` : k === 'fac' || k === 'civ' ? `${lv[k]}` : lv[k] ? ic('check') : '';
-      const st = b ? `<em>${ic('hourglass')}≈ ${E.etaOf(S, P, b)} нед.</em><i class="e-bp"><i style="width:${Math.round((1 - b.left / b.tot) * 100)}%"></i></i>` : why ? `<em class="no">${esc(why)}</em>` : `<em>${ic('crane')}${E.bCost(S, P, k)}</em>`;
+      const lvl = k === 'fort' ? `${lv[k]}/3` : k === 'fac' ? `${lv[k]}` : lv[k] ? ic('check') : '';
+      const st = b ? `<em>${ic('hourglass')}≈ ${E.etaOf(S, P, b)} нед.${E.isActive(S, b) ? '' : ', ждёт'}</em><i class="e-bp"><i style="width:${Math.round((1 - b.left / b.tot) * 100)}%"></i></i>` : why ? `<em class="no">${esc(why)}</em>` : `<em>${ic('spade')}${E.bTime(S, P, r, k)} нед.</em>`;
       return `<button class="e-bt ${lv[k] ? 'has' : ''}" data-a="bld" data-r="${r}" data-k="${k}" ${b || why ? 'disabled' : ''}>${ic(B[k].ic)}<b>${lvl}</b><small>${esc(B[k].n)}</small>${st}</button>`;
     }).join('');
-    const sl = E.slots(S, r), us = E.used(S, r), land = SIDE0[M.nats[S.own0[r]]] === P;
-    return `<div class="e-bgrid">${tiles}</div><div class="e-bsub">${ic('factory')}${land ? `Места под заводы и фабрики: ${us} из ${sl}` : 'Занятая земля: заводы здесь не строят'}</div>`;
+    const sl = E.slots(S, r), us = E.used(S, r), land = SIDE0[M.nats[S.own0[r]]] === P, N = E.brigN(S, P), busy = E.brigBusy(S, P);
+    return `<div class="e-bgrid">${tiles}</div><div class="e-bsub">${ic('factory')}${land ? `Места под заводы: ${us} из ${sl}` : 'Занятая земля: заводы здесь не строят'}</div><div class="e-bsub">${ic('spade')}Стройбригады: ${busy} из ${N} заняты${busy >= N ? ' — новый проект подождёт в очереди' : ''}</div>`;
   },
   doBuild(r, k) {
     const S = this.S, P = this.P;
     if (!E.build(S, P, r, k)) { this.snd.play('error'); return this.toast(`${ic('cancel')}${esc(E.whyNot(S, P, r, k) || 'Нельзя построить')}`); }
     this.snd.play('build');
     const b = S.q[S.q.length - 1];
-    this.toast(`${ic(E.BUILD[k].ic)}${esc(E.BUILD[k].n)}: ${esc(nm(this.M, r))}, ≈ ${weeksW(E.etaOf(S, P, b))}`);
+    this.toast(`${ic(E.BUILD[k].ic)}${esc(E.BUILD[k].n)}: ${esc(nm(this.M, r))}, ≈ ${weeksW(E.etaOf(S, P, b))}${E.isActive(S, b) ? '' : ' (ждёт бригаду)'}`);
     this.tipSeen('build');
     this.refresh();
   },
@@ -146,7 +151,8 @@ ${full ? `<div class="e-note">${ic('info')}Армия у предела: ${capN}
 };
 export const ECO_ACT = {
   eco() { this.snd.play('click'); if (this.panelKind === 'eco' && !this.$('.e-panel').classList.contains('hidden')) return this.closePanel(); return this.openPanel('eco'); },
-  lsh(b) { this.snd.play('select'); E.shiftLine(this.S, this.P, b.dataset.c, +b.dataset.d); this.renderPanel(); },
+  lsh(b) { this.snd.play('select'); const L = this.S.line[this.P], F = L.fm ? this.facTot() : 0; E.shiftLine(this.S, this.P, b.dataset.c, +b.dataset.d, F); this.renderPanel(); },
+  lmode(b) { this.snd.play('select'); this.S.line[this.P].fm = +b.dataset.m; this.renderPanel(); },
   lauto() { this.snd.play('select'); const L = this.S.line[this.P]; L.auto = L.auto ? 0 : 1; if (L.auto) delete L.airT; this.renderPanel(); },
   qup(b) {
     const S = this.S, P = this.P, i = +b.dataset.i, my = S.q.filter((x) => x.s === P);

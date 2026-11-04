@@ -24,6 +24,7 @@ const WANT = {
   warship: 'GiIronHulledWarship', mg: 'GiMachineGun', ammo: 'GiBullets', plan: 'GiTreasureMap', org: 'GiOrganigram', idea: 'GiTeamIdea', upgrade: 'GiUpgrade',
   arrows: 'GiStrikingArrows', art: 'GiCannonShot', oilpump: 'GiOilPump', steel: 'GiMetalBar', boot: 'GiSteeltoeBoots', world: 'GiWorld', prog: 'GiProgression', ranks: 'GiStarsStack',
   civ: 'GiAnvil', crane: 'GiCrane', shell: 'GiArtilleryShell',
+  aa: 'GiAntiAircraftGun', spade: 'GiSpade',
 };
 const src = {};
 const grab = (name) => {

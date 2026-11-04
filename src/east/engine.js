@@ -3,14 +3,14 @@
 // областей против обороняющихся; итог — потери, отход или разгром (если отходить некуда — плен), захват области.
 // Снабжение — от тыловых источников по своим областям (железные дороги Ось перешивает за собой), без снабжения —
 // потери и сдача «котлов». Хозяйство: ⚙ производство (заводы областей + тыл + ленд-лиз), 👥 люди; пополнение,
-// новые дивизии, постройки (завод, укрепления, аэродром), эвакуация заводов СССР.
+// новые дивизии, постройки стройбригадами (завод, укрепления, ПВО, аэродром…), эвакуация заводов СССР.
 import { TYPES, TER, WX, SIDE0, NAT_N, DIFF, LAST_TURN, quality, tankQ, weatherOf, winter41, rnd, other, yearF, lerpT, turnOf, fmtTurn, divW, isMech } from './rules.js';
 import { ALLG } from '../war/gens41.js';
 import { HIST_KEYS } from './hist.js';
 import { runEvents } from './events.js';
-import { produce, construct, evacWeek, hasEq, payEq, EQS, polOf } from './eco.js';
+import { produce, construct, evacWeek, hasEq, payEq, EQS, polOf, aaCover, qLost } from './eco.js';
 import { tx, techWeek } from './tech.js';
-export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, used, eqTot, hasEq, EQS, LINES, LINE, shiftLine, etaOf, cpPlanned, cpNow, bCost, unbuild } from './eco.js';
+export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, used, eqTot, hasEq, EQS, LINES, LINE, shiftLine, etaOf, unbuild, brigN, brigBusy, brigFree, bWeeks, bTime, bRate, bRate0, myQ, isActive, aaCover, allocFac } from './eco.js';
 
 export const SAVE_KEY = 'wf_east_v1';
 export const VER = 1;
@@ -360,7 +360,8 @@ export function capture(S, r, side, nat) {
   S.own[r] = natIdx;
   S.rail[r] = 0;
   if (S.fort[r] > 0) S.fort[r]--;
-  S.q = S.q.filter((b) => b.r !== r);
+  if (S.aa) S.aa[r] = 0;
+  qLost(S, r);
   S.capT[r] = S.turn;
   if (S.fz) { if (S.fcust && side === S.side) { S.fzo[r] = -1; if (!newFront(S, r)) S.fz[r] = S.fzo[r] = g.z; } else S.fz[r] = g.z; }
   if (g.vp > 0) {
@@ -398,7 +399,11 @@ export function odds(S, T, us, extraD = 0) {
   for (const u of us) { const l = byR.get(u.r) || []; l.push(attCV(S, u, T, u.r)); byR.set(u.r, l); }
   for (const l of byR.values()) A += sumFW(l);
   D = sumFW(S.at[T].filter((v) => v.s !== side).map((v) => defCV(S, v, side))) + garOf(S, T, side) + extraD;
-  const z = S.M.reg[T].z, ar = airRatio(S, side, z), wa = wxOf(S, T).air, e = 0.5 + (ar - 0.5) * wa;
+  // авиация: перевес в небе полосы (с поправкой на погоду); ПВО обороняющихся снимает часть перевеса противника
+  const z = S.M.reg[T].z, ar = airRatio(S, side, z), wa = wxOf(S, T).air;
+  let dA = (ar - 0.5) * wa;
+  if (dA > 0) dA *= 1 - aaCover(S, T, other(side));
+  const e = 0.5 + dA;
   A *= (0.8 + 0.4 * e) / (0.8 + 0.4 * (1 - e));
   return { A, D, R: D > 0 ? A / D : 99 };
 }
@@ -578,7 +583,7 @@ export function endPhase(S, side) {
 export function endWeek(S) {
   for (const side of ['GER', 'SOV']) { computeSupply(S, side); economy(S, side); }
   railRepair(S, 'GER'); railRepair(S, 'SOV');
-  // стройка (очки гражданских фабрик) и эвакуация заводов
+  // стройка (стройбригады) и эвакуация заводов
   construct(S, 'GER'); construct(S, 'SOV');
   evacWeek(S);
   techWeek(S);
@@ -651,17 +656,17 @@ export const ECO = {
   mult: { GER: [[1941.4, 1], [1942.0, 1.08], [1943.0, 1.3], [1944.0, 1.45], [1945.0, 1.1]], SOV: [[1941.4, 1], [1942.0, 1.15], [1943.0, 1.3], [1944.0, 1.4], [1945.5, 1.45]] },
   men: { GER: [[1941.4, 11], [1941.95, 16], [1942.2, 24], [1943.0, 26], [1944.0, 24], [1944.8, 18], [1945.2, 12]], SOV: [[1941.4, 165], [1941.9, 140], [1942.3, 105], [1943.0, 85], [1944.0, 70], [1945.0, 56]] },
   ll: [[1941.75, 0], [1941.85, 5], [1942.5, 9], [1943.5, 15], [1944.5, 18], [1945.5, 14]],
-  W: 1, cpK: 0.8, cpB: { GER: [[1941.4, 10], [1943.0, 12], [1944.5, 9]], SOV: [[1941.4, 8], [1943.0, 12], [1945.5, 14]] },
+  W: 1,
   air: { GER: [[1941.4, 100], [1942.0, 70], [1942.5, 85], [1943.0, 70], [1943.6, 60], [1944.4, 42], [1945.0, 32]], SOV: [[1941.4, 46], [1941.9, 40], [1942.5, 62], [1943.0, 90], [1943.6, 120], [1944.4, 150], [1945.0, 170]] },
 };
 const airBase = (S, side) => lerpT(ECO.air[side], yearF(S.turn)) * (S.flags[side + 'air'] || 1) * (1 + tx(S, side, 'air'));
 export function income(S, side) {
   const M = S.M, y = yearF(S.turn);
-  let fac = 0, civ = 0;
+  let fac = 0;
   for (let r = 0; r < M.R; r++) {
-    if (sideOf(S, r) !== side || !(S.fac[r] || S.civ?.[r]) || S.sup[side][r] <= 0) continue;
+    if (sideOf(S, r) !== side || !S.fac[r] || S.sup[side][r] <= 0) continue;
     const own0 = SIDE0[M.nats[S.own0[r]]], k = (own0 === side ? 1 : 0.25) * (S.capT[r] > S.turn - 3 ? 0.3 : 1);
-    fac += S.fac[r] * k; civ += (S.civ?.[r] || 0) * k;
+    fac += S.fac[r] * k;
   }
   const ec = side === S.side ? DIFF[S.diff].eco : 1;
   let pp = (fac * ECO.ppK[side] + lerpT(ECO.base[side], y)) * lerpT(ECO.mult[side], y) * ec * (S.flags[side + 'pp'] || 1) * (1 + tx(S, side, 'pp'));
@@ -677,9 +682,8 @@ export function income(S, side) {
     for (let r = 0; r < M.R; r++) if (S.M.nats[S.own0[r]] === 'SOV') { const w = 1 + M.reg[r].vp; tot += w; if (sideOf(S, r) === 'SOV') have += w; }
     men *= 0.55 + 0.45 * (have / tot);
   }
-  // военное производство (вместе с самолётами: «норма» — 20 % на авиацию) и стройка
-  const cp = (civ * ECO.cpK + lerpT(ECO.cpB[side], y)) * ec * (S.flags[side + 'cp'] || 1) * (1 + tx(S, side, 'cp'));
-  return { pp: pp * ECO.W, men, fac, ll: ll * ECO.W, civ, cp };
+  // военное производство (вместе с самолётами: «норма» — 20 % на авиацию); стройка — бригадами (eco.js)
+  return { pp: pp * ECO.W, men, fac, ll: ll * ECO.W };
 }
 // предел численности армии (дивизий, с союзниками): растёт с мобилизацией; у игрока — с поправкой на сложность
 export const ARMY = { SOV: [[1941.4, 320], [1942.0, 380], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
@@ -826,7 +830,7 @@ export function checkEnd(S) {
 }
 function end(S, win, why) { S.over = { win, why, turn: S.turn }; note(S, { ic: 'trophy', side: win, txt: why }); }
 // ——— сохранение ———
-const TA = ['own', 'own0', 'fac', 'fort', 'afd', 'rail', 'capT', 'bd0', 'fz', 'fzo', 'civ', 'camp', 'dep'];
+const TA = ['own', 'own0', 'fac', 'fort', 'afd', 'rail', 'capT', 'bd0', 'fz', 'fzo', 'civ', 'camp', 'dep', 'aa'];
 export function serialize(S) {
   const o = {};
   for (const k in S) {
@@ -843,7 +847,7 @@ export function deserialize(M, str) {
   S.M = M;
   S.own = Int16Array.from(S.own); S.own0 = Int16Array.from(S.own0); S.fac = Int8Array.from(S.fac); S.fort = Int8Array.from(S.fort);
   S.afd = Int8Array.from(S.afd); S.rail = Uint8Array.from(S.rail); S.capT = Int16Array.from(S.capT); S.bd0 = Int16Array.from(S.bd0);
-  for (const k of ['fz', 'fzo', 'civ', 'camp', 'dep']) if (S[k]) S[k] = Int8Array.from(S[k]);
+  for (const k of ['fz', 'fzo', 'civ', 'camp', 'dep', 'aa']) if (S[k]) S[k] = Int8Array.from(S[k]);
   S.sup = {}; S.battles = []; S.news = [];
   reindex(S);
   computeSupply(S, 'GER'); computeSupply(S, 'SOV');

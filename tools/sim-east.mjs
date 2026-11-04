@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import { decodeMap } from '../src/east/mapdata.js';
 import { newGame, placeR } from '../src/east/setup.js';
 import { runSide, setPostures } from '../src/east/ai.js';
-import { endWeek, sideOf, alive, baseCV, beginPhase, eqTot } from '../src/east/engine.js';
+import { endWeek, sideOf, alive, baseCV, beginPhase, eqTot, brigBusy, brigN } from '../src/east/engine.js';
 import { fmtTurn, turnOf } from '../src/east/rules.js';
 import { HIST_KEYS } from '../src/east/hist.js';
 
@@ -41,7 +41,7 @@ for (let t = 0; t < turns && !S.over; t++) {
   const turn = S.turn;
   endWeek(S);
   const o = sum();
-  if (DATES.includes(turn)) counts.push(`${fmtTurn(turn)}: G${o.GER.n}/${o.GER.str}% S${o.SOV.n}/${o.SOV.str}%`);
+  if (DATES.includes(turn)) { const fs = (sd, k) => { let n = 0; for (let r = 0; r < M.R; r++) if (sideOf(S, r) === sd) n += S[k]?.[r] || 0; return n; }; counts.push(`${fmtTurn(turn)}: G${o.GER.n}/${o.GER.str}% f${fs('GER', 'fort')}/${fs('GER', 'aa')} S${o.SOV.n}/${o.SOV.str}% f${fs('SOV', 'fort')}/${fs('SOV', 'aa')}`); }
   if (Z && turn % Z === 0) {
     const zs = [];
     for (let z = 0; z < 5; z++) {
@@ -54,7 +54,7 @@ for (let t = 0; t < turns && !S.over; t++) {
   if (S.evq.length) { if (!Q) console.log('     события: ' + S.evq.map((e) => e.id).join(', ')); S.evq = []; }
   if (!Q && (V || ch.length || turn % 4 === 0)) {
     const iG = S.inc.GER, iS = S.inc.SOV;
-    console.log(`${String(turn).padStart(3)} ${fmtTurn(turn).padEnd(12)} ${S.wx.map((w) => w[0]).join('')} | G ${o.GER.n}(${o.GER.arm}) ${o.GER.str}% eq${eqTot(S, 'GER') | 0}/${iG.pp | 0} cp${iG.cp | 0} q${S.q.filter((b) => b.s === 'GER').length} m${S.men.GER | 0}/${iG.men | 0} mor${S.mor.GER | 0} | S ${o.SOV.n}(${o.SOV.arm}) ${o.SOV.str}% eq${eqTot(S, 'SOV') | 0}/${iS.pp | 0} cp${iS.cp | 0} q${S.q.filter((b) => b.s === 'SOV').length} m${S.men.SOV | 0}/${iS.men | 0} mor${S.mor.SOV | 0} | G${regs('GER')} | b${bG}/${bS} L G${S.stats.GER.lost} S${S.stats.SOV.lost}(${S.stats.SOV.pow}) | ${S.post.GER.map((p) => p[0]).join('')} ${S.post.SOV.map((p) => p[0]).join('')} ${ch.join(' ')}`);
+    console.log(`${String(turn).padStart(3)} ${fmtTurn(turn).padEnd(12)} ${S.wx.map((w) => w[0]).join('')} | G ${o.GER.n}(${o.GER.arm}) ${o.GER.str}% eq${eqTot(S, 'GER') | 0}/${iG.pp | 0} b${brigBusy(S, 'GER')}/${brigN(S, 'GER')} q${S.q.filter((b) => b.s === 'GER').length} m${S.men.GER | 0}/${iG.men | 0} mor${S.mor.GER | 0} | S ${o.SOV.n}(${o.SOV.arm}) ${o.SOV.str}% eq${eqTot(S, 'SOV') | 0}/${iS.pp | 0} b${brigBusy(S, 'SOV')}/${brigN(S, 'SOV')} q${S.q.filter((b) => b.s === 'SOV').length} m${S.men.SOV | 0}/${iS.men | 0} mor${S.mor.SOV | 0} | G${regs('GER')} | b${bG}/${bS} L G${S.stats.GER.lost} S${S.stats.SOV.lost}(${S.stats.SOV.pow}) | ${S.post.GER.map((p) => p[0]).join('')} ${S.post.SOV.map((p) => p[0]).join('')} ${ch.join(' ')}`);
   }
 }
 console.log('over', S.over, 'turn', S.turn, fmtTurn(S.turn));
