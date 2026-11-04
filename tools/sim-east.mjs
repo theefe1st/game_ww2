@@ -1,17 +1,19 @@
 // Прогон «Восточного фронта» без интерфейса: обе стороны — ИИ.
-// node tools/sim-east.mjs [--turns 236] [--seed 7] [--diff 1] [--side SOV] [--mode hist] [--v] [--q]
+// node tools/sim-east.mjs [--turns 236] [--seed 7] [--diff 1] [--side SOV] [--mode hist] [--v] [--q] [--player]
+// --player: сторона --side играет как игрок «на авто» (как в интерфейсе: приказы «авто», runSide isAI=false)
 import fs from 'node:fs';
 import { decodeMap } from '../src/east/mapdata.js';
 import { newGame, placeR } from '../src/east/setup.js';
-import { runSide } from '../src/east/ai.js';
-import { endWeek, sideOf, alive, baseCV } from '../src/east/engine.js';
+import { runSide, setPostures } from '../src/east/ai.js';
+import { endWeek, sideOf, alive, baseCV, beginPhase } from '../src/east/engine.js';
 import { fmtTurn, turnOf } from '../src/east/rules.js';
 import { HIST_KEYS } from '../src/east/hist.js';
 
 const A = process.argv.slice(2), arg = (k, d) => { const i = A.indexOf('--' + k); return i < 0 ? d : A[i + 1] === undefined || A[i + 1].startsWith('--') ? true : A[i + 1]; };
 const turns = +arg('turns', 236), seed = +arg('seed', 7), diff = +arg('diff', 1), side = arg('side', 'SOV'), mode = arg('mode', 'hist'), V = !!arg('v', false), Q = !!arg('q', false), Z = +arg('z', 0);
 const M = decodeMap(JSON.parse(fs.readFileSync(new URL('../src/east/data/map.json', import.meta.url), 'utf8')));
-const NOEV = !!arg('noev', false);
+const NOEV = !!arg('noev', false), PL = !!arg('player', false);
+const run = (s) => { if (PL && s === side) { beginPhase(S, s); setPostures(S, s, true); runSide(S, s, { isAI: false, begun: true }); } else runSide(S, s, { isAI: true }); };
 const S = newGame(M, { side, mode, diff, seed, noAsk: 1, noEv: NOEV });
 // ключевые города: [название, дата взятия Осью, дата освобождения] (история)
 const KEY = HIST_KEYS;
@@ -30,9 +32,9 @@ const regs = (s) => M.reg.filter((g) => sideOf(S, g.id) === s).length;
 console.log(`seed ${seed} diff ${diff} side ${side} mode ${mode}`);
 for (let t = 0; t < turns && !S.over; t++) {
   S.news = []; S.battles = [];
-  let t0 = performance.now(); runSide(S, 'GER', { isAI: true }); T.GER += performance.now() - t0;
+  let t0 = performance.now(); run('GER'); T.GER += performance.now() - t0;
   const bG = S.battles.length;
-  t0 = performance.now(); runSide(S, 'SOV', { isAI: true }); T.SOV += performance.now() - t0;
+  t0 = performance.now(); run('SOV'); T.SOV += performance.now() - t0;
   const bS = S.battles.length - bG;
   const ch = [];
   for (const k of kr) { const s = sideOf(S, k.r); if (s !== k.s) { ch.push((s === 'SOV' ? '+' : '-') + k.n); k.s = s; if (s === 'GER' && k.lost === null) k.lost = S.turn; if (s === 'SOV' && k.lost !== null) k.back = S.turn; } }

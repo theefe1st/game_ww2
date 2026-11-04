@@ -75,6 +75,19 @@ export function autoTarget(S, side, z) {
   }
   return best;
 }
+// ближняя цель для приказа игрока «Наступление»: город или узел в 1–3 областях от фронта (а не столица за тысячу км)
+export function nearTarget(S, side, z) {
+  const M = S.M, d = distFromFront(S, side);
+  let best = -1, bs = -1e9;
+  for (const g of M.reg) {
+    if (sideOf(S, g.id) !== other(side) || (g.vp <= 0 && !g.city)) continue;
+    const k = d[g.id];
+    if (k > 4 || Math.abs(g.z - z) > 1) continue;
+    const s = g.vp * 2 + (g.city ? 1 : 0) - k * 5 - (g.z === z ? 0 : 6);
+    if (s > bs) (bs = s), (best = g.id);
+  }
+  return best >= 0 ? best : autoTarget(S, side, z);
+}
 // расстояние (в областях) от своей линии фронта вглубь противника
 function distFromFront(S, side) {
   const M = S.M, d = new Int16Array(M.R).fill(99), q = [];
@@ -107,8 +120,8 @@ function threatMap(S, side) {
 }
 const free = (u) => alive(u) && !u.man && !u.att && u.mp > 0.2;
 // ——— фаза стороны ———
-export function runSide(S, side, { isAI = true } = {}) {
-  beginPhase(S, side);
+export function runSide(S, side, { isAI = true, begun = false } = {}) {
+  if (!begun) beginPhase(S, side);
   setPostures(S, side, isAI);
   const C = { side, en: other(side), thr: threatMap(S, side), fd: frontDist(S, side), isAI };
   strategic(S, C);

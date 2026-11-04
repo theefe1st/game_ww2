@@ -21,8 +21,8 @@ function placeArmy(S, P, A, codes, arrTurn) {
   const us = [];
   for (const c of codes) {
     if (/^mk\d+/.test(c)) { // мехкорпус 1941 г. — две танковые и моторизованная дивизии
-      const num = c.replace(/\D/g, '');
-      us.push({ t: 'arm', n: `${num}-й мк (тд)` }, { t: 'arm', n: `${num}-й мк (тд)` }, { t: 'mot', n: `${num}-й мк (мд)` });
+      const num = c.match(/^mk(\d+)/)[1]; // «mk3:650» — 3-й мехкорпус, 650 танков
+      us.push({ t: 'arm', n: `${num}-й мк (1 тд)` }, { t: 'arm', n: `${num}-й мк (2 тд)` }, { t: 'mot', n: `${num}-й мк (мд)` });
       continue;
     }
     const p = parseUnit(c, A.nat);

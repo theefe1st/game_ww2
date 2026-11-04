@@ -201,13 +201,17 @@ export function runEvents(S) {
 }
 // выбор игрока в событии с вариантами
 export function chooseEvent(S, id, i) {
-  const E = EVM.get(id), q = S.evq.find((x) => x.id === id && x.ask);
-  if (!E?.opts || !q) return false;
+  const E = EVM.get(id);
+  if (!E?.opts || !(S.ev[id] >= 0) || S.evc?.[id] !== undefined) return false;
   const o = E.opts[i] || E.opts[0];
   S.evc ||= {}; S.evc[id] = i;
   o.fx?.(S);
-  q.ask = 0; q.ch = i;
+  for (const q of S.evq || []) if (q.id === id) q.ask = 0;
   return true;
+}
+// события с выбором, ждущие решения игрока
+export function pendingChoices(S) {
+  return EVENTS.filter((E) => E.opts && E.side === S.side && S.ev?.[E.id] >= 0 && S.evc?.[E.id] === undefined).map((E) => E.id);
 }
 // карточка для интерфейса: { id, ic, t, d, side, good (на пользу игроку), opts }
 export function evCard(S, id) {
