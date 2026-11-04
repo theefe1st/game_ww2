@@ -12,6 +12,7 @@ import { newGame, ensureState } from './setup.js';
 import * as E from './engine.js';
 import { runSide, setPostures, autoTarget, nearTarget, zoneForce, frontsOn } from './ai.js';
 import { FrontsUI, FRONT_ACT, frontShort } from './ui-fronts.js';
+import * as Fr from './fronts.js';
 import { EcoUI, ECO_ACT } from './ui-eco.js';
 import { SciUI, SCI_ACT } from './ui-sci.js';
 import { OpsUI, OPS_ACT } from './ui-ops.js';
@@ -178,6 +179,11 @@ export class EastUI {
       case 'evc': return this.pickChoice(b.dataset.id, +b.dataset.i);
       case 'evok': this.snd.play('click'); return this.nextCard();
       case 'rep': this.snd.play('click'); return this.nextCard();
+      case 'rqgo': { // после остальных карточек (события) — «Фронты» у нужного фронта
+        this.snd.play('click'); const z = +b.dataset.z;
+        this.afterCards = () => { this.fOpen = -1; this.openPanel('dirs'); setTimeout(() => this.$(`.e-front[data-f="${z}"]`)?.scrollIntoView({ block: 'center' }), 30); };
+        return this.nextCard();
+      }
       case 'opt': { this.snd.play('click'); const k = b.dataset.k; this.opt[k] = !this.opt[k]; this.saveOpts(); if (this.map) { this.map.opt.trees = this.opt.trees; this.map.opt.wx = this.opt.wxfx; this.map.redraw(); } this.updAmb(); if (k === 'tips' && this.opt.tips) { this.tipsSeen = {}; try { localStorage.removeItem(TIPS); } catch {} } return this.showSettings(); }
       case 'tipok': this.snd.play('click'); return this.hideTip();
       case 'region': { const r = +b.dataset.r; this.snd.play('click'); this.map.flyTo(this.M.reg[r].x, this.M.reg[r].y, Math.max(this.map.view.sc, 0.8)); return this.openRegion(r); }
@@ -359,6 +365,7 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
     if (this.modalLock) return;
     this.snd.play('turn');
     this.closePanel(); this.cancelMode(true); this.closeModal();
+    E.fstReset(S); // потери «за неделю» — с этого хода
     const P = this.P, steps = [() => { this.applyAuto(); runSide(S, P, { isAI: false, begun: true }); }];
     if (P === 'GER') steps.push(() => runSide(S, 'SOV', { isAI: true }), () => E.endWeek(S));
     else steps.push(() => E.endWeek(S), () => runSide(S, 'GER', { isAI: true }));
@@ -412,9 +419,19 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
   // ——— карточки: сводка недели, события, итог ———
   nextCard() {
     const c = this.cards.shift();
-    if (!c) { this.closeModal(); this.modalLock = false; this.refresh(); this.replayBattles(); this.maybeTip(); return; }
+    if (!c) {
+      this.closeModal(); this.modalLock = false; this.refresh();
+      if (this.afterCards) { const f = this.afterCards; this.afterCards = null; return f(); }
+      this.replayBattles(); this.maybeTip(); return;
+    }
     if (c.k === 'rep') return this.showReport(c.rep);
     if (c.k === 'ev') return this.showEventCard(c.id);
+  }
+  // просьбы командующих — в сводку недели (подробности и кнопки — во «Фронтах»)
+  repReqs() {
+    const S = this.S, P = this.P, L = [], rq = Fr.frontReqs(S, P);
+    for (let z = 0; z < E.ZN; z++) { const q = rq[z]; if (q) L.push(`<button class="e-rq" data-a="rqgo" data-z="${z}">${ic(Fr.REQ[q.k].ic)}<span><b>${esc(frontShort(S.fr[P][z].n))}</b> — ${esc(Fr.REQ[q.k].t.toLowerCase())}</span>${ic('right')}</button>`); }
+    return L.length ? `<div class="e-rqs"><h4>${ic('radio')}Просьбы фронтов</h4>${L.join('')}</div>` : '';
   }
   showReport(R) {
     const S = this.S, M = this.M, P = this.P, Q = other(P);
@@ -441,6 +458,7 @@ ${lost.length ? `<div class="e-rrow"><span class="e-rl bad">${ic('flag')}Пот�
 ${R.arr > 0 ? `<div class="e-stat">${ic('plus')}<b>${R.arr}</b><small>новых ${plural(R.arr, 'дивизия', 'дивизии', 'дивизий')}</small></div>` : ''}
 ${R.pocket ? `<div class="e-stat bad">${ic('encircle')}<b>${R.pocket}</b><small>в окружении!</small></div>` : ''}
 </div>
+${this.repReqs()}
 <div class="e-btns"><button class="e-btn gold" data-a="rep">${ic(evs ? 'next' : 'check')}<span>${evs ? 'Дальше' : 'К делу'}</span></button></div></div>`, { lock: false, cls: 'rep' });
     this.snd.play(tone === 'bad' ? 'lose' : tone === 'good' ? 'win' : 'click');
   }
@@ -622,7 +640,6 @@ ${this.histCmp(o)}
   onTap(r) {
     const S = this.S;
     if (!S || this.mode !== 'game' || this.isBusy) return;
-    if (this.pick?.paint !== undefined) return this.paintTap(r);
     if (this.opSel) return this.tapOp(r);
     if (this.pick) {
       if (r >= 0 && E.sideOf(S, r) === other(this.P)) { this.snd.play('select'); const z = this.pick.z; this.cancelMode(true); this.setTarget(z, r); return this.openPanel('dirs'); }

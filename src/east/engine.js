@@ -110,7 +110,7 @@ function genMod(S, side, z, kind, u, ter) {
 export const qualOf = (S, u) => quality(u.nat, S.turn) * (isMech(u) ? tankQ(u.s, S.turn) : 1) * (u.gd ? 1.12 : 1);
 const diffMod = (S, side) => (side === S.side ? DIFF[S.diff].pl : DIFF[S.diff].ai) * (S.band?.[side] ?? 1);
 const morMod = (S, side) => 0.9 + (0.2 * S.mor[side]) / 100;
-const supF = (S, u) => { const s = S.sup[u.s][u.r]; return s <= 0 ? 0.45 : 0.5 + 0.5 * Math.min(1, s); };
+const supF = (S, u) => { const s = S.sup[u.s][u.r], p = S.fprio?.[u.s]; return s <= 0 ? 0.45 : 0.5 + 0.5 * Math.min(1, s + (p && p.z === S.M.reg[u.r].z ? 0.2 : 0)); };
 // наука (относительно истории): все войска, пехота или танковые и моторизованные
 export const techK = (S, u, kind) => 1 + (kind === 'att' ? tx(S, u.s, 'att') + (isMech(u) ? tx(S, u.s, 'tank') : tx(S, u.s, 'infAtt')) : tx(S, u.s, 'def') + (isMech(u) ? tx(S, u.s, 'tank') : tx(S, u.s, 'infDef')));
 export function baseCV(S, u, kind) {
@@ -179,12 +179,19 @@ export const regionAtt = (S, r) => S.at[r].reduce((s, u) => s + baseCV(S, u, 'at
 // ——— авиация по направлениям ———
 export function airAlloc(S, side) {
   // авиация — по погодным полосам (воздушным районам); вес — участки фронта, втрое — при наступлении их фронта
-  const w = new Array(ZN).fill(0.2);
-  for (let r = 0; r < S.M.R; r++) if (sideOf(S, r) === side && isFront(S, r, side)) w[S.M.reg[r].z] += S.post[side][fzOf(S, r)] === 'atk' ? 1.6 : 1;
-  for (let z = 0; z < ZN; z++) if (S.airF[side] === z) w[z] *= 2.6;
+  // у игрока — свои доли по фронтам (S.airS, «Фронты» → авиация), иначе — авто
+  const sh = side === S.side ? S.airS?.[side] : null;
+  const w = sh ? sh.slice(0, ZN).map((x) => Math.max(0, x)) : airAuto(S, side);
   const tot = w.reduce((a, b) => a + b, 0) || 1, afd = new Array(ZN).fill(0);
   for (let r = 0; r < S.M.R; r++) if (S.afd[r] && sideOf(S, r) === side) afd[S.M.reg[r].z]++;
   return w.map((x, z) => ((S.air[side] * x) / tot) * (1 + 0.1 * Math.min(4, afd[z])));
+}
+// авто-распределение авиации: веса участков фронта, втрое — при наступлении
+export function airAuto(S, side) {
+  const w = new Array(ZN).fill(0.2);
+  for (let r = 0; r < S.M.R; r++) if (sideOf(S, r) === side && isFront(S, r, side)) w[S.M.reg[r].z] += S.post[side][fzOf(S, r)] === 'atk' ? 1.6 : 1;
+  for (let z = 0; z < ZN; z++) if (S.airF?.[side] === z) w[z] *= 2.6;
+  return w;
 }
 export function airRatio(S, side, z) {
   const a = S.airA?.[side]?.[z] ?? 0, b = S.airA?.[other(side)]?.[z] ?? 0;
@@ -395,13 +402,32 @@ export function odds(S, T, us, extraD = 0) {
   A *= (0.8 + 0.4 * e) / (0.8 + 0.4 * (1 - e));
   return { A, D, R: D > 0 ? A / D : 99 };
 }
+// ——— потери по фронтам (полосам): люди (тыс.), танки, орудия, дивизии — всего и с начала хода (S.fst) ———
+// штат: тыс. человек, танков и орудий в полной дивизии (у Оси дивизии крупнее)
+export const DIVMEN = { inf: 10, mtn: 9, cav: 5, mot: 9, arm: 8, sec: 5, abn: 7 };
+export const DIVTK = { mot: 60, arm: 180 };
+export const DIVGN = { inf: 140, mtn: 90, cav: 40, mot: 110, arm: 70, sec: 30, abn: 50 };
+export function fstOf(S, side, z) {
+  S.fst ??= { GER: [], SOV: [] };
+  return (S.fst[side][z] ??= { m: 0, t: 0, g: 0, d: 0, wm: 0, wt: 0, wg: 0, wd: 0, h: 0 });
+}
+export function lossRec(S, u, pts, dead = 0) {
+  if (u.r < 0 || !(pts > 0)) return;
+  const o = fstOf(S, u.s, S.M.reg[u.r].z), k = pts / 100, m = DIVMEN[u.t] * (u.s === 'SOV' ? 1 : 1.4) * k, t = (DIVTK[u.t] || 0) * k, g = DIVGN[u.t] * k;
+  o.m += m; o.t += t; o.g += g; o.wm += m; o.wt += t; o.wg += g; o.h = (o.h || 0) + m; // h — «накал» боёв (тыс. потерь, затухает)
+  if (dead) { o.d++; o.wd++; }
+}
+// начало хода игрока: счёт «за неделю» с нуля
+export function fstReset(S) { for (const sd in S.fst || {}) for (const o of S.fst[sd]) if (o) o.wm = o.wt = o.wg = o.wd = 0; }
 function hurt(S, u, pts, why) {
+  lossRec(S, u, Math.min(pts, Math.max(0, u.str)));
   u.str -= pts;
   if (u.str < 8) { destroy(S, u, why); return true; }
   return false;
 }
 export function destroy(S, u, why = 'разгромлена', pow = false) {
   if (!alive(u)) return;
+  lossRec(S, u, Math.max(0, u.str), 1);
   const l = S.at[u.r];
   l.splice(l.indexOf(u), 1);
   u.dead = 1; u.r = -1;
@@ -558,6 +584,8 @@ export function endWeek(S) {
   techWeek(S);
   // настроения: понемногу возвращаются к «настрою эпохи»
   for (const sd of ['GER', 'SOV']) addMor(S, sd, (lerpT(MOR0[sd], yearF(S.turn)) - S.mor[sd]) * 0.05);
+  for (const sd in S.fprio || {}) if (S.fprio[sd] && --S.fprio[sd].left <= 0) S.fprio[sd] = null;
+  for (const sd in S.fst || {}) for (const o of S.fst[sd]) if (o) o.h = (o.h || 0) * 0.6;
   S.turn++;
   for (let z = 0; z < ZN; z++) S.wx[z] = weatherOf(S.turn, z, S.wxShift[(S.turn / 52) | 0] || 0, S.seed);
   S.air.GER = airBase(S, 'GER') * (S.airK?.GER ?? 1); S.air.SOV = airBase(S, 'SOV') * (S.airK?.SOV ?? 1);
@@ -670,13 +698,14 @@ function economy(S, side) {
   // пополнение: сначала дивизии у фронта
   const top = lerpT(STRMAX[side], yearF(S.turn));
   const us = S.units.filter((u) => alive(u) && u.s === side && u.str < top && S.sup[side][u.r] >= 0.3);
-  us.sort((a, b) => (isFront(S, b.r, side) ? 1 : 0) - (isFront(S, a.r, side) ? 1 : 0) || a.str - b.str);
+  const pz = S.fprio?.[side]?.z ?? -1, zr = (u) => S.M.reg[u.r].z === pz ? 1 : 0; // фронт с приоритетом снабжения — первым и щедрее
+  us.sort((a, b) => zr(b) - zr(a) || (isFront(S, b.r, side) ? 1 : 0) - (isFront(S, a.r, side) ? 1 : 0) || a.str - b.str);
   // бюджет пополнения: доля запасов каждого вида снаряжения и людей
   const rp = S.repF?.[side] ?? lerpT(REP[side], yearF(S.turn)), q = S.eq[side], B = { inf: q.inf * rp, art: q.art * rp, arm: q.arm * rp }, U = { inf: 0, art: 0, arm: 0 }, budgetMen = S.men[side] * rp;
   let usedPP = 0, usedMen = 0, dry = 0;
   const recK = 1 + tx(S, side, 'rec');
   for (const u of us) {
-    const s = S.sup[side][u.r], want = Math.min(top - u.str, (isFront(S, u.r, side) ? 8 : 16) * s * (u.oos ? 0 : 1) * recK), c = costOf(u), m = EQS[u.t] || EQS.inf;
+    const s = S.sup[side][u.r], want = Math.min(top - u.str, (isFront(S, u.r, side) ? 8 : 16) * s * (u.oos ? 0 : 1) * recK * (zr(u) ? 1.6 : 1)), c = costOf(u), m = EQS[u.t] || EQS.inf;
     if (want <= 0) continue;
     let k = Math.min(want, (budgetMen - usedMen) / c.men);
     for (const e in m) k = Math.min(k, (B[e] - U[e]) / (c.pp * m[e]));
@@ -754,7 +783,7 @@ function arrivals(S) {
     if (r < 0) r = rearSpot(S, u.s, u.z ?? 2, u.at ?? -1, u.s === S.side ? u.zf ?? -1 : -1);
     delete u.camp;
     if (r < 0) continue;
-    u.r = r; S.at[r].push(u); delete u.arr;
+    u.r = r; S.at[r].push(u); delete u.arr; delete u.tr;
     u.mp = 0;
   }
 }

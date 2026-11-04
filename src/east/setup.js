@@ -129,7 +129,12 @@ export function ensureState(S) {
   }
   S.pauto ??= new Array(FN).fill(1);
   while (S.pauto.length < FN) S.pauto.push(1);
-  if (S.fcust && !S.fzo) S.fzo = Int8Array.from(S.M.reg, (g) => g.z);
+  // v0.11 (отзыв 04.11): фронты — постоянные, по направлениям; свои участки и лишние фронты старых сохранений — убрать
+  for (const sd of ['GER', 'SOV']) S.fr[sd].forEach((F, f) => { if (f < ZN) { F.n = FRONT_N[sd][f]; F.on = 1; } else F.on = 0; });
+  delete S.fcust; delete S.fzo;
+  for (const u of S.units) if (u.zf >= ZN) u.zf = Math.min(ZN - 1, u.z ?? 2);
+  S.airS ??= { GER: null, SOV: null };
+  S.fprio ??= { GER: null, SOV: null };
   assignFronts(S);
   ensureEco(S, (n) => placeR(S, n));
   ensureTech(S);
