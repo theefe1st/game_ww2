@@ -56,7 +56,10 @@ export function setPostures(S, side, isAI) {
     let p = cur;
     // отход целым направлением ИИ не объявляет (только отдельные дивизии из котлов)
     // зимние наступления Красной армии; вермахт зимой наступает только с большим перевесом
-    const kw = wx === 'snow' || wx === 'frost' ? (side === 'SOV' ? 0.85 : 1.4) : 1;
+    // летом и осенью 1941 г. инициатива у вермахта (наступает и при равных силах); с 1943 г. — стратегическая
+    // оборона: наступает только при явном перевесе (иначе глубокие выступы срезаются зимой целыми группами армий)
+    const y = yearF(S.turn), ky = side === 'GER' ? (y < 1941.9 ? 0.7 : y >= 1944 ? 1.8 : y >= 1943 ? 1.4 : 1) : 1;
+    const kw = (wx === 'snow' || wx === 'frost' ? (side === 'SOV' ? 0.85 : 1.4) : 1) * ky;
     if (k >= (cur === 'atk' ? 0.95 : 1.2) * kw && wx !== 'mud') p = 'atk';
     else if (cur !== 'def' && k < 0.95 * kw) p = 'def';
     S.post[side][z] = p;
@@ -257,10 +260,19 @@ function deficits(S, C) {
   out.sort((a, b) => b.want - b.def - (a.want - a.def));
   return out;
 }
+// «не штурмовать» (режим «Исторический»): Ленинград — блокада, а не штурм, пока у города есть снабжение
+const NO_STORM = [['GER', 'Ленинград', '1944-12-31']];
+function noStorm(S, side) {
+  const out = new Set();
+  if (S.mode !== 'hist') return out;
+  for (const [sd, n, until] of NO_STORM) if (sd === side && S.turn <= turnOf(until)) { const r = placeR(S, n); if (r >= 0 && S.sup[other(side)][r] > 0) out.add(r); }
+  return out;
+}
 // ——— наступление ———
 function offensive(S, C, z) {
   const { side } = C, M = S.M, T = S.tgt[side][z];
   if (T < 0) return;
+  const ns = noStorm(S, side);
   const dT = distTo(S, T);
   const early41 = side === 'GER' && S.turn <= 2;
   const rMin = (side === 'GER' ? 1.3 : 1.25) * (S.wx[z] === 'mud' ? 1.15 : 1);
@@ -268,7 +280,7 @@ function offensive(S, C, z) {
   for (let pass = 0; pass < 3; pass++) {
     const cand = [];
     for (let e = 0; e < M.R; e++) {
-      if (sideOf(S, e) !== C.en) continue;
+      if (sideOf(S, e) !== C.en || ns.has(e)) continue;
       const nb = M.reg[e].nb.filter((n) => sideOf(S, n.r) === side && M.reg[n.r].z === z);
       if (!nb.length && M.reg[e].z !== z) continue;
       const us = attackersFor(S, e, side).filter((u) => !u.man && (M.reg[u.r].z === z || isMech(u)));
@@ -354,6 +366,7 @@ function keepOK(S, C, u, pick = []) {
 function exploit(S, C, z) {
   const { side } = C, M = S.M, T = S.tgt[side][z];
   if (T < 0) return;
+  const ns = noStorm(S, side);
   const dT = distTo(S, T);
   const mech = S.units.filter((u) => alive(u) && u.s === side && (isMech(u) || u.t === 'cav') && !u.man && u.mp >= 1 && u.rdy >= 35 && M.reg[u.r].z === z);
   for (const u of mech) {
@@ -379,7 +392,7 @@ function exploit(S, C, z) {
     if (u.mp >= 1 && u.rdy >= 45 && !u.att) {
       let best = -1, br = 0;
       for (const n of M.reg[u.r].nb) {
-        if (sideOf(S, n.r) !== C.en || (!S.at[n.r].length && !garOf(S, n.r))) continue;
+        if (sideOf(S, n.r) !== C.en || (!S.at[n.r].length && !garOf(S, n.r)) || ns.has(n.r)) continue;
         const R = odds(S, n.r, [u]).R;
         if (R > br) (br = R), (best = n.r);
       }
@@ -445,10 +458,11 @@ function defend(S, C) {
     if (S.post[side][z] === 'ret') continue;
     const us = attackersFor(S, e, side).filter((u) => !u.man);
     if (!us.length) continue;
-    const own0 = SIDE0[M.nats[S.own0[e]]] === side;
-    // контрудар — вернуть своё (довоенное или недавно потерянное), а не наступать без приказа
-    if (!own0 && S.capT[e] < S.turn - 4) continue;
-    const need = (side === 'SOV' && S.turn < 30 ? 1.45 : 1.7) * (own0 && M.reg[e].vp >= 2 ? 0.85 : 1);
+    const own0 = SIDE0[M.nats[S.own0[e]]] === side, fresh = S.capT[e] >= S.turn - (own0 ? 8 : 4);
+    // контрудар — вернуть недавно потерянное (своё довоенное — до 8 недель), а не наступать без приказа;
+    // давно занятые свои земли — только при большом перевесе (в «Историческом» оборона не превращается в наступление)
+    if (!fresh && !own0) continue;
+    const need = (side === 'SOV' && S.turn < 30 ? 1.45 : 1.7) * (own0 && M.reg[e].vp >= 2 ? 0.85 : 1) * (fresh ? 1 : S.mode === 'hist' ? 1.45 : 1.15);
     us.sort((a, b) => attCV(S, b, e) - attCV(S, a, e));
     const pick = [];
     for (const u of us) { if (keepOK(S, C, u, pick)) pick.push(u); if (pick.length && odds(S, e, pick).R >= need * 1.3) break; }
