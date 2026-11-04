@@ -52,9 +52,9 @@ function genMod(S, side, z, kind, u, ter) {
 }
 // ——— сила дивизии ———
 export const qualOf = (S, u) => quality(u.nat, S.turn) * (isMech(u) ? tankQ(u.s, S.turn) : 1) * (u.gd ? 1.12 : 1);
-const diffMod = (S, side) => (side === S.side ? DIFF[S.diff].pl : DIFF[S.diff].ai);
+const diffMod = (S, side) => (side === S.side ? DIFF[S.diff].pl : DIFF[S.diff].ai) * (S.band?.[side] ?? 1);
 const morMod = (S, side) => 0.9 + (0.2 * S.mor[side]) / 100;
-const supF = (S, u) => { const s = S.sup[u.s][u.r]; return s <= 0 ? 0.5 : 0.62 + 0.38 * Math.min(1, s); };
+const supF = (S, u) => { const s = S.sup[u.s][u.r]; return s <= 0 ? 0.45 : 0.5 + 0.5 * Math.min(1, s); };
 export function baseCV(S, u, kind) {
   const T = TYPES[u.t];
   return (kind === 'att' ? T.att : T.def) * qualOf(S, u) * (u.str / 100) * (0.42 + (0.58 * u.rdy) / 100) * (1 + u.xp / 260) * diffMod(S, u.s) * morMod(S, u.s) * supF(S, u);
@@ -74,12 +74,15 @@ export function attCV(S, u, T, from = u.r) {
   v *= genMod(S, u.s, S.M.reg[from].z, 'att', u, ter);
   return v;
 }
-export function defCV(S, u) {
+// артиллерия прорыва: атакующий «снимает» часть уровней укреплений (СССР — с 1943 г.)
+export const ART = { SOV: [[1942.8, 0], [1943.5, 0.5], [1944.5, 1.0], [1945.2, 1.3]], GER: [[1941.4, 0.4], [1942.9, 0.4], [1943.5, 0.2]] };
+const fortEff = (S, r, aside) => Math.max(0, S.fort[r] - (aside ? lerpT(ART[aside], yearF(S.turn)) : 0));
+export function defCV(S, u, aside = null) {
   const g = S.M.reg[u.r], ter = g.t;
   let v = baseCV(S, u, 'def') * TER[ter].def;
   if (u.t === 'mtn' && (ter === 'mnt' || ter === 'hil')) v *= 1.25;
   if (ter === 'mar' && frozen(S, u.r)) v /= 1.25;
-  v *= 1 + 0.22 * S.fort[u.r];
+  v *= 1 + 0.22 * fortEff(S, u.r, aside);
   if (g.vp >= 5) v *= 1.2; else if (g.vp >= 2) v *= 1.08;
   if (g.f.includes('f')) v *= 1.3;
   v *= 1 + 0.1 * u.ent;
@@ -88,13 +91,13 @@ export function defCV(S, u) {
   return v;
 }
 // гарнизон города или укреплений (ополчение, НКВД, тыловые части): в такую область нельзя просто войти — только атакой
-export function garOf(S, r) {
+export function garOf(S, r, aside = null) {
   const g = S.M.reg[r], f = g.f.includes('f');
   if (g.vp < 1 && !S.fac[r] && !S.fort[r] && !f) return 0;
   const side = sideOf(S, r);
   if (!side) return 0;
   const s = S.sup[side]?.[r] ?? 1;
-  return (0.9 * Math.max(0.8, g.vp) + 1.5 * S.fort[r] + (f ? 3 : 0)) * (0.7 + 0.3 * quality(side, S.turn)) * (0.6 + 0.4 * Math.min(1, s)) * diffMod(S, side);
+  return (1.4 * Math.max(0.6, g.vp) + 1.5 * fortEff(S, r, aside) + (f ? 3 : 0)) * (0.7 + 0.3 * quality(side, S.turn)) * (0.6 + 0.4 * Math.min(1, s)) * diffMod(S, side);
 }
 // ширина фронта области: в полную силу сражаются FW лучших дивизий, остальные — во втором эшелоне (40 %)
 export const FW = 6;
@@ -153,7 +156,7 @@ export function computeSupply(S, side) {
   const dp = new Int16Array(R).fill(99), qd = [];
   for (let r = 0; r < R; r++) if (sideOf(S, r) === side && SIDE0[M.nats[S.own0[r]]] === side) (dp[r] = 0), qd.push(r);
   for (let h = 0; h < qd.length; h++) { const r = qd[h]; for (const e of M.reg[r].nb) if (sideOf(S, e.r) === side && dp[e.r] > dp[r] + 1) (dp[e.r] = dp[r] + 1), qd.push(e.r); }
-  for (let r = 0; r < R; r++) if (sup[r] > 0 && dp[r] > 5 && dp[r] < 99) sup[r] *= Math.max(0.6, 1 - 0.03 * (dp[r] - 5));
+  for (let r = 0; r < R; r++) if (sup[r] > 0 && dp[r] > 4 && dp[r] < 99) sup[r] *= Math.max(0.55, 1 - 0.04 * (dp[r] - 4));
   // порты и крепости в окружении — частичное снабжение (морем, складами)
   for (let r = 0; r < R; r++) {
     if (sup[r] > 0 || sideOf(S, r) !== side) continue;
@@ -190,7 +193,7 @@ export const capC = (u) => (isMech(u) ? 0.7 : 1);
 // глубина продвижения за фазу: 0 — своя с начала фазы, 1, 2 — занятые в эту фазу
 export const depthOf = (S, r) => S.capPh?.get(r) ?? 0;
 export const maxDepth = (u) => (isMech(u) ? 2 : u.t === 'cav' ? 2 : 1);
-export const mpOf = (S, u) => { const s = S.sup[u.s][u.r]; return TYPES[u.t].mp * (s >= 0.66 ? 1 : s >= 0.5 ? 0.85 : s > 0 ? 0.72 : 0.55); };
+export const mpOf = (S, u) => { const s = S.sup[u.s][u.r]; return TYPES[u.t].mp * (s >= 0.66 ? 1 : s >= 0.5 ? 0.8 : s > 0 ? 0.65 : 0.5); };
 // области, куда дивизия может дойти за оставшиеся очки (по своим областям; во вражескую пустую — только последним шагом)
 export function reach(S, u, mp = u.mp) {
   const M = S.M, best = new Map([[u.r, 0]]), prev = new Map(), q = [[u.r, 0]];
@@ -205,6 +208,7 @@ export function reach(S, u, mp = u.mp) {
       if (sb !== u.s && (S.at[b].length || garOf(S, b) > 0)) continue; // в занятую противником или с гарнизоном — только атакой
       if (e.sp === 'sea' && !frozen(S, b) && sb !== u.s) continue;
       if (sb !== u.s && depthOf(S, r) + 1 > maxDepth(u)) continue; // за неделю — не глубже 1 области (подвижные — 2)
+      if (sb !== u.s && !natOK(S, u, b)) continue;
       // нельзя проскочить мимо противника: из области у фронта во вражескую пустую — только подвижным
       const nc = c + stepCost(S, u, r, b) + (sb !== u.s ? capC(u) : 0);
       if (nc > mp + 1e-6 && !(r === u.r && c === 0 && nc <= mp + 0.9 && u.mp >= TYPES[u.t].mp - 0.01)) continue;
@@ -286,13 +290,15 @@ function natHome(S, r, nat) {
   return 'GER';
 }
 // ——— бой ———
+// Финляндия воюет только на своём (Финском) направлении: Ленинград не штурмует
+export const natOK = (S, u, T) => u.nat !== 'FIN' || S.M.reg[T].z === 0;
 export function canAttack(S, u) { return alive(u) && !u.att && u.rdy >= 22 && u.t !== 'sec' && u.mp > 0.2; }
 export function attackersFor(S, T, side) {
   const out = [];
   for (const e of S.M.reg[T].nb) {
     if (sideOf(S, e.r) !== side) continue;
     if (e.sp === 'sea' && !frozen(S, T)) continue;
-    for (const u of S.at[e.r]) if (u.s === side && canAttack(S, u)) out.push(u);
+    for (const u of S.at[e.r]) if (u.s === side && canAttack(S, u) && natOK(S, u, T)) out.push(u);
   }
   return out;
 }
@@ -303,7 +309,7 @@ export function odds(S, T, us) {
   const byR = new Map();
   for (const u of us) { const l = byR.get(u.r) || []; l.push(attCV(S, u, T, u.r)); byR.set(u.r, l); }
   for (const l of byR.values()) A += sumFW(l);
-  D = sumFW(S.at[T].filter((v) => v.s !== side).map((v) => defCV(S, v))) + garOf(S, T);
+  D = sumFW(S.at[T].filter((v) => v.s !== side).map((v) => defCV(S, v, side))) + garOf(S, T, side);
   const z = S.M.reg[T].z, ar = airRatio(S, side, z), wa = wxOf(S, T).air, e = 0.5 + (ar - 0.5) * wa;
   A *= (0.8 + 0.4 * e) / (0.8 + 0.4 * (1 - e));
   return { A, D, R: D > 0 ? A / D : 99 };
@@ -345,7 +351,7 @@ export function resolveAttack(S, T, us, opt = {}) {
   const wl = wxOf(S, T).atk < 0.7 ? 0.8 : 1;
   // потери зависят и от выучки: опытные войска теряют меньше и при неудаче
   const qA = quality(side, S.turn), qD = quality(dside, S.turn), qr = Math.sqrt(qD / qA);
-  const fD = Math.max(0.03, Math.min(0.4, 0.062 * Math.pow(R, 0.8))) * wl / qr, fA = Math.max(0.025, Math.min(0.3, 0.08 * Math.pow(R, -0.5))) * wl * qr;
+  const fD = Math.max(0.03, Math.min(0.4, 0.062 * Math.pow(R, 0.8))) * wl / qr, fA = Math.max(0.025, Math.min(0.3, 0.1 * Math.pow(R, -0.45))) * wl * qr;
   const gD = genOf(S, dside, g.z);
   const str0 = new Map([...us, ...defs].map((u) => [u, u.str]));
   for (const u of us) {
@@ -355,7 +361,7 @@ export function resolveAttack(S, T, us, opt = {}) {
     if (hurt(S, u, fA * 100 * (0.7 + 0.3 * u.str / 100), 'погибла в атаке')) res.lostA++;
   }
   for (const v of defs) {
-    v.rdy = Math.max(0, v.rdy - (10 + 9 * Math.min(3, R)));
+    v.rdy = Math.max(0, v.rdy - (8 + 7 * Math.min(3, R)));
     v.xp = Math.min(100, v.xp + 1);
     if (hurt(S, v, fD * 100 * (0.7 + 0.3 * v.str / 100), 'разгромлена')) res.lostD++;
   }
@@ -443,7 +449,13 @@ export function endPhase(S, side) {
     if (oos < 2) continue;
     const g = genOf(S, other(side), M.reg[r].z);
     const q = quality(side === 'SOV' ? 'SOV' : 'GER', S.turn);
-    const p = 0.24 * (oos - 1) * Math.max(0.25, 1.55 - q) + (hasTr(g, 'enc') ? 0.1 : 0) - (S.M.reg[r].f.includes('f') || S.M.reg[r].f.includes('p') ? 0.3 : 0);
+    // без осаждающих котёл не сдаётся (только тает): нужно держать вокруг него войска
+    const seen = new Set();
+    let bes = 0, dv = 0.5;
+    for (const e of M.reg[r].nb) for (const v of S.at[e.r]) if (v.s !== side && !seen.has(v)) { seen.add(v); bes += baseCV(S, v, 'att'); }
+    for (const u of S.at[r]) if (u.s === side) dv += baseCV(S, u, 'def');
+    const k = Math.max(0, Math.min(1, (bes / dv - 0.6) / 1.4));
+    const p = (0.24 * (oos - 1) * Math.max(0.25, 1.55 - q) + (hasTr(g, 'enc') ? 0.1 : 0)) * k - (S.M.reg[r].f.includes('f') || S.M.reg[r].f.includes('p') ? 0.3 : 0);
     if (rnd(S) < p) {
       const us = S.at[r].filter((u) => u.s === side);
       if (us.length) note(S, { ic: 'encircle', side: other(side), txt: `Котёл у ${M.reg[r].n}: сдались ${us.length} ${divW(us.length)}`, r });
@@ -497,31 +509,41 @@ export function histDiff(S) {
 function director(S) {
   if (S.mode !== 'hist' || S.over) return;
   const h = histDiff(S);
-  S.dir = (S.dir ?? 0) * 0.6 + h.d * 0.4;
-  if (S.turn % 2) return;
+  S.dir = (S.dir ?? 0) * 0.7 + h.d * 0.3;
+  // кто отстаёт от истории; помогать ли ему (сложность: лёгкая — только игроку, тяжёлая — только ИИ)
+  const x = Math.max(-1, Math.min(1, S.dir / 10)), lag = x > 0 ? 'SOV' : 'GER';
   const allow = (side) => S.diff === 1 || (S.diff === 0 ? side === S.side : side !== S.side);
-  const pick = (sg) => { let best = 2, bv = -1e9; h.z.forEach((v, k) => { if (v * sg > bv) (bv = v * sg), (best = k); }); return best; };
-  if (S.dir >= 1.5 && allow('SOV')) {
-    const n = Math.min(8, Math.round(S.dir * 1.5)), z = pick(1);
+  const k = allow(lag) ? Math.abs(x) : 0;
+  // «ход истории»: отстающая сторона сражается немного лучше, ведущая — хуже (до ±15 %)
+  S.band = { GER: 1 + (x > 0 ? -0.15 : 0.15) * k, SOV: 1 + (x > 0 ? 0.15 : -0.15) * k };
+  if (S.turn % 3 || !k) return;
+  const pick = (sg) => { let best = 2, bv = -1e9; h.z.forEach((v, q) => { if (v * sg > bv) (bv = v * sg), (best = q); }); return best; };
+  const n0 = S.units.filter((u) => alive(u) || (!u.dead && u.arr !== undefined));
+  if (lag === 'SOV' && S.dir >= 2 && n0.filter((u) => u.s === 'SOV').length < lerpT(ARMY_CAP.SOV, yearF(S.turn))) {
+    const n = Math.min(5, Math.round(S.dir)), z = pick(1);
     for (let i = 0; i < n; i++) recruit(S, 'SOV', i % 4 === 3 && yearF(S.turn) > 1942.2 ? 'arm' : 'inf', z, { free: 1, wait: 1, str: 85, rdy: 70 });
     note(S, { ic: 'star', side: 'SOV', txt: `Резервы Ставки: ${n} ${divW(n)}` });
-  } else if (S.dir <= -1.5 && allow('GER')) {
-    const n = Math.min(6, Math.round(-S.dir)), z = pick(-1);
-    S.men.GER += 8 * n;
+  } else if (lag === 'GER' && S.dir <= -3 && n0.filter((u) => u.s === 'GER').length < lerpT(ARMY_CAP.GER, yearF(S.turn))) {
+    const n = Math.min(3, Math.round(-S.dir / 2)), z = pick(-1);
+    S.men.GER += 6 * n;
     for (let i = 0; i < n; i++) recruit(S, 'GER', i % 3 === 2 ? 'arm' : 'inf', z, { free: 1, wait: 1, str: 90, rdy: 80 });
     note(S, { ic: 'star', side: 'GER', txt: `Резервы с Запада: ${n} ${divW(n)}` });
   }
 }
+// предел численности для резервов «хода истории» (дивизий с союзниками)
+export const ARMY_CAP = { SOV: [[1941.4, 330], [1942.0, 390], [1942.5, 430], [1943.5, 470], [1945.5, 470]], GER: [[1941.4, 210], [1942.5, 260], [1943.5, 250], [1944.5, 220], [1945.5, 190]] };
 // ——— хозяйство ———
 // «настрой эпохи»: к нему понемногу возвращается боевой дух сторон
 export const MOR0 = { SOV: [[1941.4, 55], [1942.5, 60], [1943.5, 72], [1945, 82]], GER: [[1941.4, 80], [1942.9, 70], [1943.5, 56], [1944.5, 42], [1945.3, 28]] };
 // доля запасов на пополнение дивизий (остальное — на новые дивизии и постройки)
-export const REP = { SOV: [[1941.4, 0.35], [1942.4, 0.45], [1943.5, 0.65]], GER: [[1941.4, 0.85], [1945.5, 0.85]] };
+export const REP = { SOV: [[1941.4, 0.5], [1942.4, 0.55], [1943.5, 0.65]], GER: [[1941.4, 0.8], [1945.5, 0.8]] };
+// до какой численности (% штата) доводят дивизии пополнения: штат не достигался почти никогда
+export const STRMAX = { SOV: [[1941.4, 75], [1942.3, 80], [1943.3, 85], [1944.5, 85], [1945.3, 80]], GER: [[1941.4, 100], [1942.0, 95], [1943.0, 88], [1944.0, 80], [1945.0, 72]] };
 export const ECO = {
   ppK: { GER: 0.8, SOV: 1.6 },
-  base: { GER: [[1941.4, 10], [1942.0, 12], [1943.0, 18], [1944.0, 24], [1944.8, 18], [1945.3, 10]], SOV: [[1941.4, 12], [1942.0, 22], [1943.0, 36], [1944.0, 44], [1945.5, 46]] },
+  base: { GER: [[1941.4, 10], [1942.0, 12], [1943.0, 18], [1944.0, 24], [1944.8, 18], [1945.3, 10]], SOV: [[1941.4, 30], [1941.9, 26], [1942.2, 22], [1943.0, 36], [1944.0, 44], [1945.5, 46]] },
   mult: { GER: [[1941.4, 1], [1942.0, 1.08], [1943.0, 1.3], [1944.0, 1.45], [1945.0, 1.1]], SOV: [[1941.4, 1], [1942.0, 1.15], [1943.0, 1.3], [1944.0, 1.4], [1945.5, 1.45]] },
-  men: { GER: [[1941.4, 14], [1941.95, 18], [1942.2, 26], [1943.0, 28], [1944.0, 26], [1944.8, 20], [1945.2, 14]], SOV: [[1941.4, 115], [1942.0, 100], [1943.0, 85], [1944.0, 70], [1945.0, 56]] },
+  men: { GER: [[1941.4, 11], [1941.95, 16], [1942.2, 24], [1943.0, 26], [1944.0, 24], [1944.8, 18], [1945.2, 12]], SOV: [[1941.4, 165], [1941.9, 140], [1942.3, 105], [1943.0, 85], [1944.0, 70], [1945.0, 56]] },
   ll: [[1941.75, 0], [1941.85, 5], [1942.5, 9], [1943.5, 15], [1944.5, 18], [1945.5, 14]],
   air: { GER: [[1941.4, 100], [1942.0, 70], [1942.5, 85], [1943.0, 70], [1943.6, 60], [1944.4, 42], [1945.0, 32]], SOV: [[1941.4, 46], [1941.9, 40], [1942.5, 62], [1943.0, 90], [1943.6, 120], [1944.4, 150], [1945.0, 170]] },
 };
@@ -558,12 +580,13 @@ function economy(S, side) {
   S.inc[side] = inc;
   S.pp[side] += inc.pp; S.men[side] += inc.men;
   // пополнение: сначала дивизии у фронта
-  const us = S.units.filter((u) => alive(u) && u.s === side && u.str < 100 && S.sup[side][u.r] >= 0.3);
+  const top = lerpT(STRMAX[side], yearF(S.turn));
+  const us = S.units.filter((u) => alive(u) && u.s === side && u.str < top && S.sup[side][u.r] >= 0.3);
   us.sort((a, b) => (isFront(S, b.r, side) ? 1 : 0) - (isFront(S, a.r, side) ? 1 : 0) || a.str - b.str);
   const rp = S.repF?.[side] ?? lerpT(REP[side], yearF(S.turn)), budgetPP = S.pp[side] * rp, budgetMen = S.men[side] * rp;
   let usedPP = 0, usedMen = 0;
   for (const u of us) {
-    const s = S.sup[side][u.r], want = Math.min(100 - u.str, (isFront(S, u.r, side) ? 8 : 16) * s * (u.oos ? 0 : 1)), c = costOf(u);
+    const s = S.sup[side][u.r], want = Math.min(top - u.str, (isFront(S, u.r, side) ? 8 : 16) * s * (u.oos ? 0 : 1)), c = costOf(u);
     if (want <= 0) continue;
     const k = Math.min(want, (budgetPP - usedPP) / c.pp, (budgetMen - usedMen) / c.men);
     if (k <= 0.5) break;
@@ -588,7 +611,7 @@ export function recruit(S, side, t, z, opt = {}) {
   if (!opt.free && (S.pp[side] < c.pp || S.men[side] < c.men)) return null;
   if (!opt.free) { S.pp[side] -= c.pp; S.men[side] -= c.men; }
   const nat = opt.nat || side;
-  const y = yearF(S.turn), s0 = side === 'SOV' ? (y < 1942.3 ? 80 : y < 1943.3 ? 90 : 100) : 100;
+  const y = yearF(S.turn), s0 = Math.round(lerpT(STRMAX[side], y) * (side === 'SOV' ? 0.95 : 1));
   const u = mkUnit(S, { s: side, nat, t, n: opt.n || nameFor(S, side, nat, t), str: opt.str ?? s0, rdy: opt.rdy ?? (side === 'SOV' && y < 1942.3 ? 55 : 70), xp: opt.xp ?? 0, gd: opt.gd });
   u.r = -1; u.arr = S.turn + (opt.wait ?? 2); u.z = z; u.at = opt.at ?? -1;
   return u;
@@ -635,7 +658,7 @@ export function frontDist(S, side) {
 // перешивка и восстановление железных дорог за наступающими
 function railRepair(S, side) {
   const M = S.M, y = yearF(S.turn);
-  let k = side === 'GER' ? (y < 1942 ? 4 : 5) : y < 1943 ? 4 : 7;
+  let k = side === 'GER' ? (y < 1942 ? 3 : 4) : y < 1943 ? 4 : y < 1944 ? 5 : 6;
   const d = S.supD?.[side];
   const cand = [];
   for (let r = 0; r < M.R; r++) {

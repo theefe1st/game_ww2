@@ -53,9 +53,10 @@ export function setPostures(S, side, isAI) {
     const f = zoneForce(S, side, z), k = f.a / (f.d + 1), wx = S.wx[z];
     const cur = S.post[side][z];
     let p = cur;
-    if (k >= (cur === 'atk' ? 1.05 : 1.4) && wx !== 'mud') p = 'atk';
-    else if (k < (cur === 'ret' ? 0.5 : 0.32)) p = 'ret';
-    else if (cur !== 'def' && k < (cur === 'atk' ? 1.05 : 0.5)) p = 'def';
+    // отход целым направлением ИИ не объявляет (только отдельные дивизии из котлов)
+    const kw = side === 'SOV' && (wx === 'snow' || wx === 'frost') ? 0.85 : 1; // зимние наступления Красной армии
+    if (k >= (cur === 'atk' ? 0.95 : 1.2) * kw && wx !== 'mud') p = 'atk';
+    else if (cur !== 'def' && k < 0.95 * kw) p = 'def';
     S.post[side][z] = p;
     if (p === 'atk' && (S.tgt[side][z] < 0 || sideOf(S, S.tgt[side][z]) === side)) S.tgt[side][z] = autoTarget(S, side, z);
     if (p === 'atk' && S.tgt[side][z] < 0) S.post[side][z] = 'def';
@@ -111,11 +112,13 @@ export function runSide(S, side, { isAI = true } = {}) {
   setPostures(S, side, isAI);
   const C = { side, en: other(side), thr: threatMap(S, side), fd: frontDist(S, side), isAI };
   strategic(S, C);
+  forward(S, C);
   breakout(S, C);
   const order = [...Array(ZN).keys()].sort((a, b) => (S.post[side][b] === 'atk' ? 1 : 0) - (S.post[side][a] === 'atk' ? 1 : 0));
   for (const z of order) if (S.post[side][z] === 'atk') offensive(S, C, z);
   for (const z of order) if (S.post[side][z] === 'ret') withdraw(S, C, z);
   C.thr = threatMap(S, side); C.fd = frontDist(S, side); C.crit = null;
+  salients(S, C);
   defend(S, C);
   for (const z of order) if (S.post[side][z] === 'atk') exploit(S, C, z);
   C.fd = frontDist(S, side);
@@ -173,6 +176,27 @@ function strategic(S, C) {
     if (best >= 0 && bd < 600 && railMove(S, u, best)) { top.def += defCV(S, u) * 0.8; need.sort((a, b) => b.want - b.def - (a.want - a.def)); }
   }
 }
+// остальные тыловые дивизии — ближе к фронту (по железной дороге или пешим порядком), прежде всего туда, где наступаем
+function forward(S, C) {
+  const { side } = C, M = S.M;
+  const rear = S.units.filter((u) => free(u) && u.s === side && !u.mv && C.fd[u.r] >= 3 && u.t !== 'sec' && S.sup[side][u.r] > 0);
+  for (const u of rear) {
+    if (S.railCap[side] > 0) {
+      let best = -1, bs = -1e9;
+      for (const r of railTargets(S, u)) {
+        if (room(S, r, side) <= 2 || C.fd[r] < 1 || C.fd[r] > 2) continue;
+        const z = M.reg[r].z;
+        const s = (S.post[side][z] === 'atk' ? 25 : 0) - S.at[r].length * 3 - Math.hypot(M.reg[r].x - M.reg[u.r].x, M.reg[r].y - M.reg[u.r].y) / 120 + (C.fd[r] === 1 ? 4 : 0);
+        if (s > bs) (bs = s), (best = r);
+      }
+      if (best >= 0 && railMove(S, u, best)) continue;
+    }
+    const Rr = reach(S, u);
+    let best = -1, bd = C.fd[u.r];
+    for (const [r] of Rr.best) if (sideOf(S, r) === side && C.fd[r] >= 1 && C.fd[r] < bd && room(S, r, side) > 2) (bd = C.fd[r]), (best = r);
+    if (best >= 0) moveTo(S, u, best, Rr);
+  }
+}
 // «горлышки» снабжения: сколько своих дивизий останется без снабжения, если область будет потеряна
 function critical(S, side, fd) {
   const M = S.M, R = M.R, src = [];
@@ -203,12 +227,16 @@ function deficits(S, C) {
     if (sideOf(S, r) !== side) continue;
     const vp = M.reg[r].vp;
     // крупные города у фронта держат и во втором эшелоне
-    if (C.fd[r] > 0 && C.fd[r] <= 2 && vp >= 3) { out.push({ r, z: M.reg[r].z, def: regionDef(S, r), want: vp * 2.2, vp }); continue; }
+    if (C.fd[r] > 0 && C.fd[r] <= 2 && vp >= 3) {
+      const near = Math.max(0, ...M.reg[r].nb.map((n) => C.thr[n.r] || 0));
+      out.push({ r, z: M.reg[r].z, def: regionDef(S, r) - garOf(S, r) * 0.6, want: Math.max(vp * 2.2, near * (C.fd[r] === 1 ? 0.5 : 0.3)), vp });
+      continue;
+    }
     if (C.fd[r] !== 0) continue;
     const z = M.reg[r].z, p = S.post[side][z];
     const k = p === 'atk' ? 0.95 : p === 'ret' ? 0.4 : 0.85;
-    const want = Math.max(C.thr[r] * k / 1.25, 2.2) * (1 + Math.min(vp, 8) * 0.05) * (1 + Math.min(1.5, (C.crit.get(r) || 0) / 12));
-    out.push({ r, z, def: regionDef(S, r), want, vp });
+    const want = Math.max(C.thr[r] * k / 1.25, 2.2) * (1 + Math.min(vp, 10) * 0.1) * (1 + Math.min(1.5, (C.crit.get(r) || 0) / 12));
+    out.push({ r, z, def: regionDef(S, r) - garOf(S, r) * 0.6, want, vp });
   }
   out.sort((a, b) => b.want - b.def - (a.want - a.def));
   return out;
@@ -219,7 +247,8 @@ function offensive(S, C, z) {
   if (T < 0) return;
   const dT = distTo(S, T);
   const early41 = side === 'GER' && S.turn <= 2;
-  const rMin = (side === 'GER' ? 1.45 : 1.5) * (S.wx[z] === 'mud' ? 1.15 : 1);
+  const rMin = (side === 'GER' ? 1.3 : 1.25) * (S.wx[z] === 'mud' ? 1.15 : 1);
+  let masses = 0;
   for (let pass = 0; pass < 3; pass++) {
     const cand = [];
     for (let e = 0; e < M.R; e++) {
@@ -253,7 +282,9 @@ function offensive(S, C, z) {
         if (odds(S, c.e, pick).R >= rMin * 1.35) break;
       }
       if (!pick.length) continue;
-      const o = odds(S, c.e, pick);
+      let o = odds(S, c.e, pick);
+      // не хватает перевеса на главном участке — подтянуть второй эшелон
+      if (o.R < rMin && masses < 3 && o.R >= rMin * 0.45) { masses++; if (massFor(S, C, c.e, pick, rMin * 1.2)) o = odds(S, c.e, pick); }
       if (o.R < (early41 ? 0.95 : rMin)) continue;
       const main = mainOrigin(pick);
       const keep = new Set(pick.filter((u) => u.r !== main && !isMech(u)));
@@ -262,6 +293,30 @@ function offensive(S, C, z) {
     }
     if (!did) break;
   }
+}
+// сосредоточение: дивизии второго эшелона (в пределах хода) выходят к области атаки, пока не наберётся перевес
+function massFor(S, C, e, pick, rWant) {
+  const { side } = C, M = S.M, g = M.reg[e];
+  const adj = g.nb.filter((n) => sideOf(S, n.r) === side && n.sp !== 'sea').map((n) => n.r);
+  if (!adj.length) return false;
+  const near = new Set(adj);
+  const pool = S.units.filter((u) => canAttackNow(u) && u.s === side && !u.mv && u.rdy >= 55 && !near.has(u.r) && !pick.includes(u) && Math.abs(M.reg[u.r].x - g.x) + Math.abs(M.reg[u.r].y - g.y) < 520);
+  pool.sort((a, b) => Math.abs(M.reg[a.r].x - g.x) + Math.abs(M.reg[a.r].y - g.y) - (Math.abs(M.reg[b.r].x - g.x) + Math.abs(M.reg[b.r].y - g.y)));
+  let n = 0;
+  for (const u of pool) {
+    if (n >= 14) break;
+    if (!keepOK(S, C, u)) continue;
+    n++;
+    const Rr = reach(S, u);
+    let best = -1, bc = 1e9;
+    for (const r of adj) { const c = Rr.best.get(r); if (c !== undefined && room(S, r, side) > 0 && u.mp - c > 0.2 && c < bc) (bc = c), (best = r); }
+    if (best < 0) continue;
+    moveTo(S, u, best, Rr);
+    if (u.r !== best) continue;
+    pick.push(u);
+    if (odds(S, e, pick).R >= rWant) return true;
+  }
+  return false;
 }
 const canAttackNow = (u) => alive(u) && !u.att && u.rdy >= 45 && u.t !== 'sec' && u.mp > 0.2 && !u.man;
 function mainOrigin(us) {
@@ -287,8 +342,11 @@ function exploit(S, C, z) {
     for (let step = 0; step < 3 && u.mp >= 1; step++) {
       const Rr = reach(S, u);
       let best = -1, bs = -1e9;
+      const sd = S.supD[side];
       for (const [r, c] of Rr.best) {
         if (r === u.r || sideOf(S, r) === side || S.at[r].length) continue;
+        // не отрываться от снабжения: прорыв — не дальше 3 областей от железной дороги
+        if (Math.min(...M.reg[r].nb.filter((n) => sideOf(S, n.r) === side).map((n) => sd[n.r])) >= 3) continue;
         // окружение: ценнее области, вокруг которых противник
         let enc = 0;
         for (const n of M.reg[r].nb) if (S.at[n.r].length && S.at[n.r][0].s === C.en) enc += S.at[n.r].length;
@@ -370,11 +428,34 @@ function defend(S, C) {
     const us = attackersFor(S, e, side).filter((u) => !u.man);
     if (!us.length) continue;
     const own0 = SIDE0[M.nats[S.own0[e]]] === side;
+    // контрудар — вернуть своё (довоенное или недавно потерянное), а не наступать без приказа
+    if (!own0 && S.capT[e] < S.turn - 4) continue;
     const need = (side === 'SOV' && S.turn < 30 ? 1.45 : 1.7) * (own0 && M.reg[e].vp >= 2 ? 0.85 : 1);
     us.sort((a, b) => attCV(S, b, e) - attCV(S, a, e));
     const pick = [];
     for (const u of us) { if (keepOK(S, C, u, pick)) pick.push(u); if (pick.length && odds(S, e, pick).R >= need * 1.3) break; }
     if (pick.length && odds(S, e, pick).R >= need) resolveAttack(S, e, pick, { keep: new Set(pick.filter((u) => u.r !== mainOrigin(pick) && !isMech(u))) });
+  }
+}
+// выступы: из области, у которой своих соседей почти не осталось, — отойти, пока не замкнули кольцо
+function salients(S, C) {
+  const { side } = C, M = S.M;
+  for (let r = 0; r < M.R; r++) {
+    if (sideOf(S, r) !== side || C.fd[r] !== 0 || S.post[side][M.reg[r].z] === 'atk') continue;
+    const g = M.reg[r], nb = g.nb.filter((n) => n.sp !== 'sea' && sideOf(S, n.r));
+    if (nb.length < 3 || nb.filter((n) => sideOf(S, n.r) === side).length >= 2) continue;
+    if (g.vp >= 5 || g.f.includes('f')) continue; // крупные города и крепости держат
+    for (const u of S.at[r].filter((v) => v.s === side && free(v))) {
+      const Rr = reach(S, u);
+      let best = -1, bs = -1e9;
+      for (const [b, c] of Rr.best) {
+        if (b === r || sideOf(S, b) !== side || room(S, b, side) <= 0) continue;
+        const own = M.reg[b].nb.filter((n) => sideOf(S, n.r) === side).length;
+        const sc = own * 3 + (S.sup[side][b] > 0.5 ? 5 : 0) - c;
+        if (sc > bs) (bs = sc), (best = b);
+      }
+      if (best >= 0) moveTo(S, u, best, Rr);
+    }
   }
 }
 // пустые участки фронта — хотя бы по одной дивизии
@@ -398,7 +479,7 @@ function fillGaps(S, C) {
 }
 // ——— хозяйство ИИ: набор, постройки, эвакуация ———
 // численность армии, к которой стремится ИИ (дивизий, с союзниками)
-export const ARMY = { SOV: [[1941.4, 300], [1942.0, 370], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
+export const ARMY = { SOV: [[1941.4, 320], [1942.0, 380], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
 export const MIX = {
   SOV: [[1941.4, { inf: 0.86, cav: 0.1, arm: 0.04 }], [1942.3, { inf: 0.78, cav: 0.06, arm: 0.12, mot: 0.04 }], [1943.2, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.0, { inf: 0.7, arm: 0.2, mot: 0.1 }]],
   GER: [[1941.4, { inf: 0.8, arm: 0.12, mot: 0.08 }], [1943.0, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.5, { inf: 0.82, arm: 0.12, mot: 0.06 }]],
@@ -412,12 +493,18 @@ export function economyAI(S, side, isAI) {
     for (let r = 0; r < M.R; r++) if (d[r] <= 1 && canEvac(S, r) && S.turn >= 1) evacuate(S, r);
   }
   // укрепления на угрожаемых участках
-  const thr = threatMap(S, side);
+  const thr = threatMap(S, side), fdd = frontDist(S, side);
   const fr = [];
-  for (let r = 0; r < M.R; r++) if (sideOf(S, r) === side && isFront(S, r, side) && S.fort[r] < 3) fr.push([r, thr[r] * (1 + M.reg[r].vp * 0.15) - S.fort[r] * 4]);
+  for (let r = 0; r < M.R; r++) {
+    if (sideOf(S, r) !== side || S.fort[r] >= (M.reg[r].vp >= 2 ? 3 : 2) || fdd[r] > 1) continue;
+    // передний край — по угрозе; второй рубеж — у крупных городов и узлов
+    const w = fdd[r] === 0 ? thr[r] : Math.max(0, ...M.reg[r].nb.map((n) => thr[n.r] || 0)) * 0.45;
+    fr.push([r, w * (1 + M.reg[r].vp * 0.15) - S.fort[r] * 4]);
+  }
   fr.sort((a, b) => b[1] - a[1]);
-  let forts = isAI ? 1 : S.auto.build ? 1 : 0;
-  for (const [r] of fr) { if (forts <= 0 || S.pp[side] < 80) break; if (S.post[side][M.reg[r].z] === 'atk') continue; if (build(S, side, r, 'fort')) forts--; }
+  // свободное производство — на укрепления (лишнее не копится)
+  let forts = isAI || S.auto.build ? Math.max(0, Math.min(3, Math.floor((S.pp[side] - 50) / 35))) : 0;
+  for (const [r, w] of fr) { if (forts <= 0 || w <= 0) break; if (S.post[side][M.reg[r].z] === 'atk' && fdd[r] === 0 && w < 20) continue; if (build(S, side, r, 'fort')) forts--; }
   // набор дивизий: запас — на пополнение
   const reserve = { pp: 30, men: side === 'SOV' ? 40 : 30 };
   const mix = mixNow(side, S.turn);

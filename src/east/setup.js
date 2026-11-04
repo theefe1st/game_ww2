@@ -81,7 +81,7 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
   reindex(S);
   for (const sd of ['GER', 'SOV']) { const d = frontDist(S, sd); for (let r = 0; r < R; r++) if (sideOf(S, r) === sd) S.bd0[r] = d[r]; }
   // постройки на 1941 г.
-  const F = { Ленинград: 2, Москва: 1, Севастополь: 3, Одесса: 2, Киев: 1, Брест: 1, Кёнигсберг: 2, Берлин: 1, Выборг: 1, Полоцк: 1, Новоград: 1, Коростень: 1 };
+  const F = { Ленинград: 2, Москва: 1, Севастополь: 3, Одесса: 2, Киев: 2, Брест: 1, Кёнигсберг: 2, Берлин: 1, Выборг: 1, Полоцк: 1, Новоград: 1, Коростень: 1, Летичев: 1, 'Могилёв-Подольский': 1, Днепропетровск: 1, Запорожье: 1, Мозырь: 1 };
   for (const [n, l] of Object.entries(F)) { const r = placeR(S, n); if (r >= 0) S.fort[r] = l; }
   for (const g of M.reg) if (g.vp >= 3 || g.f.includes('c')) S.afd[g.id] = 1;
   for (const n of ['Варшава', 'Кёнигсберг', 'Краков', 'Люблин', 'Бухарест', 'Хельсинки', 'Львов', 'Минск', 'Рига', 'Каунас']) { const r = placeR(S, n); if (r >= 0) S.afd[r] = 1; }
