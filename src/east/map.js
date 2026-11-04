@@ -286,6 +286,13 @@ export class EastMap {
   }
   // участки границы области r со стороной противника: отрезки с нормалью внутрь области
   contact(r, sd) {
+    const key = r * 2 + (sd === 'GER' ? 1 : 0);
+    if (this.cC?.ver === this.ver) { const v = this.cC.m.get(key); if (v !== undefined) return v; } else this.cC = { ver: this.ver, m: new Map() };
+    const v = this.contact0(r, sd);
+    this.cC.m.set(key, v);
+    return v;
+  }
+  contact0(r, sd) {
     const S = this.S, M = this.M, segs = [];
     let L = 0;
     for (const k of M.regArcs[r]) {
@@ -345,7 +352,7 @@ export class EastMap {
         const cap = Math.max(1, Math.floor((P.L * sc) / (sz * 0.9))), rows = Math.ceil(n / cap), w = Math.max(sz / sc, 6);
         let i = 0;
         for (let k = 0; k < rows; k++) {
-          const m = Math.min(cap, n - k * cap), d = (sz * 0.62 + k * sz * 0.94) / sc;
+          const m = Math.min(cap, n - k * cap), d = (sz * 0.5 + 7 + k * sz * 0.94) / sc;
           for (let j = 0; j < m; j++, i++) {
             const [px, py, nx, ny] = this.pathAt(P, ((j + 0.5) / m) * P.L, w);
             items.push({ r, u: list[i], x: px + nx * d, y: py + ny * d, row: k + 1 });
@@ -413,18 +420,18 @@ export class EastMap {
     if (sc >= 0.85) this.drawBuildings(c, vis);
     // фишки
     this.stackHit = [];
-    const sz = L.sz, half = sz / 2, sel = this.hl.sel;
+    const sz = L.sz, half = sz / 2, sel = this.hl.sel, szB = Math.ceil(sz / 5) * 5; // спрайты — ступенями по 5 px
     for (const it of L.items) {
       const p = vis(it.x, it.y, sz);
       if (!p) continue;
       const u = it.u, x = p[0] - half, y = p[1] - half, sd = u.s;
       if (it.agg) {
         // сводная фишка: «стопка» со счётом дивизий
-        const sp = divSprite(u.nat, it.t, String(it.n), '', sz, dpr);
+        const sp = divSprite(u.nat, it.t, String(it.n), '', szB, dpr);
         if (it.n > 1) { c.globalAlpha = 0.55; c.drawImage(sp, x + 3, y - 3, sz, sz); c.drawImage(sp, x + 1.5, y - 1.5, sz, sz); c.globalAlpha = 1; }
         c.drawImage(sp, x, y, sz, sz);
       } else {
-        c.drawImage(divSprite(u.nat, u.t, divLabel(u), wmOf(u), sz, dpr), x, y, sz, sz);
+        c.drawImage(divSprite(u.nat, u.t, divLabel(u), wmOf(u), szB, dpr), x, y, sz, sz);
         if (sz >= 19) { // численность
           const bw = sz * 0.62, bx = p[0] - bw / 2, by = y + sz - Math.max(2.4, sz * 0.11) - 1.2;
           c.fillStyle = 'rgba(30,24,16,0.45)'; c.fillRect(bx, by, bw, Math.max(1.6, sz * 0.07));
@@ -440,6 +447,7 @@ export class EastMap {
       }
       this.stackHit.push({ r: it.r, u: it.agg ? null : u, x: p[0], y: p[1], w: sz, h: sz });
     }
+    this.drawHQs(c, vis);
     // флажки целей
     for (const f of this.flags) {
       const g = M.reg[f.r]; if (!g) continue;
@@ -459,10 +467,10 @@ export class EastMap {
   // фронты игрока: цветная линия вдоль своей стороны линии фронта с «зубцами» к противнику, штаб, стрелка удара
   drawFronts(c, vis) {
     const S = this.S, M = this.M, P = this.side, FR = S.fr?.[P], v = this.view, sc = v.sc;
-    this.hqHit = [];
+    this.hqHit = []; this.hqQ = [];
     if (!FR || !S.fz) return;
     this.indexArcs();
-    const off = 4.5, segBy = new Map();
+    const off = 3.3, segBy = new Map();
     for (let r = 0; r < M.R; r++) {
       if (sideOf(S, r) !== P) continue;
       const C = this.contacts?.get(r) || this.contact(r, P);
@@ -475,7 +483,7 @@ export class EastMap {
     for (const [f, list] of segBy) {
       const col = FRONT_COL[FR[f]?.col ?? f] || '#888';
       let sx = 0, sy = 0, sl = 0;
-      c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 3.2; c.globalAlpha = 0.92;
+      c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 3.6; c.globalAlpha = 0.95;
       for (const C of list) {
         c.beginPath();
         let last = -1;
@@ -509,22 +517,31 @@ export class EastMap {
       let best = -1, bd = 1e18;
       for (let r = 0; r < M.R; r++) {
         if (sideOf(S, r) !== P || S.fz[r] !== q.f) continue;
-        const k = fd ? fd[r] : 1, g = M.reg[r], d = (g.x - q.x) ** 2 + (g.y - q.y) ** 2 + (k === 1 ? 0 : k === 2 ? 900 : k === 0 ? 4000 : 20000);
+        const k = fd ? fd[r] : 1, g = M.reg[r], d = (g.x - q.x) ** 2 + (g.y - q.y) ** 2 + (k === 2 ? 0 : k === 3 ? 2500 : k === 1 ? 6000 : k === 0 ? 30000 : 40000);
         if (d < bd) (bd = d), (best = r);
       }
       const g = best >= 0 ? M.reg[best] : { x: q.x, y: q.y };
-      const p = vis(g.x, g.y, 80);
-      const tgt = S.post?.[P]?.[q.f] === 'atk' ? S.tgt?.[P]?.[q.f] : -1;
+      const tgt = S.post?.[P]?.[q.f] === 'atk' && !F.man ? S.tgt?.[P]?.[q.f] : -1;
+      this.hqQ.push({ g, q, F, tgt });
+    }
+  }
+  // поверх фишек: стрелки наступлений и штабы фронтов
+  drawHQs(c, vis) {
+    const M = this.M, sc = this.view.sc;
+    for (const { g, q, F, tgt } of this.hqQ || []) {
       if (tgt >= 0 && M.reg[tgt]) {
-        const T = M.reg[tgt], a = this.toScr(q.x, q.y), b = this.toScr(T.x, T.y);
+        const T = M.reg[tgt], a = this.toScr(g.x, g.y), b = this.toScr(T.x, T.y);
         this.bigArrow(c, a[0], a[1], b[0], b[1], q.col);
       }
+    }
+    for (const { g, q, F } of this.hqQ || []) {
+      const p = vis(g.x, g.y, 80);
       if (p && sc >= 0.3) this.drawHQ(c, p[0], p[1], F, q.col, q.f);
     }
   }
   // штаб фронта: портрет генерала в рамке цвета фронта и название
   drawHQ(c, x, y, F, col, f) {
-    const img = this.genImg?.(F.gen), w = 24, h = 29, name = F.n || '';
+    const img = this.genImg?.(this.S.gen?.[this.side]?.[f]), w = 24, h = 29, name = String(F.n || '').replace(/ фронт$/, '');
     c.font = '700 10px Rubik, system-ui, sans-serif';
     const tw = c.measureText(name).width, W = w + 8 + tw + 8;
     const x0 = x - W / 2, y0 = y - h / 2 - 2;

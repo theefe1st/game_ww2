@@ -8,9 +8,11 @@ import J from './data/map.json';
 import JR from './data/rails.json';
 import './east.css';
 import { decodeMap, decodeRails, TER_N } from './mapdata.js';
-import { newGame } from './setup.js';
+import { newGame, ensureState } from './setup.js';
 import * as E from './engine.js';
-import { runSide, setPostures, autoTarget, nearTarget, zoneForce } from './ai.js';
+import { runSide, setPostures, autoTarget, nearTarget, zoneForce, frontsOn } from './ai.js';
+import { FrontsUI, FRONT_ACT, frontShort } from './ui-fronts.js';
+import { FRONT_COL } from './map.js';
 import { evCard, chooseEvent, boostsNow, pendingChoices } from './events.js';
 import { EastMap } from './map.js';
 import { counterURL, divLabel, wmOf } from './counters.js';
@@ -20,14 +22,11 @@ import { fmtTurn, turnOf, SIDE_N, SIDE0, NAT_N, TYPES, TER, WX, DIFF, MODES, oth
 import { ZONES } from './sites.js';
 import { ALLG, POR_NAT, TRAITS } from '../war/gens41.js';
 import { portraitURLP } from '../staff/portraits.js';
+import { esc, ic, num, weeksW, flagHTML, genURL, strCol, POST } from './kit.js';
 
-const APP_VER = '0.10.0';
+const APP_VER = '0.11.0';
+export { flagHTML };
 const META = 'wf_east_meta', OPTS = 'wf_east_opts', TIPS = 'wf_east_tips';
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const ic = (k, cls = '') => icon(k, cls);
-const num = (x) => Math.round(x).toLocaleString('ru-RU');
-const weeksW = (n) => `${n} ${plural(n, 'неделя', 'недели', 'недель')}`;
-const POST = { auto: { n: 'Авто', ic: 'auto', d: 'генерал решает сам' }, def: { n: 'Оборона', ic: 'def', d: 'держать фронт, контратаки' }, atk: { n: 'Наступление', ic: 'atk', d: 'удары к цели' }, ret: { n: 'Отход', ic: 'ret', d: 'отступить, сберечь войска' } };
 const ZN_ = ZONES.map((z) => z.n);
 const TIP_TEXT = {
   map: ['compass', 'Карта фронта', 'Красная линия — фронт. Двигайте карту пальцем, увеличивайте двумя пальцами. Нажмите на область — увидите войска.'],
@@ -38,18 +37,6 @@ const TIP_TEXT = {
   build: ['hammer', 'Стройка', 'Заводы дают производство, укрепления — оборону, аэродромы — авиацию. Нажмите на свою область.'],
 };
 // флаги наций (без запрещённой символики: Германия — крест вермахта)
-export function flagHTML(nat, cls = '') {
-  const st = {
-    SOV: 'background:#c4261d', GER: 'background:#6d7780', FIN: 'background:linear-gradient(90deg,transparent 30%,#1c4f9c 30% 44%,transparent 44%),linear-gradient(0deg,#fff 40%,#1c4f9c 40% 60%,#fff 60%)',
-    ROM: 'background:linear-gradient(90deg,#1c3f94 0 33%,#f5cc1e 33% 67%,#c81e2a 67%)', HUN: 'background:linear-gradient(#c8202a 0 33%,#fff 33% 67%,#3c7a3a 67%)',
-    SVK: 'background:linear-gradient(#fff 0 33%,#1c4f9c 33% 67%,#c8202a 67%)', CRO: 'background:linear-gradient(#c8202a 0 33%,#fff 33% 67%,#1c3f94 67%)',
-    ITA: 'background:linear-gradient(90deg,#2a8a3a 0 33%,#fff 33% 67%,#c8202a 67%)', BUL: 'background:linear-gradient(#fff 0 33%,#2a8a3a 33% 67%,#c8202a 67%)',
-  }[nat] || 'background:#999';
-  const inner = nat === 'SOV' ? `<i class="fs">${ic('star')}</i>` : nat === 'GER' ? '<svg class="fx" viewBox="0 0 30 20"><path d="M11.6 2.4h6.8v5h5v5.2h-5v5h-6.8v-5h-5V7.4h5z" fill="#fff"/><path d="M13 3.8h4v5h5v2.4h-5v5h-4v-5H8V8.8h5z" fill="#141414"/></svg>' : nat === 'FIN' ? '' : '';
-  return `<span class="e-flag ${cls}" style="${st}">${inner}</span>`;
-}
-const genURL = (k) => { const G = ALLG[k]; return G ? portraitURLP('w:' + k, G.por, POR_NAT[G.nat] || 'GER', 3) : ''; };
-const strCol = (s) => (s >= 70 ? '#6fb44e' : s >= 40 ? '#d9b23a' : '#d0583a');
 
 export class EastUI {
   static menuLabel() { return `v${APP_VER} · СССР или Германия · 1 ход — неделя`; }
@@ -72,7 +59,7 @@ export class EastUI {
   </div>
   <div class="e-zoom"><button class="e-ib sm" data-a="zin" aria-label="Крупнее">${ic('plus')}</button><button class="e-ib sm" data-a="zout" aria-label="Мельче">${ic('minus')}</button><button class="e-ib sm" data-a="home" aria-label="К фронту">${ic('locate')}</button></div>
   <div class="e-bot">
-    <button class="e-tab" data-a="dirs">${ic('compass')}<span>Направления</span></button>
+    <button class="e-tab" data-a="dirs">${ic('compass')}<span>Фронты</span></button>
     <button class="e-tab" data-a="army">${ic('helmet')}<span>Армия</span></button>
     <button class="e-tab" data-a="build">${ic('hammer')}<span>Стройка</span></button>
     <button class="e-tab" data-a="log">${ic('book')}<span>Журнал</span></button>
@@ -104,6 +91,9 @@ export class EastUI {
     this.map.opt.trees = this.opt.trees; this.map.opt.wx = this.opt.wxfx;
     this.map.onTap = (r, x, y) => this.onTap(r, x, y);
     this.map.onLong = (r) => { if (r >= 0) { this.snd.play('select'); this.openRegion(r); } };
+    this.map.onHQ = (f) => { this.snd.play('click'); this.openPanel('dirs'); setTimeout(() => this.$(`.e-front[data-f="${f}"]`)?.scrollIntoView({ block: 'center' }), 30); };
+    const GI = new Map();
+    this.map.genImg = (k) => { if (!k) return null; let im = GI.get(k); if (!im) { im = new Image(); im.onload = () => this.map.redraw(); im.src = genURL(k); GI.set(k, im); } return im; };
   }
   open() {
     this.ensureMap();
@@ -148,7 +138,7 @@ export class EastUI {
       case 'cancel': this.snd.play('click'); return this.cancelMode();
       case 'move': this.snd.play('select'); return this.startMove(+b.dataset.r);
       case 'attack': return this.doAttack(+b.dataset.r);
-      case 'settgt': { this.snd.play('select'); const r = +b.dataset.r; this.setTarget(this.M.reg[r].z, r); return this.closePanel(); }
+      case 'settgt': { this.snd.play('select'); const r = +b.dataset.r; this.setTarget(this.frontOfR(r), r); return this.closePanel(); }
       case 'bld': return this.doBuild(+b.dataset.r, b.dataset.k);
       case 'evac': return this.doEvac(+b.dataset.r);
       case 'rec': return this.doRecruit(b.dataset.t);
@@ -165,6 +155,7 @@ export class EastUI {
       case 'exitgame': this.snd.play('click'); this.save(); this.closeModal(); return this.showMenu();
       case 'newgame': this.snd.play('click'); this.closeModal(); return this.showNew();
       case 'helpp': { this.snd.play('click'); this.helpPage = +b.dataset.p; return this.showHelp(); }
+      default: { const h = ACTX[a]; if (h) return h.call(this, b); }
     }
   }
   // ——— главное меню ———
@@ -253,7 +244,6 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Аним�
   startNew() {
     const c = this.newCfg;
     this.S = newGame(this.M, { side: c.side, mode: c.mode, diff: c.diff });
-    this.S.pauto = [1, 1, 1, 1, 1];
     this.P = c.side;
     this.cards = [];
     this.enterGame();
@@ -265,7 +255,8 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Аним�
     let S = null;
     try { S = E.deserialize(this.M, localStorage.getItem(E.SAVE_KEY)); } catch (e) { S = null; }
     if (!S) { this.toast(ic('cancel') + 'Сохранение не читается'); try { localStorage.removeItem(META); } catch {} return this.showMenu(); }
-    this.S = S; this.P = S.side; S.pauto ??= [1, 1, 1, 1, 1];
+    ensureState(S);
+    this.S = S; this.P = S.side;
     this.cards = [];
     this.enterGame();
     this.homeView(false);
@@ -308,7 +299,7 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Аним�
   applyAuto() {
     const S = this.S, P = this.P, post = S.post[P].slice(), tgt = S.tgt[P].slice();
     setPostures(S, P, true);
-    for (let z = 0; z < E.ZN; z++) {
+    for (const z of frontsOn(S, P)) {
       if (!S.pauto[z]) { S.post[P][z] = post[z]; S.tgt[P][z] = tgt[z]; }
       if (S.post[P][z] === 'atk' && (S.tgt[P][z] < 0 || E.sideOf(S, S.tgt[P][z]) === P)) {
         const t = autoTarget(S, P, z);
@@ -473,7 +464,7 @@ ${this.histCmp(o)}
 <span class="e-mor" title="Боевой дух: ${Math.round(S.mor[P])}">${flagHTML(P, 'xs')}<i><em style="width:${Math.round(S.mor[P])}%"></em></i></span>`;
     this.$('.e-next').disabled = !!this.isBusy;
     this.map.flags = [];
-    for (let z = 0; z < E.ZN; z++) if (S.post[P][z] === 'atk' && S.tgt[P][z] >= 0) this.map.flags.push({ r: S.tgt[P][z], label: ZONES[z].s });
+    for (const z of frontsOn(S, P)) if (S.post[P][z] === 'atk' && S.tgt[P][z] >= 0 && !S.fr[P][z].man) this.map.flags.push({ r: S.tgt[P][z], label: frontShort(S.fr[P][z].n), col: FRONT_COL[S.fr[P][z].col] });
     this.map.refresh();
     if (!this.$('.e-panel').classList.contains('hidden')) this.renderPanel();
   }
@@ -486,13 +477,6 @@ ${this.histCmp(o)}
     x /= rs.length; y /= rs.length;
     const sc = Math.max(this.map.minSc, Math.min(0.62, Math.min(this.map.w / 1300, this.map.h / 900)));
     if (anim) this.map.flyTo(x, y, sc); else this.map.centerOn(x, y, sc);
-  }
-  flyZone(z) {
-    const S = this.S, M = this.M, rs = [];
-    for (let r = 0; r < M.R; r++) if (M.reg[r].z === z && E.isFront(S, r) && E.sideOf(S, r)) rs.push(r);
-    if (!rs.length) for (let r = 0; r < M.R; r++) if (M.reg[r].z === z) rs.push(r);
-    this.closePanel();
-    this.map.fitRegions(rs, 30);
   }
   // ——— панели ———
   openPanel(kind, arg) {
@@ -521,57 +505,6 @@ ${this.histCmp(o)}
     const b = p.querySelector('.e-pbody'); if (b) b.scrollTop = st;
   }
   head(icn, title, sub = '') { return `<div class="e-ph">${icn}<div><h3>${title}</h3>${sub ? `<small>${sub}</small>` : ''}</div><button class="e-ib" data-a="pclose" aria-label="Закрыть">${ic('close')}</button></div>`; }
-  // направления: генерал, силы, погода, приказ, цель
-  pDirs() {
-    const S = this.S, P = this.P, Q = other(P), M = this.M;
-    const cnt = Array.from({ length: E.ZN }, () => ({ [P]: 0, [Q]: 0 }));
-    for (const u of S.units) if (E.alive(u)) cnt[M.reg[u.r].z][u.s]++;
-    const rows = ZONES.map((Z, z) => {
-      const g = ALLG[S.gen[P][z]], f = zoneForce(S, P, z), k = f.a / Math.max(1, f.d), au = !!S.pauto[z], post = S.post[P][z];
-      const tr = (g?.tr || []).map((t) => `<span class="e-trait" title="${esc(TRAITS[t]?.n || t)}">${esc(TRAITS[t]?.n || t)}</span>`).join('');
-      const t = S.tgt[P][z], tn = t >= 0 ? esc(M.reg[t].city?.n || M.reg[t].n) : 'выбрать';
-      const bs = boostsNow(S, P).filter((b) => b.z === z || b.z < 0).map((b) => `<span class="e-boost">${ic('bolt')}${b.kind === 'att' ? 'атака' : 'оборона'} +${Math.round((b.k - 1) * 100)}% · ${b.left} нед.</span>`).join('');
-      const pb = (p) => `<button class="e-pb ${(p === 'auto' ? au : !au && post === p) ? 'on' : ''}" data-a="post" data-z="${z}" data-p="${p}">${ic(POST[p].ic)}<span>${POST[p].n}</span></button>`;
-      const bar = Math.max(4, Math.min(96, (k / (k + 1)) * 100));
-      return `<div class="e-dir">
-<div class="e-dtop"><img class="e-por" src="${genURL(S.gen[P][z])}" alt=""><div class="e-dinfo"><b>${esc(Z.n)}</b><small>${esc(g?.n || '—')}</small><div class="e-traits">${tr}</div></div>
-<button class="e-ib sm" data-a="zfly" data-z="${z}" aria-label="Показать">${ic('locate')}</button></div>
-<div class="e-force"><span>${flagHTML(P, 'xs')}${cnt[z][P]}</span><i><em style="width:${bar}%"></em></i><span>${cnt[z][Q]}${flagHTML(Q, 'xs')}</span><span class="e-dwx" title="${esc(WX[S.wx[z]].n)}">${ic(WX[S.wx[z]].ic)}</span></div>
-<div class="e-posts">${pb('auto')}${pb('def')}${pb('atk')}${pb('ret')}</div>
-${post === 'atk' ? `<button class="e-tgtc" data-a="tgt" data-z="${z}">${ic('target')}<span>Цель: <b>${tn}</b></span>${ic('right')}</button>` : `<div class="e-dnow">${au ? `сейчас: ${esc(POST[post].n.toLowerCase())}` : esc(POST[post].d)}</div>`}
-${bs}</div>`;
-    }).join('');
-    return `${this.head(ic('compass'), 'Направления', 'приказы генералам')}<div class="e-pbody">${rows}</div>`;
-  }
-  setPost(z, p) {
-    const S = this.S, P = this.P;
-    if (p === 'auto') { S.pauto[z] = 1; this.applyAuto(); }
-    else {
-      S.pauto[z] = 0; S.post[P][z] = p;
-      if (p === 'atk' && (S.tgt[P][z] < 0 || E.sideOf(S, S.tgt[P][z]) === P)) {
-        const t = nearTarget(S, P, z);
-        S.tgt[P][z] = t;
-        if (t < 0) this.toast(`${ic('target')}Выберите цель на карте`);
-      }
-    }
-    this.refresh();
-  }
-  setTarget(z, r) {
-    const S = this.S, P = this.P;
-    S.pauto[z] = 0; S.post[P][z] = 'atk'; S.tgt[P][z] = r;
-    this.toast(`${ic('target')}${esc(ZONES[z].n)}: цель — ${esc(this.M.reg[r].city?.n || this.M.reg[r].n)}`);
-    this.refresh();
-  }
-  pickTarget(z) {
-    const S = this.S, P = this.P, M = this.M;
-    this.closePanel();
-    const cand = new Set();
-    for (const g of M.reg) if (E.sideOf(S, g.id) === other(P) && (g.vp > 0 || g.city?.s >= 2) && Math.abs(g.z - z) <= 1) cand.add(g.id);
-    this.pick = { z };
-    this.map.setHL({ pick: cand, reach: null, atk: null });
-    this.modeBar(`${ic('target')}<span>Цель для направления «${esc(ZONES[z].n)}»: нажмите на область противника</span>`);
-    this.flyZone(z);
-  }
   modeBar(html) {
     if (this.tipK) this.hideTip(true, true);
     const b = this.$('.e-modebar');
@@ -581,7 +514,7 @@ ${bs}</div>`;
   cancelMode(silent = false) {
     this.pick = null; this.sel = null;
     this.$('.e-modebar').classList.add('hidden');
-    this.map?.setHL({ sel: -1, reach: null, atk: null, pick: null });
+    this.map?.setHL({ sel: -1, reach: null, atk: null, pick: null, paint: null });
     if (!silent && this.panelKind === 'reg') this.closePanel();
     this.tipSoon();
   }
@@ -688,7 +621,7 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
     const sup = sd ? S.sup[sd]?.[r] ?? 1 : 1;
     const supT = !sd ? '' : sup <= 0 ? `<span class="e-tag bad">${ic('encircle')}окружение</span>` : sup < 0.5 ? `<span class="e-tag warn">${ic('truck')}слабое снабжение</span>` : `<span class="e-tag">${ic('truck')}снабжение</span>`;
     const name = g.city && g.city.n !== g.n ? `${esc(g.city.n)} <small>${esc(g.n)}</small>` : esc(g.n);
-    const info = `<div class="e-tags"><span class="e-tag">${ic(g.t === 'for' ? 'wheat' : g.t === 'mnt' || g.t === 'hil' ? 'mtn' : 'compass')}${esc(TER[g.t].n)}</span><span class="e-tag">${ic(WX[S.wx[g.z]].ic)}${esc(WX[S.wx[g.z]].n)}</span><span class="e-tag">${esc(ZONES[g.z].n)}</span>${supT}${g.vp ? `<span class="e-tag gold">${ic('star')}${g.vp}</span>` : ''}</div>`;
+    const info = `<div class="e-tags"><span class="e-tag">${ic(g.t === 'for' ? 'wheat' : g.t === 'mnt' || g.t === 'hil' ? 'mtn' : 'compass')}${esc(TER[g.t].n)}</span><span class="e-tag">${ic(WX[S.wx[g.z]].ic)}${esc(WX[S.wx[g.z]].n)}</span>${sd === this.P ? `<span class="e-tag" style="color:${FRONT_COL[S.fr[sd][S.fz[r]]?.col]}">${ic('flag')}${esc(frontShort(S.fr[sd][S.fz[r]]?.n))}</span>` : `<span class="e-tag">${esc(ZONES[g.z].n)}</span>`}${supT}${g.vp ? `<span class="e-tag gold">${ic('star')}${g.vp}</span>` : ''}</div>`;
     const blds = `<div class="e-bl">${S.fort[r] ? `<span title="Укрепления">${ic('fort')}<b>${S.fort[r]}</b></span>` : ''}${S.fac[r] ? `<span title="Заводы">${ic('factory')}<b>${S.fac[r]}</b></span>` : ''}${S.afd[r] ? `<span title="Аэродром">${ic('airfield')}</span>` : ''}${E.garOf(S, r) > 0 && sd ? `<span title="Гарнизон">${ic('rifle')}<small>гарнизон</small></span>` : ''}</div>`;
     const ulist = us.length ? `<div class="e-units">${us.map((u) => `<div class="e-u ${u.s === P ? '' : 'en'}"><img src="${counterURL(u.nat, u.t, divLabel(u), wmOf(u))}" alt=""><div><b>${esc(u.n)}</b><small>${esc(TYPES[u.t].n)}${u.nat !== u.s ? ` · ${esc(NAT_N[u.nat])}` : ''}${u.man ? ' · приказ отдан' : ''}</small><i class="e-str"><em style="width:${Math.max(4, u.str)}%;background:${strCol(u.str)}"></em></i>${u.s === P && u.t !== 'sec' && u.rdy < 22 ? `<small class="e-nrdy">${ic('hourglass')}не готова к удару</small>` : ''}</div></div>`).join('')}</div>` : `<div class="e-note">${ic('info')}Войск нет</div>`;
     let act = '';
@@ -713,6 +646,7 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
   onTap(r) {
     const S = this.S;
     if (!S || this.mode !== 'game' || this.isBusy) return;
+    if (this.pick?.paint !== undefined) return this.paintTap(r);
     if (this.pick) {
       if (r >= 0 && E.sideOf(S, r) === other(this.P)) { this.snd.play('select'); const z = this.pick.z; this.cancelMode(true); this.setTarget(z, r); return this.openPanel('dirs'); }
       this.snd.play('error'); return this.toast(`${ic('target')}Выберите область противника`);
@@ -877,3 +811,5 @@ ${P === 'SOV' ? `<button class="e-row e-toggle ${S.flags.evacAuto ? 'on' : ''}" 
   }
   tipSoon() { clearTimeout(this.tipT); this.tipT = setTimeout(() => this.maybeTip(), 700); }
 }
+Object.assign(EastUI.prototype, FrontsUI);
+const ACTX = { ...FRONT_ACT };

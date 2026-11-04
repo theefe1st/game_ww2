@@ -360,3 +360,31 @@
   .e-set{grid-template-columns:1fr 1fr}
   .e-set .e-row{min-height:44px;font-size:13.5px}
 }
+/* v0.11: фронты */
+.e-front{border-left:4px solid var(--fc)!important;position:relative}
+.e-front .e-dinfo b{color:color-mix(in srgb,var(--fc) 45%,#fff)}
+.e-porb{position:relative;padding:0!important;background:none!important;border:0!important;flex:none}
+.e-porb>i{position:absolute;right:-5px;bottom:-5px;width:20px;height:20px;border-radius:10px;background:var(--fc);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.e-porb>i .ic{width:13px;height:13px;color:#fff}
+.e-porb .e-por{box-shadow:0 0 0 2px var(--fc)}
+.e-stars{font-style:normal;color:var(--gold);font-size:10px;letter-spacing:-1px;margin-left:3px}
+.e-fbar{display:flex;gap:6px;flex-wrap:wrap}
+.e-fb{display:inline-flex!important;align-items:center;gap:5px;min-height:32px;padding:0 10px!important;border-radius:16px;background:rgba(255,240,210,.07)!important;border:1px solid rgba(255,240,210,.14)!important;font-size:12.5px}
+.e-fb .ic{width:16px;height:16px;color:var(--gold)}
+.e-fb.on{background:color-mix(in srgb,var(--fc) 40%,transparent)!important;border-color:var(--fc)!important;color:#fff}
+.e-fnew{justify-content:center;border-style:dashed!important}
+.e-dnow .ic{width:15px;height:15px;vertical-align:-3px;margin-right:4px;color:var(--gold)}
+.e-card:has(.e-gpick){width:min(640px,96vw)}
+.e-gpick{display:flex;flex-direction:column;gap:8px;min-height:0}
+.e-gpick h2{font-size:19px}
+.e-gpick p{font-size:13.5px;line-height:1.3;opacity:.85}
+.e-glist{overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px;padding:2px;max-height:56vh}
+.e-gsel{display:flex!important;gap:8px;align-items:center;text-align:left;padding:6px!important;border-radius:10px;background:rgba(120,90,50,.1)!important;border:1px solid rgba(120,90,50,.25)!important;color:var(--ink)}
+.e-gsel.on{border-color:#c8902a!important;background:rgba(226,182,78,.32)!important}
+.e-gsel img{width:32px;height:38px;border-radius:6px;image-rendering:pixelated;background:#3a3026;flex:none}
+.e-gsel>span{display:flex;flex-direction:column;min-width:0;line-height:1.15}
+.e-gsel b{font-size:12.5px}
+.e-gsel small{font-size:11px;font-weight:700}
+.e-gsel .e-traits{margin-top:1px}
+.e-gsel .e-trait{background:rgba(120,90,50,.16);color:#5a3a10}
+.e-gsel .e-stars{margin-left:0;color:#b07a10}

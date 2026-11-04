@@ -2,9 +2,9 @@
 // (src/war/oob41.js: участки армий двумя точками), командующие направлениями, постройки и хозяйство.
 import { HQ0, ECH2, parseUnit } from '../war/oob41.js';
 import { makeProj, regionAt, nearestRegion } from './mapdata.js';
-import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, SAVE_KEY } from './engine.js';
+import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, FN, SAVE_KEY, nameFor, assignFronts } from './engine.js';
 import { weatherOf, SIDE0, turnOf, rnd } from './rules.js';
-import { GEN_HIST, PLAN, REINF, parseMix } from './hist.js';
+import { GEN_HIST, PLAN, REINF, parseMix, FRONT_N } from './hist.js';
 import { runEvents } from './events.js';
 
 // область по названию города или области
@@ -102,16 +102,33 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
   for (const [sd, nat, iso, mix, at, n] of REINF) {
     const t = turnOf(iso), r = placeR(S, at);
     for (const [ty, k] of parseMix(mix)) for (let i = 0; i < k; i++) {
-      const u = mkUnit(S, { s: sd, nat, t: ty, n: '', str: 100, rdy: 80, xp: sd === 'SOV' ? 30 : 20 });
+      const u = mkUnit(S, { s: sd, nat, t: ty, n: nameFor(S, sd, nat, ty), str: 100, rdy: 80, xp: sd === 'SOV' ? 30 : 20 });
       u.r = -1; u.arr = t; u.at = r; u.z = r >= 0 ? M.reg[r].z : 2; u.grp = n; u.hist = 1;
     }
   }
+  ensureState(S);
   reindex(S);
   computeSupply(S, 'GER'); computeSupply(S, 'SOV');
   S.airA = { GER: airAlloc(S, 'GER'), SOV: airAlloc(S, 'SOV') };
   if (noAsk) S.noAsk = 1;
   if (noEv) S.noEv = 1;
   runEvents(S);
+  return S;
+}
+// поля новых версий (и для старых сохранений): фронты
+export function ensureState(S) {
+  S.fr ??= {};
+  for (const sd of ['GER', 'SOV']) {
+    const L = (S.fr[sd] ??= []);
+    for (let f = 0; f < FN; f++) L[f] ??= { n: FRONT_N[sd][f], col: f, on: f < ZN ? 1 : 0, man: 0, pick: 0 };
+    while (S.gen[sd].length < FN) S.gen[sd].push(null);
+    while (S.post[sd].length < FN) S.post[sd].push('def');
+    while (S.tgt[sd].length < FN) S.tgt[sd].push(-1);
+  }
+  S.pauto ??= new Array(FN).fill(1);
+  while (S.pauto.length < FN) S.pauto.push(1);
+  if (S.fcust && !S.fzo) S.fzo = Int8Array.from(S.M.reg, (g) => g.z);
+  assignFronts(S);
   return S;
 }
 export { SAVE_KEY };

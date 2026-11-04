@@ -1,4 +1,4 @@
-// «Мировой фронт» v0.10: выписывает нужные значки из react-icons (game-icons.net — CC BY 3.0, Material — Apache 2.0)
+// «Мировой фронт» v0.11: выписывает нужные значки из react-icons (game-icons.net — CC BY 3.0, Material — Apache 2.0)
 // в src/east/icons.js (только контуры path). Запуск: node tools/icons-east.mjs
 import fs from 'node:fs';
 const RI = process.env.RI || '/vercel/sandbox/node_modules/react-icons';
@@ -17,6 +17,12 @@ const WANT = {
   down: 'MdKeyboardArrowDown', left: 'MdChevronLeft', right: 'MdChevronRight', plus: 'MdAdd', minus: 'MdRemove', auto: 'MdAutorenew',
   rifle: 'GiRifle', wheat: 'GiWheat', radar: 'GiRadarSweep', binoc: 'GiBinoculars', sickle: 'GiHammerSickle',
   wire: 'GiBarbedWire', para: 'GiParachute', bell: 'GiRingingBell', compass: 'GiCompass', hammer: 'GiHammerNails', dice: 'GiPerspectiveDiceSixFacesRandom',
+  // v0.11: фронты, экономика, наука, решения, погода, операции
+  swap: 'MdSwapHoriz', hand: 'GiHand', brush: 'GiPaintBrush', mil: 'GiGearHammer', camp: 'GiBarracksTent', depot: 'GiCargoCrate', equip: 'GiAmmoBox',
+  sci: 'GiFizzingFlask', dec: 'GiScrollUnfurled', pol: 'GiPublicSpeaker', storm: 'GiLightningStorm', wind: 'GiWindSlap', fog: 'GiFog', hrain: 'GiHeavyRain',
+  snowing: 'GiSnowing', landing: 'GiShipBow', sabres: 'GiCrossedSabres', news: 'GiNewspaper', radio: 'GiRadioTower', rail: 'GiRailRoad', bridge: 'GiStoneBridge',
+  warship: 'GiIronHulledWarship', mg: 'GiMachineGun', ammo: 'GiBullets', plan: 'GiTreasureMap', org: 'GiOrganigram', idea: 'GiTeamIdea', upgrade: 'GiUpgrade',
+  arrows: 'GiStrikingArrows', art: 'GiCannonShot', oilpump: 'GiOilPump', steel: 'GiMetalBar', boot: 'GiSteeltoeBoots', world: 'GiWorld', prog: 'GiProgression', ranks: 'GiStarsStack',
 };
 const src = {};
 const grab = (name) => {
@@ -35,7 +41,7 @@ for (const [k, n] of Object.entries(WANT)) {
   out[k] = [vb === '0 0 512 512' ? 512 : vb === '0 0 24 24' ? 24 : vb, ...ds];
 }
 const body = Object.entries(out).map(([k, v]) => `  ${k}: ${JSON.stringify(v)},`).join('\n');
-fs.writeFileSync('src/east/icons.js', `// «Мировой фронт» v0.10: значки интерфейса (создано tools/icons-east.mjs).
+fs.writeFileSync('src/east/icons.js', `// «Мировой фронт» v0.11: значки интерфейса (создано tools/icons-east.mjs).
 // Источники: game-icons.net (Lorc, Delapouite и др.) — CC BY 3.0; Material Design Icons (Google) — Apache 2.0.
 // [размер поля, контуры…]
 export const IC = {
