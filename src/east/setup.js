@@ -5,6 +5,7 @@ import { makeProj, regionAt, nearestRegion } from './mapdata.js';
 import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, FN, SAVE_KEY, nameFor, assignFronts } from './engine.js';
 import { ensureEco } from './eco.js';
 import { ensureTech } from './tech.js';
+import { ensureDec } from './decisions.js';
 import { weatherOf, SIDE0, turnOf, rnd } from './rules.js';
 import { GEN_HIST, PLAN, REINF, parseMix, FRONT_N } from './hist.js';
 import { runEvents } from './events.js';
@@ -138,6 +139,7 @@ export function ensureState(S) {
   assignFronts(S);
   ensureEco(S, (n) => placeR(S, n));
   ensureTech(S);
+  ensureDec(S);
   return S;
 }
 export { SAVE_KEY };

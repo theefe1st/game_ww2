@@ -7,6 +7,7 @@
 import { TYPES, SIDE0, yearF, lerpT } from './rules.js';
 import { tx } from './tech.js';
 import { sideOf, isFront, note } from './engine.js';
+import { decK } from './decisions.js';
 
 export const EQK = ['inf', 'art', 'arm'];
 export const LINES = ['inf', 'art', 'arm', 'air'];
@@ -222,7 +223,7 @@ export function evacuate(S, r) {
   if (!tg) return false;
   S.fac[r] = 0;
   for (const b of S.q.filter((x) => x.r === r && x.k === 'fac')) unbuild(S, b);
-  S.evac.push({ r, to: tg.id, n, left: 8 });
+  S.evac.push({ r, to: tg.id, n, left: Math.round(8 * decK(S, 'SOV', 'evac')) });
   note(S, { ic: 'train', side: 'SOV', txt: `Заводы ${M.reg[r].n} — эвакуация в ${tg.n}`, r });
   return true;
 }

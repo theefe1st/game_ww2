@@ -79,7 +79,8 @@ const zOf = (S, city) => { const r = cityR(S, city); return r >= 0 ? S.M.reg[r].
 const gerN = (S) => S.units.filter((u) => alive(u) && u.s === 'GER').length;
 
 // id, сторона (кому событие на пользу), иконка, дата (или {hist, free}), режим, условие, до какой даты ждать,
-// заголовок, текст (строка или функция), действие или варианты выбора (первый — исторический, его берёт ИИ)
+// заголовок, текст (строка или функция), действие или варианты выбора (первый — исторический, его берёт ИИ);
+// dec — у игрока это решение за ★ (decisions.js), у ИИ — событие по дате
 export const EVENTS = [
   { id: 'start', side: 'GER', ic: 'flag', at: '1941-06-22', t: '22 июня 1941 года',
     d: (S) => (S.side === 'SOV' ? 'Германия напала на СССР. Удержите фронт, сберегите армии — и дойдите до Берлина.' : 'Началась операция «Барбаросса». Разбейте Красную армию и возьмите Москву.') },
@@ -105,7 +106,7 @@ export const EVENTS = [
   { id: 'winter', side: 'SOV', ic: 'frost', at: '1941-11-23', t: 'Генерал Мороз', d: 'Немецкая армия не готова к зиме: её атаки и оборона слабеют до весны.' },
   { id: 'counter41', side: 'SOV', ic: 'atk', at: '1941-12-05', mode: 'hist', until: '1942-01-15', cond: (S) => own(S, 'Москва') === 'SOV', t: 'Контрнаступление под Москвой',
     d: 'Сибирские дивизии переходят в наступление: +20 % к атаке на Центральном направлении.', fx: (S) => { addBoost(S, 'SOV', 2, 1.2, 5); addMor(S, 'SOV', 5); } },
-  { id: 'wgear', side: 'GER', ic: 'snow', at: '1942-01-15', t: 'Зимнее обмундирование', d: 'Войска получили тёплую одежду: мороз страшен им меньше.', fx: (S) => { S.flags.winterGear = 1; } },
+  { id: 'wgear', side: 'GER', ic: 'snow', at: '1942-01-15', dec: 1, t: 'Зимнее обмундирование', d: 'Войска получили тёплую одежду: мороз страшен им меньше.', fx: (S) => { S.flags.winterGear = 1; } },
   { id: 'khar42', side: 'SOV', ic: 'compass', at: '1942-05-12', until: '1942-06-10', cond: (S) => own(S, 'Харьков') === 'GER', t: 'Харьков: ударить первыми?',
     d: 'Ставка предлагает наступать на юге, пока враг не готов.',
     opts: [
@@ -113,11 +114,11 @@ export const EVENTS = [
       { t: 'Укрепиться', ic: 'fort', d: 'укрепления +1 на 6 участках фронта Южного направления', fx: (S) => fortLine(S, 'SOV', 3, 6) },
     ] },
   { id: 'blau', side: 'GER', ic: 'oil', at: '1942-06-28', mode: 'hist', t: 'План «Блау»', d: 'Наступление на Сталинград и нефть Кавказа: +12 % к атаке на юге на 6 недель.', fx: (S) => addBoost(S, 'GER', [3, 4], 1.12, 6) },
-  { id: 'o227', side: 'SOV', ic: 'star', at: '1942-07-28', t: 'Приказ № 227', d: '«Ни шагу назад!» Оборона Красной армии +8 % на 8 недель.', fx: (S) => { addMor(S, 'SOV', 6); addBoost(S, 'SOV', -1, 1.08, 8, 'def'); } },
+  { id: 'o227', side: 'SOV', ic: 'star', at: '1942-07-28', dec: 1, t: 'Приказ № 227', d: '«Ни шагу назад!» Оборона Красной армии +8 % на 8 недель.', fx: (S) => { addMor(S, 'SOV', 6); addBoost(S, 'SOV', -1, 1.08, 8, 'def'); } },
   { id: 'stal', side: 'SOV', ic: 'fort', at: '1942-06-01', until: '1943-06-01', cond: (S) => own(S, 'Сталинград') === 'SOV' && near(S, cityR(S, 'Сталинград'), 'SOV', 1), t: 'Сталинград',
     d: 'Бои идут за каждый дом: укрепления города +1.', fx: (S) => { fortUp(S, 'Сталинград'); addMor(S, 'SOV', 3); } },
   { id: 'uranus', side: 'SOV', ic: 'encircle', at: '1942-11-19', mode: 'hist', t: 'Операция «Уран»', d: 'Удар по флангам врага на юге: +25 % к атаке на 4 недели.', fx: (S) => addBoost(S, 'SOV', 3, 1.25, 4) },
-  { id: 'total', side: 'GER', ic: 'hammer', at: '1943-02-18', t: 'Тотальная война', d: 'Германия переводит хозяйство на военные рельсы: больше людей и производства.',
+  { id: 'total', side: 'GER', ic: 'hammer', at: '1943-02-18', dec: 1, t: 'Тотальная война', d: 'Германия переводит хозяйство на военные рельсы: больше людей и производства.',
     fx: (S) => { S.flags.GERmen = 1.2; S.flags.GERpp = 1.1; addMor(S, 'GER', 4); } },
   { id: 'citadel', side: 'GER', ic: 'tank', at: '1943-07-05', mode: 'hist', until: '1943-08-01', cond: (S) => own(S, 'Курск') === 'SOV' && gerN(S) >= 120, t: 'Курская дуга',
     d: 'Удар «Цитадели» по глубокой обороне: у Курска укрепления +1, атака Оси +12 % на 2 недели.', fx: (S) => { addBoost(S, 'GER', [2, 3], 1.12, 2); fortNear(S, 'SOV', 'Курск', 2); } },
@@ -140,7 +141,7 @@ export const EVENTS = [
       for (const u of S.units) if (alive(u) && u.s === 'GER' && S.M.nats[S.own[u.r]] === 'FIN') { const a = S.at[u.r]; a.splice(a.indexOf(u), 1); u.dead = 1; u.r = -1; }
       evict(S, 'SOV'); reindex(S); addMor(S, 'GER', -3);
     } },
-  { id: 'volk', side: 'GER', ic: 'helmet', at: '1944-03-01', cond: (S) => S.turn >= T('1944-10-18') || nearReich(S, 3), t: 'Фольксштурм', d: 'В строй ставят стариков и подростков: новые слабые дивизии у Берлина и Кёнигсберга.',
+  { id: 'volk', side: 'GER', ic: 'helmet', at: '1944-03-01', dec: 1, cond: (S) => S.turn >= T('1944-10-18') || nearReich(S, 3), t: 'Фольксштурм', d: 'В строй ставят стариков и подростков: новые слабые дивизии у Берлина и Кёнигсберга.',
     fx: (S) => {
       const o = { key: 'GER:vs', str: 50, rdy: 45, name: (n) => `${n}-й фольксштурм` };
       spawn(S, 'GER', 'Берлин', 3, o); spawn(S, 'GER', 'Кёнигсберг', 2, o); spawn(S, 'GER', 'Бреслау', 2, o);
@@ -152,7 +153,7 @@ const EVM = new Map(EVENTS.map((e) => [e.id, e]));
 export const evById = (id) => EVM.get(id);
 // войска СССР в пределах d шагов от земель наций nats
 // Красная армия у границ Рейха (довоенная территория Германии)
-function nearReich(S, d) {
+export function nearReich(S, d) {
   const G = natIdx(S, 'GER');
   for (let r = 0; r < S.M.R; r++) if (S.own0[r] === G && sideOf(S, r) === 'GER' && near(S, r, 'GER', d)) return true;
   return false;
@@ -163,7 +164,7 @@ function nearNat(S, nats, d) {
   return false;
 }
 // укрепления +1 на n участках фронта направления z (там, где враг сильнее)
-function fortLine(S, side, z, n) {
+export function fortLine(S, side, z, n) {
   const c = [];
   for (let r = 0; r < S.M.R; r++) {
     if (sideOf(S, r) !== side || S.M.reg[r].z !== z || S.fort[r] >= 3) continue;
@@ -194,6 +195,7 @@ export function runEvents(S) {
   if (S.boost) S.boost = S.boost.filter((b) => b.until > S.turn);
   for (const E of EVENTS) {
     if (S.ev[E.id] !== undefined || (E.mode && E.mode !== S.mode)) continue;
+    if (E.dec && E.side === S.side && !S.noAsk) continue; // у игрока — решение (decisions.js)
     const a = iso(E, S);
     if (!a || S.turn < T(a)) continue;
     if (E.until && S.turn > T(E.until)) { S.ev[E.id] = -1; continue; }

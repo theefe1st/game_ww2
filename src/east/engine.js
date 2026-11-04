@@ -11,6 +11,7 @@ import { runEvents } from './events.js';
 import { produce, construct, evacWeek, hasEq, payEq, EQS, polOf, aaCover, qLost } from './eco.js';
 import { tx, techWeek } from './tech.js';
 import { trainWeek } from './army.js';
+import { decK, decOn, decWeek } from './decisions.js';
 export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, used, eqTot, hasEq, EQS, LINES, LINE, shiftLine, etaOf, unbuild, brigN, brigBusy, brigFree, bWeeks, bTime, bRate, bRate0, myQ, isActive, aaCover, allocFac } from './eco.js';
 
 export const SAVE_KEY = 'wf_east_v1';
@@ -238,6 +239,8 @@ export function computeSupply(S, side) {
   }
   const ts = tx(S, side, 'sup');
   if (ts) for (let r = 0; r < R; r++) if (sup[r] > 0) sup[r] = Math.min(1, sup[r] * (1 + ts));
+  // партизаны (решение СССР): на советской земле под врагом снабжение −10 %
+  if (side === 'GER' && S.dfx?.length && decOn(S, 'SOV', 'part')) for (let r = 0; r < R; r++) if (sup[r] > 0 && M.nats[S.own0[r]] === 'SOV') sup[r] *= 0.9;
   // растянутые коммуникации: чем дальше от своей довоенной территории, тем хуже снабжение (подвоз, партизаны)
   const dp = new Int16Array(R).fill(99), qd = [];
   for (let r = 0; r < R; r++) if (sideOf(S, r) === side && SIDE0[M.nats[S.own0[r]]] === side) (dp[r] = 0), qd.push(r);
@@ -541,6 +544,7 @@ export function endPhase(S, side) {
   computeSupply(S, side);
   // окружённые: потери, падение готовности, сдача
   const pocketR = new Map();
+  const part = side === 'GER' && S.dfx?.length && decOn(S, 'SOV', 'part'); // партизаны: на советской земле войска приходят в себя медленнее
   for (const u of S.units) {
     if (!alive(u) || u.s !== side) continue;
     const s = S.sup[side][u.r];
@@ -555,7 +559,7 @@ export function endPhase(S, side) {
       if (!u.mv) u.ent = Math.min(3, u.ent + 1);
       const quiet = !isFront(S, u.r, side);
       const g = genOf(S, side, fzOf(S, u.r));
-      u.rdy = Math.min(100, u.rdy + (quiet ? 30 : 17) * (hasTr(g, 'hard') ? 1.25 : 1) * (0.6 + 0.4 * s));
+      u.rdy = Math.min(100, u.rdy + (quiet ? 30 : 17) * (hasTr(g, 'hard') ? 1.25 : 1) * (0.6 + 0.4 * s) * (part && M.nats[S.own0[u.r]] === 'SOV' ? 0.55 : 1));
     }
   }
   // сдача котлов
@@ -571,7 +575,7 @@ export function endPhase(S, side) {
     for (const e of M.reg[r].nb) for (const v of S.at[e.r]) if (v.s !== side && !seen.has(v)) { seen.add(v); bes += baseCV(S, v, 'att'); }
     for (const u of S.at[r]) if (u.s === side) dv += baseCV(S, u, 'def');
     const k = Math.max(0, Math.min(1, (bes / dv - 0.6) / 1.4));
-    const p = (0.24 * (oos - 1) * Math.max(0.25, 1.55 - q) + (hasTr(g, 'enc') ? 0.1 : 0)) * k - (S.M.reg[r].f.includes('f') || S.M.reg[r].f.includes('p') ? 0.3 : 0);
+    const p = (0.24 * (oos - 1) * Math.max(0.25, 1.55 - q) + (hasTr(g, 'enc') ? 0.1 : 0)) * k * decK(S, side, 'pock') - (S.M.reg[r].f.includes('f') || S.M.reg[r].f.includes('p') ? 0.3 : 0);
     if (rnd(S) < p) {
       const us = S.at[r].filter((u) => u.s === side);
       if (us.length) note(S, { ic: 'encircle', side: other(side), txt: `Котёл у ${M.reg[r].n}: сдались ${us.length} ${divW(us.length)}`, r });
@@ -599,6 +603,7 @@ export function endWeek(S) {
   arrivals(S);
   director(S);
   runEvents(S);
+  decWeek(S);
   S.hooks?.week?.(S);
   checkEnd(S);
 }
@@ -661,7 +666,7 @@ export const ECO = {
   W: 1,
   air: { GER: [[1941.4, 100], [1942.0, 70], [1942.5, 85], [1943.0, 70], [1943.6, 60], [1944.4, 42], [1945.0, 32]], SOV: [[1941.4, 46], [1941.9, 40], [1942.5, 62], [1943.0, 90], [1943.6, 120], [1944.4, 150], [1945.0, 170]] },
 };
-const airBase = (S, side) => lerpT(ECO.air[side], yearF(S.turn)) * (S.flags[side + 'air'] || 1) * (1 + tx(S, side, 'air'));
+const airBase = (S, side) => lerpT(ECO.air[side], yearF(S.turn)) * (S.flags[side + 'air'] || 1) * (1 + tx(S, side, 'air')) * decK(S, side, 'air');
 export function income(S, side) {
   const M = S.M, y = yearF(S.turn);
   let fac = 0;
@@ -671,14 +676,14 @@ export function income(S, side) {
     fac += S.fac[r] * k;
   }
   const ec = side === S.side ? DIFF[S.diff].eco : 1;
-  let pp = (fac * ECO.ppK[side] + lerpT(ECO.base[side], y)) * lerpT(ECO.mult[side], y) * ec * (S.flags[side + 'pp'] || 1) * (1 + tx(S, side, 'pp'));
+  let pp = (fac * ECO.ppK[side] + lerpT(ECO.base[side], y)) * lerpT(ECO.mult[side], y) * ec * (S.flags[side + 'pp'] || 1) * (1 + tx(S, side, 'pp')) * decK(S, side, 'pp');
   let ll = 0;
   if (side === 'SOV') {
     const routes = ['Мурманск', 'Архангельск', 'Астрахань', 'Баку'].filter((n) => sideOf(S, regByName(S, n)) === 'SOV').length;
-    ll = lerpT(ECO.ll, y) * (0.4 + 0.15 * routes) * (S.flags.ll || 1);
+    ll = lerpT(ECO.ll, y) * (0.4 + 0.15 * routes) * (S.flags.ll || 1) * decK(S, 'SOV', 'll');
     pp += ll;
   }
-  let men = lerpT(ECO.men[side], y) * ec * (S.flags[side + 'men'] || 1);
+  let men = lerpT(ECO.men[side], y) * ec * (S.flags[side + 'men'] || 1) * decK(S, side, 'men');
   if (side === 'SOV') { // люди — по удержанной территории 1941 г. (население)
     let have = 0, tot = 0;
     for (let r = 0; r < M.R; r++) if (S.M.nats[S.own0[r]] === 'SOV') { const w = 1 + M.reg[r].vp; tot += w; if (sideOf(S, r) === 'SOV') have += w; }
@@ -806,6 +811,7 @@ export function frontDist(S, side) {
 function railRepair(S, side) {
   const M = S.M, y = yearF(S.turn);
   let k = Math.max(1, (side === 'GER' ? (y < 1942 ? 3 : 4) : y < 1943 ? 4 : y < 1944 ? 5 : 6) + Math.round(tx(S, side, 'rail')));
+  if (side === 'GER' && decOn(S, 'SOV', 'part')) k = Math.max(1, k - 1); // «рельсовая война»
   const d = S.supD?.[side];
   const cand = [];
   for (let r = 0; r < M.R; r++) {

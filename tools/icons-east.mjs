@@ -25,6 +25,8 @@ const WANT = {
   arrows: 'GiStrikingArrows', art: 'GiCannonShot', oilpump: 'GiOilPump', steel: 'GiMetalBar', boot: 'GiSteeltoeBoots', world: 'GiWorld', prog: 'GiProgression', ranks: 'GiStarsStack',
   civ: 'GiAnvil', crane: 'GiCrane', shell: 'GiArtilleryShell',
   aa: 'GiAntiAircraftGun', spade: 'GiSpade',
+  // решения (шаг 6.6)
+  stamp: 'GiStamper', tnt: 'GiDynamite', guard: 'GiRibbonMedal', mob: 'GiMegaphone', ally: 'GiShakingHands', wall: 'GiStoneWall', fist: 'GiFist', elite: 'GiSpartanHelmet', facarm: 'GiFactoryArm',
 };
 const src = {};
 const grab = (name) => {

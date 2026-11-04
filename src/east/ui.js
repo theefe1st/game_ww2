@@ -16,6 +16,8 @@ import * as Fr from './fronts.js';
 import { EcoUI, ECO_ACT } from './ui-eco.js';
 import { SciUI, SCI_ACT } from './ui-sci.js';
 import { OpsUI, OPS_ACT } from './ui-ops.js';
+import { DecUI, DEC_ACT } from './ui-dec.js';
+import { decNew } from './decisions.js';
 import { FRONT_COL } from './map.js';
 import { evCard, chooseEvent, boostsNow, pendingChoices } from './events.js';
 import { EastMap } from './map.js';
@@ -39,6 +41,7 @@ const TIP_TEXT = {
   attack: ['atk', 'Удар', 'Нажмите на область противника рядом с вашими войсками — увидите шансы и кнопку «Атаковать».'],
   pocket: ['encircle', 'Котёл!', 'Войска без снабжения слабеют и сдаются. Вырывайтесь к своим или деблокируйте их ударом извне.'],
   build: ['spade', 'Стройка', 'Стройбригады строят заводы, укрепления, ПВО, аэродромы, лагеря и склады: одна бригада — один проект. Нажмите на свою область.'],
+  dec: ['pol', 'Решения', 'Кнопка ★ сверху — решения: приказы, мобилизация, ленд-лиз и другие. ★ копится каждую неделю. Красная точка — есть новое решение.'],
 };
 // флаги наций (без запрещённой символики: Германия — крест вермахта)
 
@@ -178,6 +181,7 @@ export class EastUI {
       case 'evc': return this.pickChoice(b.dataset.id, +b.dataset.i);
       case 'evok': this.snd.play('click'); return this.nextCard();
       case 'rep': this.snd.play('click'); return this.nextCard();
+      case 'decgo': this.snd.play('click'); this.afterCards = () => ACTX.dec.call(this); return this.nextCard();
       case 'rqgo': { // после остальных карточек (события) — «Фронты» у нужного фронта
         this.snd.play('click'); const z = +b.dataset.z;
         this.afterCards = () => { this.fOpen = -1; this.openPanel('dirs'); setTimeout(() => this.$(`.e-front[data-f="${z}"]`)?.scrollIntoView({ block: 'center' }), 30); };
@@ -432,6 +436,11 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
     for (let z = 0; z < E.ZN; z++) { const q = rq[z]; if (q) L.push(`<button class="e-rq" data-a="rqgo" data-z="${z}">${ic(Fr.REQ[q.k].ic)}<span><b>${esc(frontShort(S.fr[P][z].n))}</b> — ${esc(Fr.REQ[q.k].t.toLowerCase())}</span>${ic('right')}</button>`); }
     return L.length ? `<div class="e-rqs"><h4>${ic('radio')}Просьбы фронтов</h4>${L.join('')}</div>` : '';
   }
+  // новые решения недели — в сводку (кнопка открывает «Решения»)
+  repDecs(R) {
+    const P = this.P, L = (R.news || []).filter((o) => o.dec && o.side === P && /^Новое решение/.test(o.txt));
+    return L.length ? `<div class="e-rqs"><h4>${ic('pol')}Решения</h4>${L.map((o) => `<button class="e-rq" data-a="decgo">${ic(o.ic || 'dec')}<span><b>${esc(o.txt.replace(/^Новое решение: /, ''))}</b> — можно принять</span>${ic('right')}</button>`).join('')}</div>` : '';
+  }
   showReport(R) {
     const S = this.S, M = this.M, P = this.P, Q = other(P);
     const big = (rs) => rs.slice().sort((a, b) => M.reg[b].vp - M.reg[a].vp);
@@ -457,7 +466,7 @@ ${lost.length ? `<div class="e-rrow"><span class="e-rl bad">${ic('flag')}Пот�
 ${R.arr > 0 ? `<div class="e-stat">${ic('plus')}<b>${R.arr}</b><small>новых ${plural(R.arr, 'дивизия', 'дивизии', 'дивизий')}</small></div>` : ''}
 ${R.pocket ? `<div class="e-stat bad">${ic('encircle')}<b>${R.pocket}</b><small>в окружении!</small></div>` : ''}
 </div>
-${this.repReqs()}
+${this.repReqs()}${this.repDecs(R)}
 <div class="e-btns"><button class="e-btn gold" data-a="rep">${ic(evs ? 'next' : 'check')}<span>${evs ? 'Дальше' : 'К делу'}</span></button></div></div>`, { lock: false, cls: 'rep' });
     this.snd.play(tone === 'bad' ? 'lose' : tone === 'good' ? 'win' : 'click');
   }
@@ -525,7 +534,7 @@ ${this.histCmp(o)}
     this.$('.e-res').innerHTML = `<button class="e-chip" data-a="eco" title="Снаряжение: запас и выпуск в неделю">${ic('equip')}<b>${num(E.eqTot(S, P))}</b>${gq ? `<small>+${num(gq)}</small>` : ''}</button>
 <button class="e-chip" data-a="army" title="Люди">${ic('men')}<b>${num(S.men[P])}</b>${inc.men ? `<small>+${num(inc.men)}</small>` : ''}</button>
 <button class="e-chip" data-a="eco" title="Авиация">${ic('air')}<b>${num(S.air[P])}</b></button>
-<span class="e-chip" title="Политическая власть">${ic('pol')}<b>${num(S.pol?.[P] || 0)}</b></span>
+<button class="e-chip${decNew(S, P).length ? ' dot' : ''}" data-a="dec" title="Политическая власть — решения">${ic('pol')}<b>${num(S.pol?.[P] || 0)}</b></button>
 <span class="e-mor" title="Боевой дух: ${Math.round(S.mor[P])}">${flagHTML(P, 'xs')}<i><em style="width:${Math.round(S.mor[P])}%"></em></i></span>`;
     this.$('.e-next').disabled = !!this.isBusy;
     this.$('.e-tab[data-a="sci"]')?.classList.toggle('dot', !S.tech[P].auto && this.sciFree() > 0);
@@ -568,7 +577,7 @@ ${this.histCmp(o)}
     const k = this.panelKind, p = this.$('.e-panel');
     const st = this.pkLast === `${k}:${this.panelArg}` ? p.querySelector('.e-pbody')?.scrollTop || 0 : 0;
     this.pkLast = `${k}:${this.panelArg}`;
-    const html = k === 'dirs' ? this.pDirs() : k === 'army' ? this.pArmy() : k === 'eco' ? this.pEco() : k === 'sci' ? this.pSci() : k === 'log' ? this.pLog() : k === 'reg' ? this.pRegion(this.panelArg) : '';
+    const html = k === 'dirs' ? this.pDirs() : k === 'army' ? this.pArmy() : k === 'eco' ? this.pEco() : k === 'sci' ? this.pSci() : k === 'log' ? this.pLog() : k === 'dec' ? this.pDec() : k === 'reg' ? this.pRegion(this.panelArg) : '';
     p.innerHTML = html;
     const b = p.querySelector('.e-pbody'); if (b) b.scrollTop = st;
   }
@@ -595,6 +604,7 @@ ${this.histCmp(o)}
       if (o.t !== cur) { cur = o.t; html += `<div class="e-lday">${ic('calendar')}${esc(fmtTurn(o.t, true))}</div>`; }
       const good = o.side === P;
       html += o.ev ? `<button class="e-lg ev ${good ? 'good' : 'bad'}" data-a="ev" data-id="${o.ev}">${ic(o.ic || 'info')}<span>${esc(o.txt)}</span>${ic('right')}</button>`
+        : o.dec && good ? `<button class="e-lg ev good" data-a="dec">${ic(o.ic || 'pol')}<span>${esc(o.txt)}</span>${ic('right')}</button>`
         : `<div class="e-lg ${good ? 'good' : 'bad'}" ${o.r >= 0 ? `data-a="region" data-r="${o.r}"` : ''}>${ic(o.ic || 'info')}<span>${esc(o.txt)}</span></div>`;
     }
     return `${this.head(ic('book'), 'Журнал', 'события и сводки')}<div class="e-pbody">${html || '<div class="e-note">Пока пусто</div>'}</div>`;
@@ -786,7 +796,7 @@ ${this.histCmp(o)}
   maybeTip() {
     if (!this.opt.tips || this.mode !== 'game' || this.isBusy || !this.$('.e-modal').classList.contains('hidden') || this.tipK) return;
     if (!this.$('.e-panel').classList.contains('hidden') || this.pick || this.sel) return; // только когда игрок ничего не делает
-    const order = ['map', 'dirs', 'next', ...(this.S.turn >= 1 ? ['attack'] : []), ...(this.tipQ || [])];
+    const order = ['map', 'dirs', 'next', ...(this.S.turn >= 1 ? ['attack'] : []), ...(this.S.turn >= 3 && decNew(this.S, this.P).length ? ['dec'] : []), ...(this.tipQ || [])];
     const k = order.find((x) => !this.tipsSeen[x]);
     if (!k) return;
     const [icn, t, d] = TIP_TEXT[k];
@@ -805,5 +815,5 @@ ${this.histCmp(o)}
   }
   tipSoon() { clearTimeout(this.tipT); this.tipT = setTimeout(() => this.maybeTip(), 700); }
 }
-Object.assign(EastUI.prototype, FrontsUI, EcoUI, SciUI, OpsUI);
-const ACTX = { ...FRONT_ACT, ...ECO_ACT, ...SCI_ACT, ...OPS_ACT };
+Object.assign(EastUI.prototype, FrontsUI, EcoUI, SciUI, OpsUI, DecUI);
+const ACTX = { ...FRONT_ACT, ...ECO_ACT, ...SCI_ACT, ...OPS_ACT, ...DEC_ACT };

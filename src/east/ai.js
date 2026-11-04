@@ -53,8 +53,14 @@ export function setPostures(S, side, isAI) {
       const p = planOf(S, side, z);
       S.post[side][z] = p ? p[3] : 'def';
       S.tgt[side][z] = p && p[3] === 'atk' ? planTarget(S, side, p[4]) : -1;
-      // цели плана взяты раньше срока — закрепиться (не уходить за Волгу, не рваться к Берлину раньше времени)
-      if (S.post[side][z] === 'atk' && S.tgt[side][z] < 0) S.post[side][z] = 'def';
+      // цели плана взяты раньше срока — закрепиться (не уходить за Волгу, не рваться к Берлину раньше времени);
+      // но в конце войны (план фронта исчерпан, с осени 1944) — дальше, к ближним городам врага: иначе фронты стоят,
+      // пока один штурмует Берлин
+      if (S.post[side][z] === 'atk' && S.tgt[side][z] < 0) {
+        const last = side === 'SOV' && yearF(S.turn) >= 1944.6 && !PLAN.some((q) => q[0] === side && q[1] === z && turnOf(q[2]) > S.turn);
+        if (last) S.tgt[side][z] = autoTarget(S, side, z);
+        if (S.tgt[side][z] < 0) S.post[side][z] = 'def';
+      }
       continue;
     }
     // свободный режим: по соотношению сил и погоде
