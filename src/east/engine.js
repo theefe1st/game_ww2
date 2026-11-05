@@ -4,7 +4,7 @@
 // Снабжение — от тыловых источников по своим областям (железные дороги Ось перешивает за собой), без снабжения —
 // потери и сдача «котлов». Хозяйство: ⚙ производство (заводы областей + тыл + ленд-лиз), 👥 люди; пополнение,
 // новые дивизии, постройки стройбригадами (завод, укрепления, ПВО, аэродром…), эвакуация заводов СССР.
-import { TYPES, TER, WX, SIDE0, NAT_N, DIFF, LAST_TURN, TD, WK, wT, everyW, perTurn, accInt, quality, tankQ, weatherOf, winter41, rnd, other, yearF, lerpT, turnOf, fmtTurn, divW, isMech } from './rules.js';
+import { TYPES, TER, WX, SIDE0, NAT_N, DIFF, LAST_TURN, TD, WK, wT, everyW, perTurn, accInt, quality, tankQ, weatherOf, winter41, rnd, other, hostile, SIDES_E, yearF, lerpT, turnOf, fmtTurn, divW, isMech } from './rules.js';
 import { ALLG } from '../war/gens41.js';
 import { HIST_KEYS } from './hist.js';
 import { runEvents } from './events.js';
@@ -18,10 +18,12 @@ export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, 
 
 export const SAVE_KEY = 'wf_east_v1';
 export const VER = 2; // v0.11.1: ход — 5 дней (сохранения v0.10–0.11 с недельными ходами не подходят)
-export const ZN = 5;
+export let ZN = 5;
 // фронты (группы армий): до FN на сторону; S.fz[r] — фронт области для её владельца. У ИИ фронт = погодная полоса
 // (M.reg[r].z, планы истории); у игрока после перекраски участков — S.fzo (новые области — по соседям)
-export const FN = 8;
+export let FN = 8;
+// v0.12: число направлений — по карте (Восток — 5, большая карта — 12); вызывать до работы с партией (newGame, ensureState)
+export function setZones(M) { ZN = M?.zones?.length || 5; FN = Math.max(8, ZN); }
 export const fzOf = (S, r) => (S.fz ? S.fz[r] : S.M.reg[r].z);
 const fOn = (S, side, f) => f >= 0 && f < FN && !!S.fr?.[side]?.[f]?.on;
 export function assignFronts(S) {
@@ -74,6 +76,17 @@ export function frontZone(S, side, f) {
 // ——— справочные ———
 export const natOf = (S, r) => S.M.nats[S.own[r]] || '';
 export const sideOf = (S, r) => { const n = S.M.nats[S.own[r]]; return S.out?.[n] ? null : SIDE0[n] || null; };
+// v0.12: стороны партии и отношения между ними. Враги (hostile) — Германия и прочие; воюют (atWar) — враги после
+// начала войны (мирное время ранних стартов — S.peace; S.warT[side] — ход вступления стороны в войну, США — декабрь 1941 г.).
+// Земля союзника — как нейтральная: свои войска по ней не ходят и не снабжаются (у каждой страны — свои участки).
+export const sidesOf = (S) => S.sides || SIDES_E;
+export const foesOf = (S, side) => sidesOf(S).filter((b) => hostile(side, b));
+export const warOn = (S, s) => !(S.warT?.[s] > S.turn);
+export const atWar = (S, a, b) => hostile(a, b) && !S.peace && warOn(S, a) && warOn(S, b);
+export const ownOrAlly = (S, side, s) => !!s && (s === side || !hostile(side, s)); // своя или союзника (не нейтральная)
+export const bySide = (S, f) => Object.fromEntries(sidesOf(S).map((s) => [s, f(s)]));
+// кто «получает» уничтоженную дивизию стороны side: активная сторона-враг или главный противник
+const killerOf = (S, side) => (S.phase && hostile(S.phase, side) ? S.phase : other(side));
 export const cap = (S, r) => Math.max(8, Math.min(16, Math.round(Math.sqrt(S.M.reg[r].a) / 9)));
 export const alive = (u) => u.r >= 0 && !u.dead;
 export function reindex(S) {
@@ -83,12 +96,12 @@ export function reindex(S) {
 }
 export const unitsAt = (S, r) => S.at[r];
 export const sideUnits = (S, r, side) => S.at[r].filter((u) => u.s === side);
-export const enemyAt = (S, r, side) => S.at[r].length > 0 && S.at[r][0].s !== side;
+export const enemyAt = (S, r, side) => S.at[r].length > 0 && S.at[r][0].s !== side && hostile(side, S.at[r][0].s);
 export const hasFlag = (S, r, f) => S.M.reg[r].f.includes(f);
 export const regByName = (S, n) => { S.M.byName ??= new Map(S.M.reg.map((g) => [g.n, g.id])); return S.M.byName.get(n) ?? -1; };
 // сосед области противника (линия фронта)
 export function isFront(S, r, side = sideOf(S, r)) {
-  for (const e of S.M.reg[r].nb) { const s2 = sideOf(S, e.r); if (s2 && s2 !== side) return true; }
+  for (const e of S.M.reg[r].nb) { const s2 = sideOf(S, e.r); if (s2 && s2 !== side && (!side || hostile(side, s2))) return true; }
   return false;
 }
 export function note(S, o) {
@@ -243,7 +256,9 @@ export function airAuto(S, side) {
   return w;
 }
 export function airRatio(S, side, z) {
-  const a = S.airA?.[side]?.[z] ?? 0, b = S.airA?.[other(side)]?.[z] ?? 0;
+  const a = S.airA?.[side]?.[z] ?? 0;
+  let b = 0;
+  for (const f of foesOf(S, side)) b += S.airA?.[f]?.[z] ?? 0;
   return a / (a + b + 1);
 }
 // ——— снабжение ———
@@ -251,7 +266,7 @@ export function isSource(S, r, side) {
   const g = S.M.reg[r];
   if (sideOf(S, r) !== side) return false;
   const o0 = SIDE0[S.M.nats[S.own0[r]]];
-  if (side === 'SOV') return o0 === 'SOV' && (g.f.includes('e') || g.x >= 2350 || g.y >= 3000 || g.f.includes('L'));
+  if (side === 'SOV') return o0 === 'SOV' && (g.f.includes('e') || g.ox >= 2350 || g.oy >= 3000 || g.f.includes('L'));
   return o0 === 'GER' && (S.bd0[r] >= 2 || g.f.includes('c'));
 }
 export function computeSupply(S, side) {
@@ -348,7 +363,7 @@ export function reach(S, u, mp = u.mp) {
     if (r !== u.r && sideOf(S, r) !== u.s) continue; // захват — конец пути
     for (const e of M.reg[r].nb) {
       const b = e.r, sb = sideOf(S, b);
-      if (!sb || (S.peace && sb !== u.s)) continue; // нейтральные страны, в мирное время — и чужая земля
+      if (!sb || (sb !== u.s && !atWar(S, u.s, sb))) continue; // нейтральные страны и союзники; в мирное время — и чужая земля
       if (sb !== u.s && (S.at[b].length || garOf(S, b) > 0)) continue; // в занятую противником или с гарнизоном — только атакой
       if (e.sp === 'sea' && !frozen(S, b) && sb !== u.s) continue;
       if (sb !== u.s && depthOf(S, r) + 1 > maxDepth(u)) continue; // за неделю — не глубже 1 области (подвижные — 2)
@@ -432,7 +447,7 @@ function natHome(S, r, nat) {
   const g = S.M.reg[r];
   if (nat === 'FIN' && g.z === 0) return 'FIN';
   if (nat === 'ROM' && S.M.nats[S.own0[r]] !== 'SOV') return 'ROM';
-  if (nat === 'ROM' && g.x < 1450 && g.y > 2500) return 'ROM'; // Бессарабия и Транснистрия
+  if (nat === 'ROM' && g.ox < 1450 && g.oy > 2500) return 'ROM'; // Бессарабия и Транснистрия
   if (nat === 'HUN' && S.M.nats[S.own0[r]] === 'HUN') return 'HUN';
   return 'GER';
 }
@@ -473,7 +488,7 @@ export function odds(S, T, us, extraD = 0) {
   // авиация: перевес в небе полосы (с поправкой на погоду); ПВО обороняющихся снимает часть перевеса противника
   const z = S.M.reg[T].z, ar = airRatio(S, side, z), wa = wxOf(S, T).air;
   let dA = (ar - 0.5) * wa;
-  if (dA > 0) dA *= 1 - aaCover(S, T, other(side));
+  if (dA > 0) { const dS = sideOf(S, T); dA *= 1 - aaCover(S, T, dS && dS !== side ? dS : other(side)); }
   const e = 0.5 + dA;
   A *= (0.8 + 0.4 * e) / (0.8 + 0.4 * (1 - e));
   A *= navK(S, side, T); // флот у берега (fleet.js)
@@ -485,8 +500,8 @@ export const DIVMEN = { inf: 10, mtn: 9, cav: 5, mot: 9, arm: 8, sec: 5, abn: 7 
 export const DIVTK = { mot: 60, arm: 180 };
 export const DIVGN = { inf: 140, mtn: 90, cav: 40, mot: 110, arm: 70, sec: 30, abn: 50 };
 export function fstOf(S, side, z) {
-  S.fst ??= { GER: [], SOV: [] };
-  return (S.fst[side][z] ??= { m: 0, t: 0, g: 0, d: 0, wm: 0, wt: 0, wg: 0, wd: 0, h: 0 });
+  S.fst ??= {};
+  return ((S.fst[side] ??= [])[z] ??= { m: 0, t: 0, g: 0, d: 0, wm: 0, wt: 0, wg: 0, wd: 0, h: 0 });
 }
 export function lossRec(S, u, pts, dead = 0) {
   if (u.r < 0 || !(pts > 0)) return;
@@ -512,7 +527,7 @@ export function destroy(S, u, why = 'разгромлена', pow = false) {
   if (pow) S.stats[u.s].pow++;
   const W = (S.stats[u.s].why ??= {}); W[why] = (W[why] || 0) + 1;
   addMor(S, u.s, pow ? -0.07 : -0.04);
-  addMor(S, other(u.s), 0.02);
+  addMor(S, killerOf(S, u.s), 0.02);
 }
 // куда отходить: соседняя своя область без противника, лучше — со снабжением и местом, дальше от врага
 function retreatTo(S, r, side) {
@@ -527,7 +542,9 @@ function retreatTo(S, r, side) {
   return best;
 }
 export function resolveAttack(S, T, us, opt = {}) {
-  const side = us[0].s, dside = other(side), g = S.M.reg[T];
+  const side = us[0].s, g = S.M.reg[T];
+  let dside = sideOf(S, T);
+  if (!dside || dside === side) dside = other(side);
   const defs = S.at[T].filter((v) => v.s === dside);
   const o = odds(S, T, us, opt.gar || 0);
   const R = o.R * (0.82 + rnd(S) * 0.36);
@@ -603,13 +620,14 @@ export function resolveAttack(S, T, us, opt = {}) {
   return res;
 }
 // ——— фазы ———
+const RAIL = { GER: 12, SOV: 20, UK: 10, USA: 12 };
 export function beginPhase(S, side) {
   S.phase = side;
   S.capPh = new Map();
   assignFronts(S);
-  S.railCap[side] = accInt(S, 'rail' + side, (side === 'GER' ? 12 : 20) * WK); // эшелонов за ход (12 / 20 в неделю)
-  computeSupply(S, side); computeSupply(S, other(side));
-  S.airA = { GER: airAlloc(S, 'GER'), SOV: airAlloc(S, 'SOV') };
+  S.railCap[side] = accInt(S, 'rail' + side, (RAIL[side] ?? 12) * WK); // эшелонов за ход (в неделю: Германия 12, СССР 20)
+  computeSupply(S, side); for (const s of sidesOf(S)) if (s !== side) computeSupply(S, s);
+  S.airA = bySide(S, (s) => airAlloc(S, s));
   const shock = side === 'SOV' && S.turn === 0 && !S.flags.SOVready ? 0.5 : 1; // первая неделя войны: управление нарушено (если не «Боевая готовность»)
   if (shock < 1) S.railCap[side] = 5;
   // долг марша прошлого хода (moveUnit, capC) — из очков этого хода
@@ -640,43 +658,55 @@ export function endPhase(S, side) {
     }
   }
   // сдача котлов
-  let fmB = null;
+  const fmB = {};
   for (const [r, oos] of pocketR) {
     if (oos < 1.9) continue; // oos — недель без снабжения
-    fmB ??= frontMap(S, other(side));
-    const g = genOf(S, other(side), fmB[r]);
-    const q = quality(side === 'SOV' ? 'SOV' : 'GER', S.turn);
+    const bs = besieger(S, r, side);
+    fmB[bs] ??= frontMap(S, bs);
+    const g = genOf(S, bs, fmB[bs][r]);
+    const q = quality(side, S.turn);
     // без осаждающих котёл не сдаётся (только тает): нужно держать вокруг него войска
     const seen = new Set();
     let bes = 0, dv = 0.5;
-    for (const e of M.reg[r].nb) for (const v of S.at[e.r]) if (v.s !== side && !seen.has(v)) { seen.add(v); bes += baseCV(S, v, 'att'); }
+    for (const e of M.reg[r].nb) for (const v of S.at[e.r]) if (v.s !== side && hostile(side, v.s) && !seen.has(v)) { seen.add(v); bes += baseCV(S, v, 'att'); }
     for (const u of S.at[r]) if (u.s === side) dv += baseCV(S, u, 'def');
     const k = Math.max(0, Math.min(1, (bes / dv - 0.6) / 1.4));
     const p = (0.24 * (oos - 1) * Math.max(0.25, 1.55 - q) + (hasTr(g, 'enc') ? 0.1 : 0)) * k * decK(S, side, 'pock') - (S.M.reg[r].f.includes('f') || S.M.reg[r].f.includes('p') ? 0.3 : 0);
     if (rnd(S) < 1 - Math.pow(1 - Math.max(0, Math.min(1, p)), WK)) { // вероятность за неделю → за ход
       const us = S.at[r].filter((u) => u.s === side);
-      if (us.length) note(S, { ic: 'encircle', side: other(side), txt: `Котёл у ${M.reg[r].n}: сдались ${us.length} ${divW(us.length)}`, r });
+      if (us.length) note(S, { ic: 'encircle', side: bs, txt: `Котёл у ${M.reg[r].n}: сдались ${us.length} ${divW(us.length)}`, r });
       for (const u of us) destroy(S, u, 'сдалась в окружении', true);
     }
   }
   S.phase = null;
 }
+// осаждающий котёл: сторона-враг с наибольшими силами вокруг (иначе — главный противник)
+function besieger(S, r, side) {
+  const fs = foesOf(S, side);
+  if (fs.length < 2) return other(side);
+  const w = {};
+  for (const e of S.M.reg[r].nb) for (const v of S.at[e.r]) if (fs.includes(v.s)) w[v.s] = (w[v.s] || 0) + 1;
+  let b = other(side), bv = 0;
+  for (const s in w) if (w[s] > bv) (bv = w[s]), (b = s);
+  return b;
+}
 // ——— неделя ———
 export function endWeek(S) {
-  for (const side of ['GER', 'SOV']) { computeSupply(S, side); economy(S, side); if (S.peace) peaceCaps(S, side); }
-  railRepair(S, 'GER'); railRepair(S, 'SOV');
+  const SS = sidesOf(S);
+  for (const side of SS) { computeSupply(S, side); economy(S, side); if (S.peace) peaceCaps(S, side); }
+  for (const side of SS) railRepair(S, side);
   // стройка (стройбригады) и эвакуация заводов
   progWeek(S);
-  construct(S, 'GER'); construct(S, 'SOV');
+  for (const side of SS) construct(S, side);
   evacWeek(S);
   techWeek(S);
   // настроения: понемногу возвращаются к «настрою эпохи»
-  for (const sd of ['GER', 'SOV']) addMor(S, sd, (lerpT(MOR0[sd], yearF(S.turn)) - S.mor[sd]) * (1 - perTurn(0.95)));
+  for (const sd of SS) addMor(S, sd, (lerpT(MOR0[sd], yearF(S.turn)) - S.mor[sd]) * (1 - perTurn(0.95)));
   for (const sd in S.fprio || {}) if (S.fprio[sd] && --S.fprio[sd].left <= 0) S.fprio[sd] = null; // left — в ходах
   for (const sd in S.fst || {}) for (const o of S.fst[sd]) if (o) o.h = (o.h || 0) * perTurn(0.6);
   S.turn++;
   for (let z = 0; z < ZN; z++) S.wx[z] = weatherOf(S.turn, z, wxShiftOf(S), S.seed);
-  S.air.GER = airBase(S, 'GER') * (S.airK?.GER ?? 1); S.air.SOV = airBase(S, 'SOV') * (S.airK?.SOV ?? 1);
+  for (const sd of SS) S.air[sd] = airBase(S, sd) * (S.airK?.[sd] ?? 1);
   if (S.peace && S.turn >= 0) warStart(S); // 22 июня 1941 г.: конец мирного времени (prewar.js); флоты там — заново, как 22.06
   else fleetWeek(S);
   trainWeek(S);
@@ -792,8 +822,9 @@ export const armyCap = (S, side) => {
 // (и в обучении, и в резерве — army.js)
 export const armySize = (S, side) => S.units.filter((u) => u.s === side && !u.dead && (u.r >= 0 || u.trn > 0 || u.res || (u.arr !== undefined && !u.hist))).length;
 // стоимость пополнения 1 % численности и новой дивизии
-export const costOf = (u) => ({ pp: TYPES[u.t].pp / 100, men: (TYPES[u.t].mp$ * (u.s === 'SOV' ? 1 : 1.5)) / 100 });
-export const newCost = (side, t) => ({ pp: TYPES[t].pp * (side === 'SOV' ? 0.9 : 1.1), men: TYPES[t].mp$ * (side === 'SOV' ? 1 : 1.5) });
+const MENK = { SOV: 1, GER: 1.5, UK: 1.5, USA: 1.4 }; // людей на дивизию (у СССР дивизии меньше)
+export const costOf = (u) => ({ pp: TYPES[u.t].pp / 100, men: (TYPES[u.t].mp$ * (MENK[u.s] ?? 1.5)) / 100 });
+export const newCost = (side, t) => ({ pp: TYPES[t].pp * (side === 'SOV' ? 0.9 : 1.1), men: TYPES[t].mp$ * (MENK[side] ?? 1.5) });
 function economy(S, side) {
   const inc = income(S, side);
   S.inc[side] = inc;
@@ -880,8 +911,8 @@ function campSpot(S, side, at) {
   return -1;
 }
 function arrivals(S) {
-  computeSupply(S, 'GER'); computeSupply(S, 'SOV');
-  frontDist(S, 'GER'); frontDist(S, 'SOV');
+  for (const sd of sidesOf(S)) computeSupply(S, sd);
+  for (const sd of sidesOf(S)) frontDist(S, sd);
   for (const u of S.units) {
     if (u.dead || u.r >= 0 || u.arr === undefined || u.arr > S.turn) continue;
     let r = u.camp && u.at >= 0 && sideOf(S, u.at) === u.s ? campSpot(S, u.s, u.at) : -1;
@@ -953,8 +984,8 @@ export function deserialize(M, str) {
   for (const k of ['fz', 'fzo', 'civ', 'camp', 'dep', 'aa', 'facStd']) if (S[k]) S[k] = Int8Array.from(S[k]);
   S.sup = {}; S.battles = []; S.news = [];
   reindex(S);
-  computeSupply(S, 'GER'); computeSupply(S, 'SOV');
-  S.airA = { GER: airAlloc(S, 'GER'), SOV: airAlloc(S, 'SOV') };
+  for (const sd of sidesOf(S)) computeSupply(S, sd);
+  S.airA = bySide(S, (sd) => airAlloc(S, sd));
   return S;
 }
 export { fmtTurn, turnOf };

@@ -5,7 +5,7 @@
 // отставание — штраф (fx = изученное − «по истории»). ИИ изучает не раньше истории — баланс кампании прежний.
 // Открытия (морской и воздушный десант) — по факту изучения.
 import { yearF, WK } from './rules.js';
-import { note } from './engine.js';
+import { note, sidesOf } from './engine.js';
 
 export const TB = {
   inf: { n: 'Пехота', ic: 'rifle' },
@@ -142,7 +142,7 @@ export const hasU = (S, side, k) => !!S.tech?.[side]?.un?.[k];
 export const unV = (S, side, k) => S.tech?.[side]?.un?.[k] || 0;
 // ход науки (5 дней = WK недели): прогресс в слотах, готовые — в изученные, свободные слоты — авто (ИИ — всегда)
 export function techWeek(S) {
-  for (const side of ['GER', 'SOV']) {
+  for (const side of sidesOf(S)) {
     const X = S.tech[side], n = slotsOf(S, side), ai = side !== S.side;
     while (X.cur.length < n) X.cur.push(null);
     const auto = ai || X.auto;
@@ -164,7 +164,7 @@ export function techWeek(S) {
 // новые игры и старые сохранения: изучено «по истории» на текущую дату
 export function ensureTech(S) {
   S.tech ??= {};
-  for (const side of ['GER', 'SOV']) {
+  for (const side of sidesOf(S)) {
     if (!S.tech[side]?.done) {
       const y = yearF(S.turn);
       S.tech[side] = { done: TECH.filter((t) => t.y <= y - LAG).map((t) => t.k), cur: [], p: {}, auto: 1 };

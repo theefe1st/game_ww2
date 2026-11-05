@@ -28,8 +28,9 @@ export function chaikin(p, it = 2, closed = false) {
 }
 const b64u8 = (s) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
 export const TER_N = { pla: 'равнина', for: 'лес', mar: 'болота', hil: 'холмы', mnt: 'горы' };
-export function decodeMap(J) {
-  const M = { w: J.w, h: J.h, proj: J.proj, nats: J.nats.concat(NATS_PW.filter((n) => !J.nats.includes(n))), zones: J.zones };
+// J — map.json (Восток) или world.json (v0.12, большая карта; сетка рельефа — отдельным файлом mesh)
+export function decodeMap(J, mesh = J.mesh) {
+  const M = { w: J.w, h: J.h, proj: J.proj, nats: J.nats.concat(NATS_PW.filter((n) => !J.nats.includes(n))), zones: J.zones, world: J.world ? 1 : 0, e: J.e ?? J.regs.length };
   M.arcs = J.arcs.map(([a, b, t, s]) => {
     const raw = decPts(s), closed = raw.length > 4 && raw[0] === raw[raw.length - 2] && raw[1] === raw[raw.length - 1];
     let p = chaikin(raw, 2, false);
@@ -40,7 +41,8 @@ export function decodeMap(J) {
     for (const ring of rg) for (const k of ring) { const p = M.arcs[k < 0 ? ~k : k].p; for (let i = 0; i < p.length; i += 2) { p[i] < x0 && (x0 = p[i]); p[i] > x1 && (x1 = p[i]); p[i + 1] < y0 && (y0 = p[i + 1]); p[i + 1] > y1 && (y1 = p[i + 1]); } }
     return [x0, y0, x1, y1];
   };
-  M.reg = J.regs.map((g, id) => ({ id, n: g.n, o: g.o, nat: J.nats[g.o], x: g.x, y: g.y, a: g.a, t: g.t, z: g.z, ind: g.ind, vp: g.vp, f: g.f, e: g.e, c: g.c, rg: g.rg, bb: bboxOf(g.rg), nb: [] }));
+  // ox, oy — центр в км карты Востока (на ней — те же x, y); k — страна (код ISO, только большая карта)
+  M.reg = J.regs.map((g, id) => ({ id, n: g.n, o: g.o, nat: J.nats[g.o], x: g.x, y: g.y, ox: g.ox ?? g.x, oy: g.oy ?? g.y, a: g.a, t: g.t, z: g.z, ind: g.ind, vp: g.vp, f: g.f, e: g.e, c: g.c, k: g.k || '', rg: g.rg, bb: bboxOf(g.rg), nb: [] }));
   for (const g of M.reg) { if (TER_FIX[g.n]) g.t = TER_FIX[g.n]; if (ARC.has(g.n)) g.arc = 1; }
   M.R = M.reg.length;
   M.neut = J.neut.map((g) => ({ ...g, bb: bboxOf(g.rg) }));
@@ -57,7 +59,7 @@ export function decodeMap(J) {
   M.rivers = J.rivers.map(([n, w, s]) => ({ n, w, p: Float32Array.from(chaikin(decPts(s), 1)) }));
   M.land = J.land.map((s) => Float32Array.from(decPts(s)));
   M.lakes = J.lakes.map((s) => Float32Array.from(decPts(s)));
-  const m = J.mesh;
+  const m = mesh;
   M.mesh = { step: m.step, nx: m.nx, ny: m.ny, pal: m.pal, e: new Int16Array(b64u8(m.e).buffer), c: b64u8(m.c), f: b64u8(m.f) };
   return M;
 }

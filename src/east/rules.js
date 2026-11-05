@@ -25,10 +25,16 @@ const MONF = ['января', 'февраля', 'марта', 'апреля', '�
 export const fmtTurn = (t, full = false) => { const d = dateOf(t); return `${d.getUTCDate()} ${(full ? MONF : MON)[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
 export const fmtShort = (t) => { const d = dateOf(t); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; };
 
-export const SIDES = ['GER', 'SOV'];
+// v0.12: стороны — страны (за каждую можно играть): Германия (вся Ось), СССР, Великобритания (с доминионами,
+// «Свободной Францией» и армиями в изгнании), США. В партии — S.sides (engine.js: sidesOf; «Восточный фронт» — SIDES_E).
+// Враги — Германия и все прочие; СССР, Британия и США друг другу — союзники (не воюют, но и не ходят по чужой земле).
+export const SIDES = ['GER', 'SOV', 'UK', 'USA'];
+export const SIDES_E = ['GER', 'SOV'];
+export const hostile = (a, b) => !!a && !!b && a !== b && (a === 'GER') !== (b === 'GER');
+// главный противник стороны (у Германии — СССР; на Западе и в Африке — см. engine.js foesOf)
 export const other = (s) => (s === 'GER' ? 'SOV' : 'GER');
-export const SIDE_N = { GER: 'Германия', SOV: 'СССР' };
-export const SIDE_A = { GER: 'Ось', SOV: 'СССР' };
+export const SIDE_N = { GER: 'Германия', SOV: 'СССР', UK: 'Великобритания', USA: 'США' };
+export const SIDE_A = { GER: 'Ось', SOV: 'СССР', UK: 'Великобритания', USA: 'США' };
 export const NAT_N = {
   GER: 'Германия', SOV: 'СССР', FIN: 'Финляндия', ROM: 'Румыния', HUN: 'Венгрия', SVK: 'Словакия', BUL: 'Болгария', CRO: 'Хорватия', ITA: 'Италия',
   // v0.11 (шаг 6.7): страны 1936–1941 гг. (ранние старты) и нейтралы
@@ -92,8 +98,16 @@ const CAL = [
   [[0, 'frost'], [62, 'snow'], [97, 'mud'], [132, 'dry'], [258, 'rain'], [274, 'mud'], [300, 'snow'], [322, 'frost']], // север
   [[0, 'frost'], [66, 'snow'], [84, 'mud'], [118, 'dry'], [268, 'rain'], [284, 'mud'], [312, 'snow'], [335, 'frost']], // центр
   [[0, 'frost'], [46, 'snow'], [66, 'mud'], [104, 'dry'], [284, 'rain'], [298, 'mud'], [330, 'snow'], [352, 'frost']], // юг
+  // v0.12, большая карта
+  [[0, 'snow'], [50, 'rain'], [92, 'dry'], [288, 'rain'], [345, 'snow']], // приморская (Франция, Бенилюкс, Британия)
+  [[0, 'rain'], [95, 'dry'], [290, 'rain'], [322, 'mud'], [355, 'rain']], // средиземноморская (Италия)
+  [[0, 'dry']], // пустыня (Северная Африка, Ближний Восток): дожди — зимой и изредка
+  [[0, 'snow'], [55, 'mud'], [86, 'dry'], [290, 'rain'], [335, 'snow']], // балканская
 ];
-export const BAND = [0, 0, 1, 2, 2]; // направление → полоса погоды
+// направление → полоса погоды: Финское, Северное — север, Центральное — центр, Южное, Кавказское — юг;
+// большая карта: Западное, Британское — приморская, Скандинавское — север, Итальянское — средиземноморская,
+// Балканское — балканская, Африканское, Ближневосточное — пустыня
+export const BAND = [0, 0, 1, 2, 2, 3, 0, 4, 6, 5, 5, 3];
 // детерминированное «случайное» число 0…1 по целому ключу (без состояния)
 export function hash01(n) { let x = (n | 0) ^ 0x9e3779b9; x = Math.imul(x ^ (x >>> 16), 0x85ebca6b); x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35); x ^= x >>> 16; return (x >>> 0) / 4294967296; }
 export function weatherOf(turn, zone, shift = 0, seed = 0) {
@@ -102,7 +116,7 @@ export function weatherOf(turn, zone, shift = 0, seed = 0) {
   let w = cal[0][1];
   for (const [d0, k] of cal) if (doy >= d0 + (d0 > 0 ? shift : 0)) w = k;
   // дожди и в сухую пору: у каждой полосы свои (детерминированно по ходу, полосе и зерну партии); осенью и весной — чаще
-  if (w === 'dry') { const m = t.getUTCMonth(), p = m === 5 || m === 6 ? 0.1 : m === 4 || m === 7 ? 0.13 : 0.17; if (hash01(turn * 7 + BAND[zone] * 1013 + seed * 7919) < p) w = 'rain'; }
+  if (w === 'dry') { const m = t.getUTCMonth(), p = BAND[zone] === 5 ? (m <= 1 || m === 11 ? 0.16 : 0.02) : m === 5 || m === 6 ? 0.1 : m === 4 || m === 7 ? 0.13 : 0.17; if (hash01(turn * 7 + BAND[zone] * 1013 + seed * 7919) < p) w = 'rain'; }
   return w;
 }
 // первая военная зима: вермахт без зимнего обмундирования

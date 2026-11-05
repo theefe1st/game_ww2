@@ -2,11 +2,11 @@
 // (src/war/oob41.js: участки армий двумя точками), командующие направлениями, постройки и хозяйство.
 import { HQ0, ECH2, parseUnit } from '../war/oob41.js';
 import { makeProj, regionAt, nearestRegion } from './mapdata.js';
-import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, FN, SAVE_KEY, nameFor, assignFronts } from './engine.js';
+import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, FN, setZones, SAVE_KEY, nameFor, assignFronts, sidesOf, bySide } from './engine.js';
 import { ensureEco } from './eco.js';
 import { ensureTech } from './tech.js';
 import { ensureDec } from './decisions.js';
-import { weatherOf, SIDE0, turnOf, rnd, yearF, lerpT, TD } from './rules.js';
+import { weatherOf, SIDE0, turnOf, rnd, yearF, lerpT, TD, SIDES, SIDES_E } from './rules.js';
 import { STARTS, setBorders, AIR0 } from './prewar.js';
 import { GEN_HIST, PLAN, REINF, parseMix, FRONT_N } from './hist.js';
 import { runEvents } from './events.js';
@@ -54,7 +54,7 @@ function placeArmy(S, P, A, codes, arrTurn) {
 function settle(S) {
   const M = S.M;
   reindex(S);
-  const d = { GER: frontDist(S, 'GER'), SOV: frontDist(S, 'SOV') };
+  const d = bySide(S, (sd) => frontDist(S, sd));
   for (const u of S.units) {
     if (u._want === undefined) continue;
     let r = u._want;
@@ -146,29 +146,35 @@ function earlyStart(S, iso, t0) {
   settle(S);
   for (let z = 0; z < ZN; z++) S.wx[z] = weatherOf(t0, z, 0, S.seed);
 }
+const POST0 = { GER: ['def', 'atk', 'atk', 'atk', 'def'], SOV: ['def', 'def', 'def', 'def', 'def'] };
+const MEN0 = { GER: 60, SOV: 150, UK: 40, USA: 60 }, MOR00 = { GER: 75, SOV: 60, UK: 70, USA: 70 };
 export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math.random() * 1e9) | 0, noAsk = 0, noEv = 0, start = '0' } = {}) {
   const R = M.R;
+  setZones(M);
+  // v0.12: стороны партии — по карте (большая карта Европы и Африки — все четыре страны)
+  const SS = M.world ? SIDES : SIDES_E, by = (f) => Object.fromEntries(SS.map((sd) => [sd, f(sd)]));
   const S = {
-    v: 1, side, mode, diff, seed, rs: seed || 1, turn: 0, M,
+    v: 1, side, mode, diff, seed, rs: seed || 1, turn: 0, M, sides: SS,
     own: Int16Array.from(M.reg.map((g) => g.o)), own0: Int16Array.from(M.reg.map((g) => g.o)),
     fac: Int8Array.from(M.reg.map((g) => g.ind)), fort: new Int8Array(R), afd: new Int8Array(R), rail: new Uint8Array(R).fill(1),
     capT: new Int16Array(R).fill(-9999), bd0: new Int16Array(R),
     units: [], nextId: 1, num: {}, q: [], evac: [], log: [], news: [], battles: [], flags: {}, ev: {},
-    gen: { GER: GEN_HIST.GER.map((g) => g[0]), SOV: GEN_HIST.SOV.map((g) => g[0]) },
-    post: { GER: ['def', 'atk', 'atk', 'atk', 'def'], SOV: ['def', 'def', 'def', 'def', 'def'] },
-    tgt: { GER: new Array(ZN).fill(-1), SOV: new Array(ZN).fill(-1) },
-    airF: { GER: -1, SOV: -1 }, air: { ...AIR0 },
-    pp: { GER: 60, SOV: 60 }, men: { GER: 60, SOV: 150 }, inc: { GER: {}, SOV: {} }, spent: { GER: {}, SOV: {} },
-    mor: { GER: 75, SOV: 60 }, sup: {}, railCap: { GER: 0, SOV: 0 },
-    stats: { GER: { lost: 0, pow: 0, battles: 0, made: 0 }, SOV: { lost: 0, pow: 0, battles: 0, made: 0 } },
+    gen: by((sd) => (GEN_HIST[sd] || []).map((g) => g[0])),
+    post: by((sd) => [...(POST0[sd] || new Array(ZN).fill('def'))]),
+    tgt: by(() => new Array(ZN).fill(-1)),
+    airF: by(() => -1), air: by((sd) => AIR0[sd] ?? 30),
+    pp: by(() => 60), men: by((sd) => MEN0[sd] ?? 60), inc: by(() => ({})), spent: by(() => ({})),
+    mor: by((sd) => MOR00[sd] ?? 70), sup: {}, railCap: by(() => 0),
+    stats: by(() => ({ lost: 0, pow: 0, battles: 0, made: 0 })),
     wx: new Array(ZN).fill('dry'), wxShift: [0, 0, 0, 0, 0].map(() => 0), auto: { recruit: true, build: true },
     over: null,
   };
+  if (S.sides === SIDES_E) delete S.sides; // «Восточный фронт»: как в v0.11 (sidesOf → GER, SOV)
   S.wxShift = [0, 1, 2, 3, 4].map(() => Math.round((rnd(S) - 0.5) * 12));
   for (let z = 0; z < ZN; z++) S.wx[z] = weatherOf(0, z, S.wxShift[0], seed);
   // расстояние от границы 1941 г. по своей территории (тыловые источники снабжения Оси)
   reindex(S);
-  for (const sd of ['GER', 'SOV']) { const d = frontDist(S, sd); for (let r = 0; r < R; r++) if (sideOf(S, r) === sd) S.bd0[r] = d[r]; }
+  for (const sd of sidesOf(S)) { const d = frontDist(S, sd); for (let r = 0; r < R; r++) if (sideOf(S, r) === sd) S.bd0[r] = d[r]; }
   // постройки на 1941 г.
   const F = { Ленинград: 2, Москва: 1, Мурманск: 2, Севастополь: 3, Одесса: 2, Киев: 2, Брест: 1, Кёнигсберг: 2, Берлин: 1, Выборг: 1, Полоцк: 1, Новоград: 1, Коростень: 1, Летичев: 1, 'Могилёв-Подольский': 1, Днепропетровск: 1, Запорожье: 1, Мозырь: 1 };
   for (const [n, l] of Object.entries(F)) { const r = placeR(S, n); if (r >= 0) S.fort[r] = l; }
@@ -197,11 +203,11 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
   const st = STARTS[start] || STARTS['0'], t0 = turnOf(st.iso);
   if (t0 < 0) earlyStart(S, st.iso, t0);
   ensureState(S);
-  if (S.peace) { S.eqStd = JSON.parse(JSON.stringify(S.eq)); S.lineStd = { GER: { ...S.line.GER.sh }, SOV: { ...S.line.SOV.sh } }; }
+  if (S.peace) { S.eqStd = JSON.parse(JSON.stringify(S.eq)); S.lineStd = bySide(S, (sd) => ({ ...S.line[sd].sh })); }
   reindex(S);
   initFleets(S);
-  computeSupply(S, 'GER'); computeSupply(S, 'SOV');
-  S.airA = { GER: airAlloc(S, 'GER'), SOV: airAlloc(S, 'SOV') };
+  for (const sd of sidesOf(S)) computeSupply(S, sd);
+  S.airA = bySide(S, (sd) => airAlloc(S, sd));
   if (noAsk) S.noAsk = 1;
   if (noEv) S.noEv = 1;
   runEvents(S);
@@ -209,10 +215,11 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
 }
 // поля новых версий (и для старых сохранений): фронты, хозяйство
 export function ensureState(S) {
+  setZones(S.M);
   S.fr ??= {};
-  for (const sd of ['GER', 'SOV']) {
+  for (const sd of sidesOf(S)) {
     const L = (S.fr[sd] ??= []);
-    for (let f = 0; f < FN; f++) L[f] ??= { n: FRONT_N[sd][f], col: f, on: f < ZN ? 1 : 0, man: 0, pick: 0 };
+    for (let f = 0; f < FN; f++) L[f] ??= { n: FRONT_N[sd]?.[f] || '', col: f, on: f < ZN ? 1 : 0, man: 0, pick: 0 };
     while (S.gen[sd].length < FN) S.gen[sd].push(null);
     while (S.post[sd].length < FN) S.post[sd].push('def');
     while (S.tgt[sd].length < FN) S.tgt[sd].push(-1);
@@ -220,12 +227,12 @@ export function ensureState(S) {
   S.pauto ??= new Array(FN).fill(1);
   while (S.pauto.length < FN) S.pauto.push(1);
   // v0.11 (отзыв 04.11): фронты — постоянные, по направлениям; свои участки и лишние фронты старых сохранений — убрать
-  for (const sd of ['GER', 'SOV']) S.fr[sd].forEach((F, f) => { if (f < ZN) { F.n = FRONT_N[sd][f]; F.on = 1; } else F.on = 0; });
+  for (const sd of sidesOf(S)) S.fr[sd].forEach((F, f) => { if (f < ZN) { F.n = FRONT_N[sd]?.[f] || ''; F.on = 1; } else F.on = 0; });
   delete S.fcust; delete S.fzo;
   for (const u of S.units) if (u.zf >= ZN) u.zf = Math.min(ZN - 1, u.z ?? 2);
-  S.airS ??= { GER: null, SOV: null };
+  S.airS ??= bySide(S, () => null);
   S.peace ??= 0;
-  S.fprio ??= { GER: null, SOV: null };
+  S.fprio ??= bySide(S, () => null);
   assignFronts(S);
   ensureEco(S, (n) => placeR(S, n));
   ensureTech(S);

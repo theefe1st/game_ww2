@@ -1,5 +1,5 @@
 // «Восточный фронт» (v0.11): железные дороги и посёлки для карты — src/east/data/rails.json.
-// node tools/build-rails.mjs. Данные: Natural Earth (ne_10m_railroads — магистрали scalerank ≤ 7,
+// node tools/build-rails.mjs [--world] (v0.12: большая карта — world-rails.json). Данные: Natural Earth (ne_10m_railroads — магистрали scalerank ≤ 7,
 // ne_10m_populated_places — посёлки без подписей, точками). Проекция — как у map.json (src/east/mapdata.js).
 import fs from 'fs';
 import path from 'path';
@@ -7,7 +7,9 @@ import { fileURLToPath } from 'url';
 import { makeProj } from '../src/east/mapdata.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)), D = path.join(HERE, 'data');
-const MAP = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'src', 'east', 'data', 'map.json'), 'utf8'));
+// --world: большая карта (world.json → world-rails.json)
+const WORLD = process.argv.includes('--world'), IN = WORLD ? 'world.json' : 'map.json', OUTF = WORLD ? 'world-rails.json' : 'rails.json';
+const MAP = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'src', 'east', 'data', IN), 'utf8'));
 const P = makeProj(MAP.proj), W = MAP.w, H = MAP.h;
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 function encPts(pts, unit = 0.5) {
@@ -81,6 +83,6 @@ const near = (q, arr, d) => arr.some(([x, y]) => Math.abs(x - q[0]) < d && Math.
 const places = PP.features.map((f) => ({ q: P(...f.geometry.coordinates), r: f.properties.SCALERANK ?? f.properties.scalerank ?? 9 })).filter((o) => inside(o.q, -5)).sort((a, b) => a.r - b.r);
 for (const o of places) { if (near(o.q, have, 28) || near(o.q, towns, 26)) continue; towns.push(o.q); }
 const out = { v: 1, r: merged.map((l) => [l.k, encPts(l.p)]), t: encPts(towns) };
-fs.writeFileSync(path.join(HERE, '..', 'src', 'east', 'data', 'rails.json'), JSON.stringify(out));
+fs.writeFileSync(path.join(HERE, '..', 'src', 'east', 'data', OUTF), JSON.stringify(out));
 const npts = merged.reduce((s, l) => s + l.p.length, 0);
 console.log(`ж/д: ${merged.length} линий, ${npts} точек (из ${lines.length} кусков); посёлков: ${towns.length}; файл ${(JSON.stringify(out).length / 1024).toFixed(0)} КБ`);

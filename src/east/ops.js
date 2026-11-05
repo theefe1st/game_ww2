@@ -1,8 +1,8 @@
 // «Мировой фронт» v0.11: операции — морской десант (из своего порта на берег того же моря) и воздушный десант
 // (дивизии ВДВ с аэродрома). Открываются наукой (ветка «Операции»), сила — от изученного (opK).
 // Моря — по растру суши (8 км): связные куски воды; прибрежные области — по береговым дугам карты.
-import { TYPES, isMech, other, yearF, quality, wT, turnsW, WK } from './rules.js';
-import { sideOf, garOf, resolveAttack, moveUnit, capture, alive, room, airRatio, note, odds, computeSupply, aaCover } from './engine.js';
+import { TYPES, isMech, other, hostile, yearF, quality, wT, turnsW, WK } from './rules.js';
+import { sideOf, garOf, resolveAttack, moveUnit, capture, alive, room, airRatio, note, odds, computeSupply, aaCover, atWar, foesOf, sidesOf } from './engine.js';
 import { hasU, unV } from './tech.js';
 import { seaDom } from './fleet.js';
 
@@ -81,7 +81,7 @@ export function opUnits(S, side, kind, r) {
 // почему нельзя начать операцию из области r (или null)
 export function opWhy(S, side, kind, r) {
   const O = OPS[kind];
-  if (S.peace) return 'мирное время: десанты — с началом войны';
+  if (S.peace || !foesOf(S, side).some((f) => atWar(S, side, f))) return 'мирное время: десанты — с началом войны';
   if (!hasU(S, side, kind)) return `нужна наука: «${O.tech}»`;
   if (sideOf(S, r) !== side) return 'не наша область';
   if (kind === 'sea' && !isPort(S, r)) return 'нужен порт';
@@ -94,21 +94,22 @@ export function opWhy(S, side, kind, r) {
   return null;
 }
 export function opTargets(S, side, kind, r) {
-  const M = S.M, out = [], en = other(side);
+  const M = S.M, out = [], en = (t) => hostile(side, sideOf(S, t));
   if (kind === 'sea') {
     const sr = seas(M).sr, my = (sr[r] || []).filter((s) => seaK(S, side, s) > 0);
     if (!my.length) return out;
-    for (let t = 0; t < M.R; t++) if (t !== r && sideOf(S, t) === en && sr[t]?.some((s) => my.includes(s)) && dist(M, r, t) <= OPS.sea.range) out.push(t);
-  } else for (let t = 0; t < M.R; t++) if (t !== r && sideOf(S, t) === en && dist(M, r, t) <= OPS.abn.range) out.push(t);
+    for (let t = 0; t < M.R; t++) if (t !== r && en(t) && sr[t]?.some((s) => my.includes(s)) && dist(M, r, t) <= OPS.sea.range) out.push(t);
+  } else for (let t = 0; t < M.R; t++) if (t !== r && en(t) && dist(M, r, t) <= OPS.abn.range) out.push(t);
   return out;
 }
 const seaOf = (S, r, t) => { const sr = seas(S.M).sr; return (sr[r] || []).find((s) => sr[t]?.includes(s)); };
 // сила операции: ×k (+ наука), на море — господство флота; ВДВ без прикрытия ВВС несут потери ещё в воздухе
 export function opK(S, side, kind, r, t) { return (OPS[kind].k + unV(S, side, 'opK')) * (kind === 'sea' ? seaK(S, side, seaOf(S, r, t)) : 1); }
 // ВДВ: потери от истребителей (при слабой своей авиации) и от ПВО противника в области и по соседству
-export const airLoss = (S, side, t) => { const ar = airRatio(S, side, S.M.reg[t].z); return Math.round(Math.max(0, (0.35 - ar) / 0.35) * 30 + aaCover(S, t, other(side)) * 30); };
+const defSide = (S, side, t) => { const d = sideOf(S, t); return d && d !== side ? d : other(side); }; // обороняющаяся сторона области t
+export const airLoss = (S, side, t) => { const ar = airRatio(S, side, S.M.reg[t].z); return Math.round(Math.max(0, (0.35 - ar) / 0.35) * 30 + aaCover(S, t, defSide(S, side, t)) * 30); };
 // береговая оборона (батареи, тыловые части): в порту сильнее; воздушный десант на пустую область — без боя
-export const coastDef = (S, side, kind, t) => (kind === 'sea' ? (isPort(S, t) ? 2.5 : 0.8) * quality(other(side), S.turn) : 0);
+export const coastDef = (S, side, kind, t) => (kind === 'sea' ? (isPort(S, t) ? 2.5 : 0.8) * quality(defSide(S, side, t), S.turn) : 0);
 export const opFree = (S, side, kind, t) => !S.at[t].some((v) => v.s !== side) && garOf(S, t, side) <= 0 && !coastDef(S, side, kind, t);
 export function opOdds(S, side, kind, r, t, us) {
   if (opFree(S, side, kind, t)) return { free: true, R: 99 };
@@ -144,6 +145,6 @@ export function runOp(S, side, kind, r, t, us = opUnits(S, side, kind, r)) {
   if (res.win) (S.bridge ??= {})[t] = S.turn + wT(kind === 'sea' ? 5 : 3);
   ((S.opCd ??= {})[side] ??= {})[kind] = S.turn + wT(O.cd);
   note(S, { ic: O.ic, side, txt: `${O.n}: ${nm} — ${res.win ? (res.free ? 'высадка без боя' : 'плацдарм захвачен') : 'отбит'}`, r: t });
-  computeSupply(S, side); computeSupply(S, other(side));
+  computeSupply(S, side); for (const sd of sidesOf(S)) if (sd !== side) computeSupply(S, sd);
   return res;
 }

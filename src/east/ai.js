@@ -5,9 +5,9 @@
 import {
   ZN, sideOf, isFront, attackersFor, odds, resolveAttack, reach, moveTo, room, railTargets, railMove, beginPhase, endPhase, baseCV, defCV,
   attCV, garOf, isSource, frontDist, recruit, build, canBuild, evacuate, canEvac, regionDef, alive, cap, genOf, hasTr, unitsAt, newCost, BUILD, note, natOf,
-  armyCap, armySize, FN, fzOf, frontMap, frontZone, airRatio, wxOf, progOf,
+  armyCap, armySize, FN, fzOf, frontMap, frontZone, airRatio, wxOf, progOf, atWar, ownOrAlly,
 } from './engine.js';
-import { other, isMech, yearF, turnOf, TYPES, SIDE0, dateOf, lerpT, wT, everyW } from './rules.js';
+import { other, hostile, isMech, yearF, turnOf, TYPES, SIDE0, dateOf, lerpT, wT, everyW } from './rules.js';
 import { PLAN, GEN_HIST } from './hist.js';
 import { MIX, mixNow, eqTot, hasEq, brigFree } from './eco.js';
 export { MIX, mixNow };
@@ -22,7 +22,7 @@ export function planOf(S, side, z) {
 }
 // текущая цель: первый город списка, ещё не взятый
 export function planTarget(S, side, list) {
-  for (const n of list.split('|').filter(Boolean)) { const r = placeR(S, n); if (r >= 0 && sideOf(S, r) !== side) return r; }
+  for (const n of list.split('|').filter(Boolean)) { const r = placeR(S, n); if (r >= 0 && !ownOrAlly(S, side, sideOf(S, r))) return r; }
   return -1;
 }
 function histGenerals(S, side) {
@@ -41,7 +41,7 @@ export function zoneForce(S, side, z, fm = frontMap(S, side)) {
   let a = 0, d = 0;
   for (const u of S.units) {
     if (!alive(u) || fm[u.r] !== z) continue;
-    if (u.s === side) a += baseCV(S, u, 'att'); else d += baseCV(S, u, 'def');
+    if (u.s === side) a += baseCV(S, u, 'att'); else if (hostile(side, u.s)) d += baseCV(S, u, 'def');
   }
   return { a, d };
 }
@@ -51,7 +51,7 @@ export function setPostures(S, side, isAI) {
   if (S.peace) { for (const z of frontsOn(S, side)) { S.post[side][z] = 'def'; S.tgt[side][z] = -1; } return; }
   const fm = frontMap(S, side);
   for (const z of frontsOn(S, side)) {
-    if (!isAI) { if (S.post[side][z] === 'atk' && S.tgt[side][z] >= 0 && sideOf(S, S.tgt[side][z]) === side) S.tgt[side][z] = -1; continue; }
+    if (!isAI) { if (S.post[side][z] === 'atk' && S.tgt[side][z] >= 0 && ownOrAlly(S, side, sideOf(S, S.tgt[side][z]))) S.tgt[side][z] = -1; continue; }
     if (S.mode === 'hist') {
       const p = planOf(S, side, z);
       S.post[side][z] = p ? p[3] : 'def';
@@ -79,7 +79,7 @@ export function setPostures(S, side, isAI) {
     if (k >= (cur === 'atk' ? 0.95 : 1.2) * kw && wx !== 'mud') p = 'atk';
     else if (cur !== 'def' && k < 0.95 * kw) p = 'def';
     S.post[side][z] = p;
-    if (p === 'atk' && (S.tgt[side][z] < 0 || sideOf(S, S.tgt[side][z]) === side)) S.tgt[side][z] = autoTarget(S, side, z);
+    if (p === 'atk' && (S.tgt[side][z] < 0 || ownOrAlly(S, side, sideOf(S, S.tgt[side][z])))) S.tgt[side][z] = autoTarget(S, side, z);
     if (p === 'atk' && S.tgt[side][z] < 0) S.post[side][z] = 'def';
   }
 }
@@ -88,7 +88,7 @@ export function autoTarget(S, side, z) {
   const M = S.M, d = distFromFront(S, side), fm = frontMap(S, side);
   let best = -1, bs = -1e9;
   for (const g of M.reg) {
-    if (sideOf(S, g.id) !== other(side) || g.vp <= 0) continue;
+    if (!hostile(side, sideOf(S, g.id)) || g.vp <= 0) continue;
     const dz = fm[g.id] === z ? 0 : 6, k = d[g.id];
     if (k > 5) continue; // не дальше 5 областей от фронта: иначе прорыв отрывается от снабжения
     const s = g.vp * 3 - k * 4 - dz;
@@ -101,7 +101,7 @@ export function nearTarget(S, side, z) {
   const M = S.M, d = distFromFront(S, side), fm = frontMap(S, side), cu = side === S.side && S.fcust;
   let best = -1, bs = -1e9;
   for (const g of M.reg) {
-    if (sideOf(S, g.id) !== other(side) || (g.vp <= 0 && !g.city)) continue;
+    if (!hostile(side, sideOf(S, g.id)) || (g.vp <= 0 && !g.city)) continue;
     const k = d[g.id];
     if (k > 4 || (cu ? fm[g.id] !== z && k > 2 : Math.abs(g.z - z) > 1)) continue;
     const s = g.vp * 2 + (g.city ? 1 : 0) - k * 5 - (fm[g.id] === z ? 0 : 6);
@@ -113,7 +113,7 @@ export function nearTarget(S, side, z) {
 function distFromFront(S, side) {
   const M = S.M, d = new Int16Array(M.R).fill(99), q = [];
   for (let r = 0; r < M.R; r++) if (sideOf(S, r) === side && isFront(S, r, side)) (d[r] = 0), q.push(r);
-  for (let h = 0; h < q.length; h++) { const r = q[h]; for (const e of M.reg[r].nb) if (sideOf(S, e.r) === other(side) && d[e.r] > d[r] + 1) (d[e.r] = d[r] + 1), q.push(e.r); }
+  for (let h = 0; h < q.length; h++) { const r = q[h]; for (const e of M.reg[r].nb) if (hostile(side, sideOf(S, e.r)) && d[e.r] > d[r] + 1) (d[e.r] = d[r] + 1), q.push(e.r); }
   return d;
 }
 // расстояние до цели (в областях, по всей карте)
@@ -129,9 +129,10 @@ export function distTo(S, T) {
 }
 // ——— угрозы ———
 function threatMap(S, side) {
-  const M = S.M, en = other(side), thr = new Float32Array(M.R);
+  const M = S.M, thr = new Float32Array(M.R);
   for (let e = 0; e < M.R; e++) {
-    if (sideOf(S, e) !== en || !S.at[e].length) continue;
+    const en = sideOf(S, e);
+    if (!hostile(side, en) || !S.at[e].length) continue;
     let a = 0;
     for (const u of S.at[e]) if (u.s === en) a += baseCV(S, u, 'att');
     const tg = M.reg[e].nb.filter((n) => sideOf(S, n.r) === side && n.sp !== 'sea');
@@ -146,7 +147,8 @@ export function runSide(S, side, { isAI = true, begun = false } = {}) {
   setPostures(S, side, isAI);
   // фронты «вручную»: генералы не трогают их дивизии (ходит сам игрок)
   if (!isAI && S.fr?.[side]) for (const u of S.units) if (u.s === side && alive(u) && S.fr[side][fzOf(S, u.r)]?.man) u.man = 1;
-  const C = { side, en: other(side), thr: threatMap(S, side), fd: frontDist(S, side), isAI, fm: frontMap(S, side) };
+  // isEn — с кем воюем (у Германии на большой карте — СССР, Британия и США)
+  const C = { side, en: other(side), isEn: (s) => atWar(S, side, s), thr: threatMap(S, side), fd: frontDist(S, side), isAI, fm: frontMap(S, side) };
   C.fzn = Array.from({ length: FN }, (_, f) => frontZone(S, side, f));
   if (S.peace) return peaceSide(S, C);
   strategic(S, C);
@@ -209,7 +211,7 @@ function breakout(S, C) {
   for (const u of pocket) {
     if (!alive(u) || u.att || sup[u.r] > 0) continue;
     let T = -1, td = d[u.r];
-    for (const e of M.reg[u.r].nb) if (sideOf(S, e.r) === C.en && d[e.r] < td) (td = d[e.r]), (T = e.r);
+    for (const e of M.reg[u.r].nb) if (C.isEn(sideOf(S, e.r)) && d[e.r] < td) (td = d[e.r]), (T = e.r);
     if (T < 0 || tried.has(T)) continue;
     tried.add(T);
     // прорыв изнутри и деблокирующий удар снаружи
@@ -310,7 +312,7 @@ const NO_STORM = [['GER', 'Ленинград', '1944-12-31']];
 function noStorm(S, side) {
   const out = new Set();
   if (S.mode !== 'hist') return out;
-  for (const [sd, n, until] of NO_STORM) if (sd === side && S.turn <= turnOf(until)) { const r = placeR(S, n); if (r >= 0 && S.sup[other(side)][r] > 0) out.add(r); }
+  for (const [sd, n, until] of NO_STORM) if (sd === side && S.turn <= turnOf(until)) { const r = placeR(S, n), s = r >= 0 ? sideOf(S, r) : null; if (hostile(side, s) && S.sup[s]?.[r] > 0) out.add(r); }
   return out;
 }
 // ——— наступление ———
@@ -325,7 +327,7 @@ function offensive(S, C, z) {
   for (let pass = 0; pass < 3; pass++) {
     const cand = [];
     for (let e = 0; e < M.R; e++) {
-      if (sideOf(S, e) !== C.en || ns.has(e)) continue;
+      if (!C.isEn(sideOf(S, e)) || ns.has(e)) continue;
       const nb = M.reg[e].nb.filter((n) => sideOf(S, n.r) === side && C.fm[n.r] === z);
       if (!nb.length && C.fm[e] !== z) continue;
       const us = attackersFor(S, e, side).filter((u) => !u.man && (C.fm[u.r] === z || isMech(u)));
@@ -427,7 +429,7 @@ function exploit(S, C, z) {
         if (Math.min(...M.reg[r].nb.filter((n) => sideOf(S, n.r) === side).map((n) => sd[n.r])) >= 3) continue;
         // окружение: ценнее области, вокруг которых противник
         let enc = 0;
-        for (const n of M.reg[r].nb) if (S.at[n.r].length && S.at[n.r][0].s === C.en) enc += S.at[n.r].length;
+        for (const n of M.reg[r].nb) if (S.at[n.r].length && C.isEn(S.at[n.r][0].s)) enc += S.at[n.r].length;
         const s = (dT[u.r] - dT[r]) * 5 + enc * 1.2 + M.reg[r].vp * 2 - c;
         if (s > bs) (bs = s), (best = r);
       }
@@ -439,7 +441,7 @@ function exploit(S, C, z) {
     if (u.mp >= 1 && u.rdy >= 45 && !u.att) {
       let best = -1, br = 0;
       for (const n of M.reg[u.r].nb) {
-        if (sideOf(S, n.r) !== C.en || (!S.at[n.r].length && !garOf(S, n.r)) || ns.has(n.r)) continue;
+        if (!C.isEn(sideOf(S, n.r)) || (!S.at[n.r].length && !garOf(S, n.r)) || ns.has(n.r)) continue;
         const R = odds(S, n.r, [u]).R;
         if (R > br) (br = R), (best = n.r);
       }
@@ -490,14 +492,14 @@ function withdraw(S, C, z) {
 // ——— сплошная линия фронта ———
 // соседство с противником по суше или по льду (через море не наступают)
 function landFront(S, r, side) {
-  for (const e of S.M.reg[r].nb) { const s = sideOf(S, e.r); if (s && s !== side && (e.sp !== 'sea' || wxOf(S, e.r).frozen)) return true; }
+  for (const e of S.M.reg[r].nb) { const s = sideOf(S, e.r); if (s && s !== side && hostile(side, s) && (e.sp !== 'sea' || wxOf(S, e.r).frozen)) return true; }
   return false;
 }
 const ownN = (S, r, side) => { let n = 0; for (const u of S.at[r]) if (u.s === side) n++; return n; };
 // окружение на следующем ходу: области, которые противник, скорее всего, займёт (пустые у фронта и с большим
 // перевесом врага, подвижные — ещё на область дальше), и что тогда останется без связи со своими
 function cutRisk(S, C) {
-  const { side, en } = C, M = S.M, R = M.R, lost = new Uint8Array(R);
+  const { side } = C, M = S.M, R = M.R, lost = new Uint8Array(R);
   for (let r = 0; r < R; r++) {
     if (sideOf(S, r) !== side || C.fd[r] !== 0 || !landFront(S, r, side)) continue;
     const n = ownN(S, r, side);
@@ -505,7 +507,7 @@ function cutRisk(S, C) {
     else if (C.thr[r] >= Math.max(2, regionDef(S, r)) * 2) lost[r] = 1;
   }
   // танковые клинья: ещё на одну пустую область вглубь
-  const mechAt = (r) => M.reg[r].nb.some((e) => sideOf(S, e.r) === en && S.at[e.r].some((u) => u.s === en && isMech(u) && u.rdy >= 35));
+  const mechAt = (r) => M.reg[r].nb.some((e) => C.isEn(sideOf(S, e.r)) && S.at[e.r].some((u) => C.isEn(u.s) && isMech(u) && u.rdy >= 35));
   const l1 = [];
   for (let r = 0; r < R; r++) if (lost[r] && mechAt(r)) l1.push(r);
   for (const r of l1) for (const e of M.reg[r].nb) if (e.sp !== 'sea' && sideOf(S, e.r) === side && !lost[e.r] && !ownN(S, e.r, side) && !garOf(S, e.r)) lost[e.r] = 2;
@@ -627,7 +629,7 @@ function defend(S, C) {
   }
   // контрудары: хорошие шансы или свой город
   for (let e = 0; e < M.R; e++) {
-    if (sideOf(S, e) !== C.en || (!S.at[e].length && !garOf(S, e))) continue;
+    if (!C.isEn(sideOf(S, e)) || (!S.at[e].length && !garOf(S, e))) continue;
     const z = C.fm[e];
     if (S.post[side][z] === 'ret') continue;
     const us = attackersFor(S, e, side).filter((u) => !u.man);
@@ -649,7 +651,7 @@ function salients(S, C) {
   for (let r = 0; r < M.R; r++) {
     if (sideOf(S, r) !== side || C.fd[r] !== 0 || S.post[side][C.fm[r]] === 'atk') continue;
     const g = M.reg[r], nb = g.nb.filter((n) => n.sp !== 'sea' && sideOf(S, n.r));
-    if (nb.length < 3 || nb.filter((n) => sideOf(S, n.r) === side).length >= 2) continue;
+    if (nb.length < 3 || nb.filter((n) => ownOrAlly(S, side, sideOf(S, n.r))).length >= 2) continue;
     if (g.vp >= 5 || g.f.includes('f')) continue; // крупные города и крепости держат
     for (const u of S.at[r].filter((v) => v.s === side && free(v))) {
       const Rr = reach(S, u);

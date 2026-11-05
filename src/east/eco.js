@@ -6,7 +6,7 @@
 // Стройка — строительными бригадами (отзыв 04.11): очередь построек S.q, срок проекта — в неделях работы бригады.
 import { TYPES, SIDE0, yearF, lerpT, WK, wT, perTurn } from './rules.js';
 import { tx } from './tech.js';
-import { sideOf, isFront, note } from './engine.js';
+import { sideOf, isFront, note, sidesOf, bySide } from './engine.js';
 import { decK } from './decisions.js';
 
 export const EQK = ['inf', 'art', 'arm'];
@@ -219,7 +219,7 @@ export function aaCover(S, r, side) {
   return 0;
 }
 // ——— эвакуация (СССР): заводы уезжают в тыл и через 8 недель работают там (e.left — в ходах) ———
-export function canEvac(S, r) { return sideOf(S, r) === 'SOV' && S.fac[r] > 0 && SIDE0[S.M.nats[S.own0[r]]] === 'SOV' && !S.M.reg[r].f.includes('e') && S.M.reg[r].x < 2300; }
+export function canEvac(S, r) { return sideOf(S, r) === 'SOV' && S.fac[r] > 0 && SIDE0[S.M.nats[S.own0[r]]] === 'SOV' && !S.M.reg[r].f.includes('e') && S.M.reg[r].ox < 2300; }
 export function evacuate(S, r) {
   if (!canEvac(S, r)) return false;
   const M = S.M, n = Math.max(1, Math.ceil(S.fac[r] * 0.6));
@@ -247,15 +247,15 @@ export function ensureEco(S, byName) {
     for (const sd in CAMP0) for (const n of CAMP0[sd]) { const r = byName(n); if (r >= 0 && SIDE0[M.nats[S.own0[r]]] === sd) S.camp[r] = 1; }
   }
   S.dep ??= new Int8Array(R);
-  S.airK ??= { GER: 1, SOV: 1 };
-  S.pol ??= { GER: 25, SOV: 25 };
+  S.airK ??= bySide(S, () => 1);
+  S.pol ??= bySide(S, () => 25);
   if (!S.line) {
     S.line = {};
-    for (const sd of ['GER', 'SOV']) { const T = lineTarget(S, sd, mixNow(sd, S.turn)); S.line[sd] = { sh: T, e: { inf: 1, art: 1, arm: 1, air: 1 }, auto: 1 }; }
+    for (const sd of sidesOf(S)) { const T = lineTarget(S, sd, mixNow(sd, S.turn)); S.line[sd] = { sh: T, e: { inf: 1, art: 1, arm: 1, air: 1 }, auto: 1 }; }
   }
   if (!S.eq) {
     S.eq = {};
-    for (const sd of ['GER', 'SOV']) { const p = S.pp?.[sd] ?? 60, T = S.line[sd].sh, g = 1 - T.air; S.eq[sd] = { inf: (p * T.inf) / g, art: (p * T.art) / g, arm: (p * T.arm) / g }; }
+    for (const sd of sidesOf(S)) { const p = S.pp?.[sd] ?? 60, T = S.line[sd].sh, g = 1 - T.air; S.eq[sd] = { inf: (p * T.inf) / g, art: (p * T.art) / g, arm: (p * T.arm) / g }; }
   }
   delete S.pp;
   // стройка — бригадами (отзыв 04.11): гражданских фабрик больше нет, проекты — в неделях работы

@@ -5,8 +5,8 @@
 // Балтийский флот заперт минами в Финском заливе, пока Таллин у противника (на море ×0,35; пушки бьют по-прежнему).
 // Господство на море — доля сил на море: сила морских десантов (ops.js: seaK), северные конвои ленд-лиза (engine.js: income).
 // Поддержка флота в приморских боях (engine.js: odds): до ±15 % в 400 км от базы.
-import { lerpT, yearF, other, WK } from './rules.js';
-import { sideOf, cityR, airRatio, note } from './engine.js';
+import { lerpT, yearF, hostile, WK } from './rules.js';
+import { sideOf, cityR, airRatio, note, foesOf, sidesOf } from './engine.js';
 import { seas, seaName } from './ops.js';
 
 export const FLEETS = [
@@ -38,7 +38,7 @@ export function seaDom(S, sea, side) {
   for (const f of FLEETS) {
     if (!f.sea.includes(sea)) continue;
     any = true;
-    if (f.side === side) a += effOf(S, f); else b += effOf(S, f);
+    if (hostile(f.side, side)) b += effOf(S, f); else a += effOf(S, f); // союзники (Британия и США) — вместе
   }
   if (!any) return null;
   return a + b > 0 ? a / (a + b) : 0.5;
@@ -66,13 +66,13 @@ export function fleetWeek(S) {
   }
   NAV.delete(S);
 }
-// поддержка флота у берега: { GER, SOV } — сила флотов, чья база в 400 км и на том же море, что и область
+// поддержка флота у берега: { сторона: сила } — сила флотов, чья база в 400 км и на том же море, что и область
 const NAV = new WeakMap();
 export function navSup(S, r) {
   if (!S.fl) return null;
   let N = NAV.get(S);
   if (!N || N.t !== S.turn) {
-    const M = S.M, sea = seas(M), R = M.reg.length, g = new Float32Array(R), s = new Float32Array(R);
+    const M = S.M, sea = seas(M), R = M.reg.length, v = Object.fromEntries(sidesOf(S).map((sd) => [sd, new Float32Array(R)]));
     for (const f of FLEETS) {
       const st = S.fl[f.id];
       if (!st?.b || st.p <= 0) continue;
@@ -81,19 +81,23 @@ export function navSup(S, r) {
       for (let q = 0; q < R; q++) {
         const sr = sea.sr[q];
         if (!sr || !sr.some((x) => ids.has(x)) || Math.hypot(M.reg[q].x - B.x, M.reg[q].y - B.y) > RANGE) continue;
-        (f.side === 'GER' ? g : s)[q] += st.p;
+        if (v[f.side]) v[f.side][q] += st.p;
       }
     }
-    N = { t: S.turn, g, s };
+    N = { t: S.turn, v };
     NAV.set(S, N);
   }
-  return N.g[r] || N.s[r] ? { GER: N.g[r], SOV: N.s[r] } : null;
+  let any = false;
+  for (const sd in N.v) if (N.v[sd][r]) { any = true; break; }
+  return any ? Object.fromEntries(Object.entries(N.v).map(([sd, a]) => [sd, a[r]])) : null;
 }
 // множитель силы атакующего от флотов у берега (до ±15 %)
 export function navK(S, side, r) {
   const v = navSup(S, r);
   if (!v) return 1;
-  const a = v[side], d = v[other(side)];
+  const a = v[side] || 0;
+  let d = 0;
+  for (const f of foesOf(S, side)) d += v[f] || 0;
   return 1 + (0.15 * (a - d)) / (a + d + 20);
 }
 // северные конвои ленд-лиза: господство в Баренцевом море

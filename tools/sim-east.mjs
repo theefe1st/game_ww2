@@ -2,6 +2,7 @@
 // node tools/sim-east.mjs [--turns LAST_TURN] [--seed 7] [--diff 1] [--side SOV] [--mode hist] [--v] [--q] [--player]
 // --player: сторона --side играет как игрок «на авто» (как в интерфейсе: приказы «авто», runSide isAI=false)
 // --start 36|39|41: ранний старт (мирное время до 22.06.1941, prewar.js); ходы считаются от 22.06.1941
+// --world: большая карта Европы и Африки (v0.12)
 import fs from 'node:fs';
 import { decodeMap } from '../src/east/mapdata.js';
 import { newGame, placeR } from '../src/east/setup.js';
@@ -12,7 +13,9 @@ import { HIST_KEYS } from '../src/east/hist.js';
 
 const A = process.argv.slice(2), arg = (k, d) => { const i = A.indexOf('--' + k); return i < 0 ? d : A[i + 1] === undefined || A[i + 1].startsWith('--') ? true : A[i + 1]; };
 const turns = +arg('turns', LAST_TURN), seed = +arg('seed', 7), diff = +arg('diff', 1), side = arg('side', 'SOV'), mode = arg('mode', 'hist'), V = !!arg('v', false), Q = !!arg('q', false), Z = +arg('z', 0);
-const M = decodeMap(JSON.parse(fs.readFileSync(new URL('../src/east/data/map.json', import.meta.url), 'utf8')));
+// --world: большая карта (v0.12, world.json)
+const WORLD = !!arg('world', false), rd = (f) => JSON.parse(fs.readFileSync(new URL('../src/east/data/' + f, import.meta.url), 'utf8'));
+const M = WORLD ? decodeMap(rd('world.json'), rd('world-mesh.json')) : decodeMap(rd('map.json'));
 const NOEV = !!arg('noev', false), PL = !!arg('player', false);
 const run = (s) => { if (PL && s === side) { beginPhase(S, s); setPostures(S, s, true); runSide(S, s, { isAI: false, begun: true }); } else runSide(S, s, { isAI: true }); };
 const START = String(arg('start', '0'));

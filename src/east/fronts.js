@@ -56,14 +56,14 @@ export function airShares(S, side) {
   const w = (side === S.side && S.airS?.[side]) || E.airAuto(S, side), t = w.reduce((a, b) => a + Math.max(0, b), 0) || 1;
   return w.slice(0, E.ZN).map((x) => Math.max(0, x) / t);
 }
-const airRe = (S) => { S.airA = { GER: E.airAlloc(S, 'GER'), SOV: E.airAlloc(S, 'SOV') }; };
+const airRe = (S) => { S.airA = E.bySide(S, (sd) => E.airAlloc(S, sd)); };
 // доля фронта ±5 % (остальные — пропорционально), авто выключается
 export function airShift(S, side, z, dir) {
   const cur = airShares(S, side), v = Math.max(0, Math.min(0.9, cur[z] + 0.05 * dir)), rest = 1 - cur[z];
-  (S.airS ??= { GER: null, SOV: null })[side] = cur.map((x, i) => (i === z ? v : rest > 1e-6 ? (x / rest) * (1 - v) : (1 - v) / (E.ZN - 1)));
+  (S.airS ??= {})[side] = cur.map((x, i) => (i === z ? v : rest > 1e-6 ? (x / rest) * (1 - v) : (1 - v) / (E.ZN - 1)));
   airRe(S);
 }
-export function airAutoSet(S, side, on) { (S.airS ??= { GER: null, SOV: null })[side] = on ? null : airShares(S, side); airRe(S); }
+export function airAutoSet(S, side, on) { (S.airS ??= {})[side] = on ? null : airShares(S, side); airRe(S); }
 export const planes = (S, side, sh) => Math.round((S.air[side] * sh * 30) / 10) * 10; // ≈ боеспособных самолётов
 // ——— переброска дивизий между фронтами ———
 export const trWeeks = (S, u, f) => (Math.abs(S.M.reg[u.r].z - f) >= 2 ? 2 : 1); // недель в пути
@@ -134,6 +134,6 @@ export function prioSet(S, side, z) {
   const c = REQ.ammo.pol;
   if ((S.pol[side] || 0) < c) return false;
   S.pol[side] -= c;
-  (S.fprio ??= { GER: null, SOV: null })[side] = { z, left: wT(4) };
+  (S.fprio ??= {})[side] = { z, left: wT(4) };
   return true;
 }

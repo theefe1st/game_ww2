@@ -8,6 +8,16 @@ export const ZONES = [
   { k: 'cau', n: 'Кавказское', s: 'Кавк.' },
 ];
 export const ZONES_N = ZONES.map((z) => z.n);
+// v0.12: театры большой карты (src/east/data/world.json) — направления Востока и семь театров Запада
+export const ZONES_W = ZONES.concat([
+  { k: 'wes', n: 'Западное', s: 'Зап.' },
+  { k: 'sca', n: 'Скандинавское', s: 'Скан.' },
+  { k: 'ita', n: 'Итальянское', s: 'Итал.' },
+  { k: 'bal', n: 'Балканское', s: 'Балк.' },
+  { k: 'afr', n: 'Африканское', s: 'Афр.' },
+  { k: 'mde', n: 'Ближневосточное', s: 'Бл.-Вост.' },
+  { k: 'bri', n: 'Британское', s: 'Брит.' },
+]);
 const lerp = (P, x) => {
   if (x <= P[0][0]) return P[0][1];
   for (let k = 1; k < P.length; k++) if (x <= P[k][0]) { const [a, y0] = P[k - 1], [b, y1] = P[k]; return y0 + ((x - a) * (y1 - y0)) / (b - a); }

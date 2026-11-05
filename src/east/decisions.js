@@ -224,7 +224,7 @@ export function decViewed(S, side) { const st = decSt(S, side); for (const D of 
 // новая игра / старое сохранение: доступное с начала — не объявлять
 export function ensureDec(S) {
   if (S.dec) return;
-  for (const side of ['GER', 'SOV']) { const st = decSt(S, side); for (const D of decOf(side, S)) if (decStat(S, side, D).k !== 'lock') st.seen[D.id] = 1; }
+  for (const side of E.sidesOf(S)) { const st = decSt(S, side); for (const D of decOf(side, S)) if (decStat(S, side, D).k !== 'lock') st.seen[D.id] = 1; }
   S.auto ??= {};
   S.auto.dec ??= true;
 }
@@ -232,7 +232,7 @@ export function ensureDec(S) {
 // (партизаны действуют в engine.js: снабжение, готовность, ремонт ж/д)
 export function decWeek(S) {
   if (S.dfx) S.dfx = S.dfx.filter((x) => x.until > S.turn);
-  for (const side of ['GER', 'SOV']) {
+  for (const side of E.sidesOf(S)) {
     const pl = side === S.side && !S.noAsk;
     // ИИ — решения с полем ai; игрок с «Ставка решает сама» — бывшие события истории (ev); оба — в дату hist
     if (!pl || S.auto?.dec) for (const D of decOf(side, S)) {
