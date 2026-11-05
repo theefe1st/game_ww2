@@ -1,11 +1,13 @@
-// E2E (v0.10): «Восточный фронт 1941–1945». Главное меню → настройки → «Как играть» → новая игра (сторона, режим,
-// сложность) → сводка/события → карта (подсказки) → «Направления» (приказ, цель на карте) → область: войска, перемещение,
-// удар → «Армия» (новая дивизия) → «Стройка» → «Журнал» → меню партии → «Ход» × N → сохранение → «Продолжить».
-// W/H — экран, SIDE — SOV/GER, MODE — hist/free, TAG — префикс скриншотов, TURNS — сколько ходов сыграть, SHOTS=0 — без снимков.
+// E2E (v0.11): «Восточный фронт 1936–1945». Главное меню → настройки → «Как играть» → новая игра (сторона, режим,
+// начало) → сводка/события → карта (подсказки) → «Фронты» (приказ, цель на карте) → область: войска, перемещение,
+// удар, стройка в области → «Армия» (обучение дивизий, флот) → «Экономика» → «Наука» → ★ «Решения» → «Журнал» →
+// меню партии → «Ход» × N (в мирное время — «Месяц») → сохранение → «Продолжить».
+// W/H — экран, SIDE — SOV/GER, MODE — hist/free, START — 0|41|39|36 (начало), TAG — префикс скриншотов,
+// TURNS — сколько ходов сыграть, SHOTS=0 — без снимков, FAST=1 — без проверки панелей.
 const { chromium } = require('/vercel/sandbox/node_modules/playwright');
 (async () => {
   const W = +(process.env.W || 844), H = +(process.env.H || 390), SIDE = process.env.SIDE || 'SOV', MODE = process.env.MODE || 'hist';
-  const TAG = process.env.TAG || `${SIDE.toLowerCase()}_${W}x${H}`, TURNS = +(process.env.TURNS || 3), SHOTS = process.env.SHOTS !== '0';
+  const TAG = process.env.TAG || `${SIDE.toLowerCase()}_${W}x${H}`, TURNS = +(process.env.TURNS || 3), SHOTS = process.env.SHOTS !== '0', START = process.env.START || '0';
   const URL = process.env.URL || 'http://127.0.0.1:5173/';
   const browser = await chromium.launch({ executablePath: '/usr/local/bin/chromium', args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, isMobile: true, hasTouch: true, deviceScaleFactor: +(process.env.DPR || 2) });
@@ -68,7 +70,8 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   await click('[data-a=help]'); await shot('help'); await overflow('help');
   for (let i = 0; i < 6 && await has('.e-modal .e-help [data-a=helpp].e-btn.gold'); i++) await click('.e-modal .e-help [data-a=helpp].e-btn.gold', 150);
   await shot('help_last'); await click('.e-modal [data-a=close]');
-  await click('[data-a=play]'); await click(`[data-v="side:${SIDE}"]`); await click(`[data-v="mode:${MODE}"]`);
+  await click('[data-a=play]'); await click(`[data-v="side:${SIDE}"]`); await click(`[data-v="mode:${MODE}"]`); await click(`[data-v="start:${START}"]`);
+  const PEACE = START !== '0';
   await shot('new'); await overflow('new');
   const tS = Date.now();
   await click('[data-a=start]', 100);
@@ -83,6 +86,13 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   // направления
   await click('[data-a=dirs]'); await shot('dirs'); await overflow('dirs');
   ok(await ev(() => document.querySelectorAll('.e-dir').length === 5), '5 directions');
+  if (PEACE) {
+    // мирное время: приказов наступления нет — только пометка «задачи фронтам — с началом войны»
+    const dn = await txt('.e-dir:nth-child(3) .e-dnow', 80);
+    console.log('peace orders:', dn);
+    ok(/мирное время/.test(dn), 'peace: no offensive orders');
+    if (await has('.e-panel [data-a=pclose]')) await click('.e-panel [data-a=pclose]');
+  } else {
   await click('.e-dir:nth-child(3) [data-p=atk]', 300);
   console.log('center target:', await txt('.e-dir:nth-child(3) .e-tgtc', 80));
   await click('.e-dir:nth-child(3) [data-a=tgt]', 600);
@@ -93,6 +103,7 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   ok(tg >= 0, 'pick candidate on screen');
   if (await ev(() => !!window.__east.pick)) { console.log('pick mode still on'); await click('[data-a=cancel]'); }
   if (await has('.e-panel [data-a=pclose]')) await click('.e-panel [data-a=pclose]');
+  }
   // своя область у фронта со стопкой
   const fr = await ev(() => { const U = window.__east, S = U.S, P = U.P; let best = -1, n = 0; for (const g of U.M.reg) { if (window.__E?.sideOf && 0) {} const us = S.at[g.id].filter((u) => u.s === P && u.mp > 0.2 && !u.att); if (us.length > n && U.attackers) { n = us.length; best = g.id; } } return best; });
   const frontReg = await ev(() => { const U = window.__east, S = U.S, P = U.P, M = U.M; let best = -1, bn = 0; for (const g of M.reg) { const us = S.at[g.id].filter((u) => u.s === P && u.mp > 0.2); if (!us.length) continue; const en = g.nb.some((e) => S.at[e.r].some((u) => u.s !== P)); if (en && us.length > bn && g.z === 2) { bn = us.length; best = g.id; } } return best; });
@@ -118,15 +129,46 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
     if (await has('.e-panel [data-a=attack]')) { await click('.e-panel [data-a=attack]', 300); if (await has('.e-panel [data-a=attack].warn')) { console.log('attack2: low odds, confirm'); await shot('attack2_confirm', 50); await click('.e-panel [data-a=attack].warn', 700); } console.log('attack2:', await txt('.e-toasts', 140)); await shot('attack2', 100); }
     if (await has('.e-panel [data-a=pclose]')) await click('.e-panel [data-a=pclose]');
   }
+  // своя тыловая область с заводами: стройка (укрепления, заводы, ПВО…)
+  const rear = await ev(() => { const U = window.__east, S = U.S, P = U.P; let b = -1, bf = -1; for (const g of U.M.reg) { if (U.S.own[g.id] < 0 || window.__east.S.at[g.id].some((u) => u.s !== P)) continue; const sd = U.M.nats[S.own[g.id]]; if (sd !== P) continue; if ((S.fac[g.id] || 0) > bf) { bf = S.fac[g.id] || 0; b = g.id; } } return b; });
+  if (rear >= 0) {
+    await ev((r) => { const U = window.__east, g = U.M.reg[r]; U.map.centerOn(g.x, g.y, 0.9); }, rear); await page.waitForTimeout(400);
+    await tapReg(rear); await shot('region_build'); await overflow('region build');
+    const nb = await ev(() => document.querySelectorAll('.e-panel [data-a=bld]').length);
+    ok(nb >= 3, 'build buttons in region panel');
+    if (await has('.e-panel [data-a=bld]:not([disabled])')) { await click('.e-panel [data-a=bld]:not([disabled])', 300); console.log('build:', await txt('.e-toasts', 140)); }
+    if (await has('.e-panel [data-a=pclose]')) await click('.e-panel [data-a=pclose]');
+  }
   await click('[data-a=army]'); await shot('army'); await overflow('army');
-  if (await has('.e-panel [data-a=rec]')) { await click('.e-panel [data-a=rec]', 300); console.log('recruit:', await txt('.e-toasts', 140)); }
-  await click('[data-a=build]'); await shot('build'); await overflow('build');
-  if (await has('.e-panel [data-a=bld]')) { await click('.e-panel [data-a=bld]', 300); console.log('build:', await txt('.e-toasts', 140)); }
+  if (process.env.DBG) console.log('army panel:', await ev(() => { const p = document.querySelector('.e-panel'); return p.className + ' | ' + p.querySelectorAll('[data-a=fleet]').length + ' | ' + p.innerText.replace(/\s+/g, ' ').slice(0, 300); }));
+  for (let i = 0; i < 3 && await has('.e-panel [data-a=rqn][data-d="1"]'); i++) await click('.e-panel [data-a=rqn][data-d="1"]', 150);
+  if (await has('.e-panel [data-a=rqgo]')) { await click('.e-panel [data-a=rqgo]', 300); console.log('recruit:', await txt('.e-toasts', 140)); } else console.log('recruit: nothing to train (equipment)');
+  if (process.env.DBG) console.log('army panel 2:', await ev(() => { const p = document.querySelector('.e-panel'); return p.className + ' | ' + p.querySelectorAll('[data-a=fleet]').length + ' | ' + [...p.querySelectorAll('[data-a=fleet]')].map((e) => e.getClientRects().length + ':' + e.disabled).join(',') + ' | ' + p.innerText.replace(/\s+/g, ' ').slice(0, 200); }));
+  if (await has('.e-panel [data-a=fleet][data-sea]')) {
+    await click('.e-panel [data-a=fleet][data-sea]', 400); await shot('fleet'); await overflow('fleet');
+    ok(await ev(() => document.querySelectorAll('.e-panel .e-sea').length >= 3), 'fleet panel: 3 seas');
+  } else ok(false, 'fleet link in army panel');
+  await click('[data-a=eco]'); await shot('eco'); await overflow('eco');
+  await click('[data-a=sci]'); await shot('sci'); await overflow('sci');
+  await click('[data-a=dec]'); await shot('dec'); await overflow('dec');
+  ok(await ev(() => document.querySelectorAll('.e-panel .e-dc').length >= 5), 'decisions listed');
+  if (await has('.e-panel [data-a=dgo]:not([disabled])')) { await click('.e-panel [data-a=dgo]:not([disabled])', 300); console.log('decision:', await txt('.e-toasts', 140)); }
   await click('[data-a=log]'); await shot('log'); await overflow('log');
   await click('.e-panel [data-a=pclose]');
   await click('[data-a=gmenu]'); await shot('gmenu'); await overflow('gmenu'); await click('.e-modal [data-a=close]');
   }
   await ev(() => window.__east.homeView(false));
+  if (PEACE) {
+    ok(await ev(() => !!window.__east.S.peace), 'early start: peace');
+    ok(await has('.e-skips:not(.hidden) [data-a=skip][data-n=m]'), 'peace: month button');
+    const t1 = await ev(() => window.__east.S.turn);
+    await click('.e-skips [data-a=skip][data-n=m]', 100);
+    ok(await waitIdle(120000), 'month finished');
+    await drainCards();
+    const t2 = await ev(() => window.__east.S.turn);
+    console.log('month:', t1, '→', t2, await txt('.e-date b', 40));
+    ok(t2 - t1 >= 4 || !(await ev(() => window.__east.S.peace)), 'month: 4+ weeks');
+  }
   let choices = 0;
   for (let t = 0; t < TURNS; t++) {
     const d0 = await txt('.e-date b', 40);
@@ -144,8 +186,9 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   if (await ev(() => window.__east.mode === 'over')) { console.log('errors:', errs.length ? errs.slice(0, 10).join('\n') : 'none'); await browser.close(); process.exit(0); }
   await shot('after_turns');
   // удар после нескольких недель (войска готовы): карточка области противника → «Атаковать»
-  const enR2 = await ev(() => { const U = window.__east; let b = -1, n = 0; for (const g of U.M.reg) { const k = U.attackers(g.id).length; if (k > n) (n = k), (b = g.id); } return b; });
-  ok(enR2 >= 0, 'some attack possible after turns');
+  const stillPeace = await ev(() => !!window.__east.S.peace);
+  const enR2 = stillPeace ? -1 : await ev(() => { const U = window.__east; let b = -1, n = 0; for (const g of U.M.reg) { const k = U.attackers(g.id).length; if (k > n) (n = k), (b = g.id); } return b; });
+  if (stillPeace) console.log('still peace: attack check skipped'); else ok(enR2 >= 0, 'some attack possible after turns');
   if (enR2 >= 0) {
     await ev((r) => { const U = window.__east, g = U.M.reg[r]; U.map.centerOn(g.x, g.y, 0.9); }, enR2); await page.waitForTimeout(400);
     await tapReg(enR2); await shot('region_enemy2'); await overflow('region enemy2');

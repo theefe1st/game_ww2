@@ -555,7 +555,7 @@
 .e-btn.e-wide{width:100%;justify-content:center}
 /* v0.11 (отзыв 04.11): решения за ★ */
 .e-chip.dot{position:relative}
-.e-chip.dot::after{content:'';position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;background:#e9604a;box-shadow:0 0 0 2px #241d16}
+.e-chip.dot::after{content:'';position:absolute;top:-4px;right:0;width:10px;height:10px;border-radius:50%;background:#e9604a;box-shadow:0 0 0 2px #241d16}
 .e-dcs{display:flex;flex-direction:column;gap:6px}
 .e-dc{display:flex;flex-direction:column;gap:6px;padding:7px 8px;border-radius:12px;background:rgba(255,240,210,.06);border:1px solid rgba(255,240,210,.1)}
 .e-dc.k-ok{border-color:rgba(233,200,103,.55);background:rgba(226,182,78,.1)}

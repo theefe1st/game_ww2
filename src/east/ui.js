@@ -39,7 +39,7 @@ const META = 'wf_east_meta', OPTS = 'wf_east_opts', TIPS = 'wf_east_tips';
 const ZN_ = ZONES.map((z) => z.n);
 const TIP_TEXT = {
   map: ['compass', 'Карта фронта', 'Красная линия — фронт. Двигайте карту пальцем, увеличивайте двумя пальцами. Нажмите на область — увидите войска.'],
-  dirs: ['compass', 'Направления', 'Фронт поделён на 5 направлений. У каждого — генерал. Дайте приказ: оборона, наступление или «авто».'],
+  dirs: ['compass', 'Фронты', 'Пять фронтов, у каждого — генерал. Дайте приказ: «Авто», «Оборона», «Наступление» или «Отход». Фронт можно вести и вручную.'],
   next: ['next', 'Ход = неделя', 'Нажмите «Ход» — генералы выполнят приказы, противник ответит. Война идёт с июня 1941 до мая 1945.'],
   attack: ['atk', 'Удар', 'Нажмите на область противника рядом с вашими войсками — увидите шансы и кнопку «Атаковать».'],
   pocket: ['encircle', 'Котёл!', 'Войска без снабжения слабеют и сдаются. Вырывайтесь к своим или деблокируйте их ударом извне.'],
@@ -190,7 +190,7 @@ export class EastUI {
       case 'evok': this.snd.play('click'); return this.nextCard();
       case 'rep': this.snd.play('click'); return this.nextCard();
       case 'decgo': this.snd.play('click'); this.afterCards = () => ACTX.dec.call(this); return this.nextCard();
-      case 'rqgo': { // после остальных карточек (события) — «Фронты» у нужного фронта
+      case 'rqfront': { // просьба генерала в сводке: после остальных карточек (события) — «Фронты» у нужного фронта
         this.snd.play('click'); const z = +b.dataset.z;
         this.afterCards = () => { this.fOpen = -1; this.openPanel('dirs'); setTimeout(() => this.$(`.e-front[data-f="${z}"]`)?.scrollIntoView({ block: 'center' }), 30); };
         return this.nextCard();
@@ -278,11 +278,12 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
   // ——— как играть ———
   showHelp() {
     const P = [
-      ['calendar', 'Ход — неделя', 'Война идёт с 22 июня 1941 года. Каждый ход — неделя: сначала действует Германия, потом СССР. Погода меняется: летом сухо, осенью и весной распутица, зимой морозы.'],
-      ['compass', 'Направления и генералы', 'Фронт поделён на 5 направлений: Финское, Северное, Центральное, Южное и Кавказское. Генералы сами ведут войска — вы даёте приказ: «Оборона», «Наступление» с целью, «Отход» или «Авто».'],
+      ['calendar', 'Ход — неделя', 'Война начинается 22 июня 1941 года. При раннем старте (1936, 1939, июнь 1941) до неё — мирное время: стройка и подготовка. Каждый ход — неделя: сначала действует Германия, потом СССР. Летом сухо, осенью и весной распутица, зимой морозы.'],
+      ['compass', 'Фронты и генералы', 'Пять фронтов: Финский, Северный, Центральный, Южный и Кавказский. Генералы сами ведут войска — вы даёте приказ: «Оборона», «Наступление» с целью, «Отход» или «Авто». Дивизии и авиацию можно перебрасывать между фронтами, а фронт — вести вручную.'],
       ['atk', 'Удары и котлы', 'Бой идёт за область. Перевес сил, местность, реки, укрепления и погода решают исход. Войска без снабжения слабеют и сдаются — окружайте врага и не давайте окружить себя.'],
       ['hand', 'Свои приказы', 'Нажмите на свою область — можно переместить войска. Нажмите на область врага рядом — увидите шансы и кнопку «Атаковать». Остальное сделают генералы.'],
-      ['factory', 'Хозяйство', '⚙ производство — от заводов, 👥 люди — от населения. Из них пополняются дивизии и формируются новые. Стройте заводы в тылу, укрепления у фронта, аэродромы для авиации.'],
+      ['factory', 'Хозяйство и армия', '⚙ производство — от военных заводов: делите его между оружием, артиллерией, танками и самолётами. Нажмите на свою область — стройбригады построят заводы, укрепления, ПВО, аэродромы. Новые дивизии — в «Армии»: выбрать → обучить → на фронт.'],
+      ['pol', 'Решения, наука, флот', 'Кнопка ★ — решения: приказы № 270 и № 227, ленд-лиз, мобилизация и другие. «Наука» усиливает войска и хозяйство. Флоты на море помогают десантам, боям у берега и конвоям.'],
       ['trophy', 'Победа', 'СССР побеждает, взяв Берлин. Германия — взяв Москву и ещё два крупных города, или сломив боевой дух СССР. В конце 1945 г. победителя решат очки городов.'],
     ];
     const k = Math.min(P.length - 1, this.helpPage || 0), p = P[k];
@@ -465,7 +466,7 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
   // просьбы командующих — в сводку недели (подробности и кнопки — во «Фронтах»)
   repReqs() {
     const S = this.S, P = this.P, L = [], rq = Fr.frontReqs(S, P);
-    for (let z = 0; z < E.ZN; z++) { const q = rq[z]; if (q) L.push(`<button class="e-rq" data-a="rqgo" data-z="${z}">${ic(Fr.REQ[q.k].ic)}<span><b>${esc(frontShort(S.fr[P][z].n))}</b> — ${esc(Fr.REQ[q.k].t.toLowerCase())}</span>${ic('right')}</button>`); }
+    for (let z = 0; z < E.ZN; z++) { const q = rq[z]; if (q) L.push(`<button class="e-rq" data-a="rqfront" data-z="${z}">${ic(Fr.REQ[q.k].ic)}<span><b>${esc(frontShort(S.fr[P][z].n))}</b> — ${esc(Fr.REQ[q.k].t.toLowerCase())}</span>${ic('right')}</button>`); }
     return L.length ? `<div class="e-rqs"><h4>${ic('radio')}Просьбы фронтов</h4>${L.join('')}</div>` : '';
   }
   // новые решения недели — в сводку (кнопка открывает «Решения»)
@@ -668,7 +669,10 @@ ${this.histCmp(o)}
     const name = g.city && g.city.n !== g.n ? `${esc(g.city.n)} <small>${esc(g.n)}</small>` : esc(g.n);
     const nv = !S.peace && sd ? navSup(S, r) : null; // флоты у берега (fleet.js): до ±15 % в бою
     const navT = nv ? `${nv[P] > 0 ? `<span class="e-tag good" title="поддержка флота в бою">${ic('warship')}флот</span>` : ''}${nv[other(P)] > 0 ? `<span class="e-tag warn" title="флот противника у берега">${ic('warship')}флот противника</span>` : ''}` : '';
-    const info = `<div class="e-tags"><span class="e-tag">${ic(g.t === 'for' ? 'wheat' : g.t === 'mnt' || g.t === 'hil' ? 'mtn' : 'compass')}${esc(TER[g.t].n)}</span><span class="e-tag">${ic(WX[S.wx[g.z]].ic)}${esc(WX[S.wx[g.z]].n)}</span>${sd === this.P ? `<span class="e-tag" style="color:${FRONT_COL[S.fr[sd][S.fz[r]]?.col]}">${ic('flag')}${esc(frontShort(S.fr[sd][S.fz[r]]?.n))}</span>` : `<span class="e-tag">${esc(ZONES[g.z].n)}</span>`}${supT}${navT}${g.arc ? `<span class="e-tag" title="тундра, сопки и болота без дорог: атака ×0,5">${ic('snow')}Заполярье</span>` : ''}${g.vp ? `<span class="e-tag gold">${ic('star')}${g.vp}</span>` : ''}</div>`;
+    // за Ось: куда и когда наступает финская армия (engine.js: FIN_GO)
+    const fg = P === 'GER' && sd === 'SOV' && g.z === 0 && !S.peace ? E.finGo(S, r) : -Infinity;
+    const finT = fg === Infinity ? `<span class="e-tag" title="Маннергейм: дальше рубежа 1941 г. финская армия не наступает (немецкие дивизии — могут)">${ic('flag')}финны сюда не идут</span>` : fg > S.turn ? `<span class="e-tag" title="Маннергейм: финская армия наступает по своему плану 1941 г.">${ic('calendar')}финны — с ${esc(fmtTurn(fg))}</span>` : '';
+    const info = `<div class="e-tags"><span class="e-tag">${ic(g.t === 'for' ? 'wheat' : g.t === 'mnt' || g.t === 'hil' ? 'mtn' : 'compass')}${esc(TER[g.t].n)}</span><span class="e-tag">${ic(WX[S.wx[g.z]].ic)}${esc(WX[S.wx[g.z]].n)}</span>${sd === this.P ? `<span class="e-tag" style="color:${FRONT_COL[S.fr[sd][S.fz[r]]?.col]}">${ic('flag')}${esc(frontShort(S.fr[sd][S.fz[r]]?.n))}</span>` : `<span class="e-tag">${esc(ZONES[g.z].n)}</span>`}${supT}${navT}${g.arc ? `<span class="e-tag" title="тундра, сопки и болота без дорог: атака ×0,5">${ic('snow')}Заполярье</span>` : ''}${finT}${g.vp ? `<span class="e-tag gold">${ic('star')}${g.vp}</span>` : ''}</div>`;
     const blds = this.bGrid(r) + (E.garOf(S, r) > 0 && sd ? `<div class="e-bl"><span title="Гарнизон">${ic('rifle')}<small>гарнизон</small></span></div>` : '');
     const ulist = us.length ? `<div class="e-units">${us.map((u) => `<div class="e-u ${u.s === P ? '' : 'en'}"><img src="${counterURL(u.nat, u.t, divLabel(u), wmOf(u))}" alt=""><div><b>${esc(u.n)}</b><small>${esc(TYPES[u.t].n)}${u.nat !== u.s ? ` · ${esc(NAT_N[u.nat])}` : ''}${u.man ? ' · приказ отдан' : ''}</small><i class="e-str"><em style="width:${Math.max(4, u.str)}%;background:${strCol(u.str)}"></em></i>${u.s === P && u.t !== 'sec' && u.rdy < 22 ? `<small class="e-nrdy">${ic('hourglass')}не готова к удару</small>` : ''}</div></div>`).join('')}</div>` : `<div class="e-note">${ic('info')}Войск нет</div>`;
     let act = '';
@@ -686,8 +690,8 @@ ${this.histCmp(o)}
         const w = Math.max(5, Math.min(95, (R / (R + 1)) * 100));
         act = `<div class="e-odds ${lab[1]}"><div class="e-oh">${ic('atk')}<b>${lab[0]}</b><small>×${R.toFixed(1)}</small></div>
 <div class="e-force"><span>${flagHTML(P, 'xs')}${at.length}</span><i><em style="width:${w}%"></em></i><span>${S.at[r].length}${E.garOf(S, r) > 0 ? '+' + ic('rifle') : ''}${flagHTML(nat, 'xs')}</span></div>
-<div class="e-acts"><button class="e-btn ${R >= 1.2 ? 'gold' : ''}" data-a="attack" data-r="${r}">${ic('atk')}<span>Атаковать<small>${at.length} ${divW(at.length)}</small></span></button><button class="e-btn sm" data-a="settgt" data-r="${r}">${ic('target')}<span>Цель направления</span></button></div></div>`;
-      } else act = `<div class="e-acts"><div class="e-note">${ic('info')}Рядом нет наших войск, готовых к удару</div><button class="e-btn sm" data-a="settgt" data-r="${r}">${ic('target')}<span>Цель направления</span></button></div>`;
+<div class="e-acts"><button class="e-btn ${R >= 1.2 ? 'gold' : ''}" data-a="attack" data-r="${r}">${ic('atk')}<span>Атаковать<small>${at.length} ${divW(at.length)}</small></span></button><button class="e-btn sm" data-a="settgt" data-r="${r}">${ic('target')}<span>Цель фронта</span></button></div></div>`;
+      } else act = `<div class="e-acts"><div class="e-note">${ic('info')}Рядом нет наших войск, готовых к удару</div><button class="e-btn sm" data-a="settgt" data-r="${r}">${ic('target')}<span>Цель фронта</span></button></div>`;
     }
     return `${this.head(flagHTML(nat || 'NEU'), name, sd ? esc(NAT_N[nat] || '') : `${NAT_N[nat] ? `${esc(NAT_N[nat])} · ` : ''}нейтральная страна`)}<div class="e-pbody">${info}${act}${ulist}${sd ? blds : ''}</div>`;
   }

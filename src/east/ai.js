@@ -356,8 +356,10 @@ function offensive(S, C, z) {
       }
       if (!pick.length) continue;
       let o = odds(S, c.e, pick);
-      // не хватает перевеса на главном участке — подтянуть второй эшелон
-      if (o.R < rMin && masses < 3 && o.R >= rMin * 0.45) { masses++; if (massFor(S, C, c.e, pick, rMin * 1.2)) o = odds(S, c.e, pick); }
+      // не хватает перевеса на главном участке — подтянуть второй эшелон; в конце войны цель фронта (Кёнигсберг,
+      // Будапешт, Берлин…) штурмуют и при слабом начальном перевесе: стягивают больше дивизий
+      const push = c.e === T && side === 'SOV' && yearF(S.turn) >= 1944.5;
+      if (o.R < rMin && masses < 3 && o.R >= rMin * (push ? 0.12 : 0.45)) { masses++; if (massFor(S, C, c.e, pick, rMin * 1.2, push ? 24 : 14)) o = odds(S, c.e, pick); }
       if (o.R < (early41 ? 0.95 : rMin)) continue;
       const main = mainOrigin(pick);
       const keep = new Set(pick.filter((u) => u.r !== main && !isMech(u)));
@@ -368,7 +370,7 @@ function offensive(S, C, z) {
   }
 }
 // сосредоточение: дивизии второго эшелона (в пределах хода) выходят к области атаки, пока не наберётся перевес
-function massFor(S, C, e, pick, rWant) {
+function massFor(S, C, e, pick, rWant, nMax = 14) {
   const { side } = C, M = S.M, g = M.reg[e];
   const adj = g.nb.filter((n) => sideOf(S, n.r) === side && n.sp !== 'sea').map((n) => n.r);
   if (!adj.length) return false;
@@ -377,7 +379,7 @@ function massFor(S, C, e, pick, rWant) {
   pool.sort((a, b) => Math.abs(M.reg[a.r].x - g.x) + Math.abs(M.reg[a.r].y - g.y) - (Math.abs(M.reg[b.r].x - g.x) + Math.abs(M.reg[b.r].y - g.y)));
   let n = 0;
   for (const u of pool) {
-    if (n >= 14) break;
+    if (n >= nMax) break;
     if (!keepOK(S, C, u)) continue;
     n++;
     const Rr = reach(S, u);
