@@ -4,7 +4,7 @@
 // восстанавливается). Выпуск копится в запасах снаряжения S.eq; из них идут пополнение и новые дивизии
 // (каждый род войск — своей смесью снаряжения, EQS). Самолёты — множитель к численности ВВС.
 // Стройка — строительными бригадами (отзыв 04.11): очередь построек S.q, срок проекта — в неделях работы бригады.
-import { TYPES, SIDE0, yearF, lerpT } from './rules.js';
+import { TYPES, SIDE0, yearF, lerpT, WK, wT, perTurn } from './rules.js';
 import { tx } from './tech.js';
 import { sideOf, isFront, note } from './engine.js';
 import { decK } from './decisions.js';
@@ -82,22 +82,22 @@ export function shiftLine(S, side, c, dir, F = 0) {
   setShares(S, side, sh);
   L.airT = L.sh.air;
 }
-// выпуск за неделю: в запасы снаряжения и в ВВС
+// выпуск за ход (W — уже за ход): в запасы снаряжения и в ВВС; переналадка и рост эффективности — по долям недели
 export function produce(S, side, W) {
   const L = S.line[side];
   if (L.auto || side !== S.side) {
     const T = lineTarget(S, side, mixNow(side, S.turn)), sh = {};
-    for (const c of LINES) sh[c] = L.sh[c] + Math.max(-0.04, Math.min(0.04, T[c] - L.sh[c]));
+    for (const c of LINES) sh[c] = L.sh[c] + Math.max(-0.04 * WK, Math.min(0.04 * WK, T[c] - L.sh[c]));
     setShares(S, side, sh);
   }
   const cap = effCap(S, side), out = {};
   for (const c of LINES) {
     out[c] = W * L.sh[c] * L.e[c];
     if (c !== 'air') S.eq[side][c] += out[c];
-    L.e[c] = Math.min(cap, L.e[c] + E_REC);
+    L.e[c] = Math.min(cap, L.e[c] + E_REC * WK);
   }
   const k = Math.max(0.3, Math.min(2, out.air / Math.max(1, W * AIR_SH)));
-  S.airK[side] += (k - S.airK[side]) * 0.25;
+  S.airK[side] += (k - S.airK[side]) * (1 - perTurn(0.75));
   return out;
 }
 // ——— стройка: строительные бригады (отзыв 04.11: без гражданских фабрик) ———
@@ -120,7 +120,7 @@ export const BUILD_ORDER = ['fac', 'fort', 'aa', 'afd', 'camp', 'dep'];
 // каждый новый завод строится на 12 % дольше прежнего: рост не бесконечен
 export const bWeeks = (S, side, k) => BUILD[k].w * (k === 'fac' ? 1 + 0.12 * (S.built?.[side]?.fac || 0) : 1);
 const bump = (S, side, k, d) => { if (k !== 'fac') return; S.built ??= {}; const o = (S.built[side] ??= { fac: 0 }); o.fac = Math.max(0, (o.fac || 0) + d); };
-// темп работ в области: недель работы за неделю
+// темп работ в области: недель работы за неделю (за ход — × WK)
 // мирное время: стройка вдвое медленнее (материалы и люди нужны и гражданской экономике)
 export const bRate0 = (S, side) => (1 + tx(S, side, 'cp')) * (S.flags[side + 'cp'] || 1) * (S.peace ? 0.5 : 1);
 export function bRate(S, side, r) {
@@ -129,8 +129,10 @@ export function bRate(S, side, r) {
   if (!S.rail[r]) k /= 1.25;
   return k;
 }
-// срок нового проекта в области (недель)
-export const bTime = (S, side, r, k) => Math.max(1, Math.ceil(bWeeks(S, side, k) / bRate(S, side, r) - 1e-6));
+// срок нового проекта в области (ходов)
+export const bTime = (S, side, r, k) => Math.max(1, Math.ceil(bWeeks(S, side, k) / (bRate(S, side, r) * WK) - 1e-6));
+// срок проекта в тылу у железной дороги (ходов) — для справки «что можно построить»
+export const bTime0 = (S, side, k) => Math.max(1, Math.ceil(bWeeks(S, side, k) / (bRate0(S, side) * WK) - 1e-6));
 export const QMAX = 30;
 export const myQ = (S, side) => S.q.filter((b) => b.s === side && !b.lost);
 export const brigBusy = (S, side) => Math.min(brigN(S, side), myQ(S, side).length);
@@ -177,7 +179,7 @@ export function qLost(S, r) {
   for (const b of S.q) if (b.r === r) bump(S, b.s, b.k, -1);
   S.q = S.q.filter((b) => b.r !== r);
 }
-// недель до готовности проекта (с учётом очереди: бригада освобождается — берёт следующий проект)
+// ходов до готовности проекта (с учётом очереди: бригада освобождается — берёт следующий проект)
 export function etaOf(S, side, b) {
   const N = brigN(S, side);
   if (N <= 0) return 99;
@@ -185,7 +187,7 @@ export function etaOf(S, side, b) {
   for (const x of myQ(S, side)) {
     let i = 0;
     for (let j = 1; j < N; j++) if (t[j] < t[i]) i = j;
-    t[i] += Math.max(1, Math.ceil(x.left / bRate(S, side, x.r) - 1e-6));
+    t[i] += Math.max(1, Math.ceil(x.left / (bRate(S, side, x.r) * WK) - 1e-6));
     if (x === b) return t[i];
   }
   return 99;
@@ -197,7 +199,7 @@ export function construct(S, side) {
     if (b.s !== side || b.lost) continue;
     if (sideOf(S, b.r) !== side) { b.lost = 1; bump(S, side, b.k, -1); continue; }
     if (n-- <= 0) continue;
-    b.left -= bRate(S, side, b.r);
+    b.left -= bRate(S, side, b.r) * WK;
     if (b.left <= 1e-3) done.push(b);
   }
   for (const b of done) {
@@ -216,7 +218,7 @@ export function aaCover(S, r, side) {
   for (const e of S.M.reg[r].nb) if (S.aa[e.r] && sideOf(S, e.r) === side) return 0.2;
   return 0;
 }
-// ——— эвакуация (СССР): заводы уезжают в тыл и через 8 недель работают там ———
+// ——— эвакуация (СССР): заводы уезжают в тыл и через 8 недель работают там (e.left — в ходах) ———
 export function canEvac(S, r) { return sideOf(S, r) === 'SOV' && S.fac[r] > 0 && SIDE0[S.M.nats[S.own0[r]]] === 'SOV' && !S.M.reg[r].f.includes('e') && S.M.reg[r].x < 2300; }
 export function evacuate(S, r) {
   if (!canEvac(S, r)) return false;
@@ -225,7 +227,7 @@ export function evacuate(S, r) {
   if (!tg) return false;
   S.fac[r] = 0;
   for (const b of S.q.filter((x) => x.r === r && x.k === 'fac')) unbuild(S, b);
-  S.evac.push({ r, to: tg.id, n, left: Math.round(8 * decK(S, 'SOV', 'evac')) });
+  S.evac.push({ r, to: tg.id, n, left: wT(8 * decK(S, 'SOV', 'evac')) });
   note(S, { ic: 'train', side: 'SOV', txt: `Заводы ${M.reg[r].n} — эвакуация в ${tg.n}`, r });
   return true;
 }
@@ -234,7 +236,7 @@ export function evacWeek(S) {
   for (const e of S.evac.filter((x) => x.left <= 0)) { S.fac[e.to] += e.n; note(S, { ic: 'factory', side: 'SOV', txt: `Эвакуированные заводы заработали: ${S.M.reg[e.to].n}`, r: e.to }); }
   S.evac = S.evac.filter((x) => x.left > 0);
 }
-// ★ политическая власть за неделю (решения — v0.11, шаг 6)
+// ★ политическая власть за неделю (решения — v0.11, шаг 6); за ход — × WK (engine.economy)
 export const polOf = (S, side) => (side === 'SOV' ? 2 : 1.8) * (S.flags[side + 'pol'] || 1);
 // поля хозяйства v0.11 (новая игра и старые сохранения)
 const CAMP0 = { SOV: ['Москва', 'Горький', 'Куйбышев', 'Свердловск'], GER: ['Берлин', 'Варшава', 'Кёнигсберг'] };

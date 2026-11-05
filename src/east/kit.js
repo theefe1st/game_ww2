@@ -1,13 +1,22 @@
 // «Мировой фронт» v0.11, «Восточный фронт»: общие мелочи интерфейса (экранирование, значки, числа, флаги, портреты)
 import { icon } from './icons.js';
-import { plural } from './rules.js';
+import { plural, turnsW, TD } from './rules.js';
+export { turnsW };
 import { ALLG, POR_NAT } from '../war/gens41.js';
-import { portraitURLP } from '../staff/portraits.js';
+import { portraitURLP, portraitCanvasP } from '../staff/portraits.js';
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 export const ic = (k, cls = '') => icon(k, cls);
 export const num = (x) => Math.round(x).toLocaleString('ru-RU');
 export const weeksW = (n) => `${n} ${plural(n, 'неделя', 'недели', 'недель')}`;
-// срок «до …» (мирное время): недели → месяцы → годы
+// срок «до …» в ходах (v0.11.1: ход — 5 дней): дни → месяцы → годы
+export const untilT = (t) => {
+  const d = Math.max(0, t) * TD;
+  if (d < 60) return `${d} ${plural(d, 'день', 'дня', 'дней')}`;
+  const m = Math.round(d / 30.44);
+  if (m < 12) return `${m} мес.`;
+  const y = Math.floor(m / 12), mm = m % 12;
+  return `${y} ${plural(y, 'год', 'года', 'лет')}${mm ? ` ${mm} мес.` : ''}`;
+};
 export const untilW = (w) => {
   if (w < 9) return weeksW(Math.max(0, w));
   const m = Math.round((w * 7) / 30.44);
@@ -34,5 +43,7 @@ export function flagHTML(nat, cls = '') {
   return `<span class="e-flag ${cls}" style="${st}">${inner}</span>`;
 }
 export const genURL = (k) => { const G = ALLG[k]; return G ? portraitURLP('w:' + k, G.por, POR_NAT[G.nat] || 'GER', 3) : ''; };
+// портрет на холсте 40 × 48 (для карты: без кодирования в PNG — первый toDataURL бывает долгим)
+export const genCanvas = (k) => { const G = ALLG[k]; return G ? portraitCanvasP('w:' + k, G.por, POR_NAT[G.nat] || 'GER') : null; };
 export const strCol = (s) => (s >= 70 ? '#6fb44e' : s >= 40 ? '#d9b23a' : '#d0583a');
 export const POST = { auto: { n: 'Авто', ic: 'auto', d: 'генерал решает сам' }, def: { n: 'Оборона', ic: 'def', d: 'держать фронт, контратаки' }, atk: { n: 'Наступление', ic: 'atk', d: 'удары к цели' }, ret: { n: 'Отход', ic: 'ret', d: 'отступить, сберечь войска' } };

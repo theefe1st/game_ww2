@@ -1,7 +1,7 @@
 // «Мировой фронт» v0.11: операции — морской десант (из своего порта на берег того же моря) и воздушный десант
 // (дивизии ВДВ с аэродрома). Открываются наукой (ветка «Операции»), сила — от изученного (opK).
 // Моря — по растру суши (8 км): связные куски воды; прибрежные области — по береговым дугам карты.
-import { TYPES, isMech, other, yearF, quality } from './rules.js';
+import { TYPES, isMech, other, yearF, quality, wT, turnsW, WK } from './rules.js';
 import { sideOf, garOf, resolveAttack, moveUnit, capture, alive, room, airRatio, note, odds, computeSupply, aaCover } from './engine.js';
 import { hasU, unV } from './tech.js';
 import { seaDom } from './fleet.js';
@@ -73,7 +73,7 @@ export const OPS = {
   sea: { n: 'Морской десант', ic: 'landing', max: 3, range: 650, cd: 4, k: 0.5, fail: 12, tech: 'Морская пехота' },
   abn: { n: 'Воздушный десант', ic: 'para', max: 2, range: 380, cd: 3, k: 0.6, fail: 20, tech: 'Воздушно-десантные войска' },
 };
-const fullMp = (u) => u.mp >= TYPES[u.t].mp * 0.9 - 1e-6;
+const fullMp = (u) => u.mp >= TYPES[u.t].mp * WK * 0.9 - 1e-6; // очки хода целиком (TYPES — за неделю)
 export function opUnits(S, side, kind, r) {
   const ok = (u) => alive(u) && u.s === side && !u.att && fullMp(u) && (kind === 'sea' ? !isMech(u) && u.t !== 'cav' && u.t !== 'sec' && u.rdy >= 50 && u.str >= 40 : u.t === 'abn' && u.rdy >= 60 && u.str >= 50);
   return S.at[r].filter(ok).sort((a, b) => b.str - a.str).slice(0, OPS[kind].max);
@@ -88,7 +88,7 @@ export function opWhy(S, side, kind, r) {
   if (kind === 'abn' && !S.afd[r]) return 'нужен аэродром';
   if ((S.sup[side]?.[r] ?? 0) <= 0) return 'нет снабжения';
   const cd = S.opCd?.[side]?.[kind] ?? -1;
-  if (cd > S.turn) return `готовится: ещё ${cd - S.turn} нед.`;
+  if (cd > S.turn) return `готовится: ещё ${turnsW(cd - S.turn)}`;
   if (!opUnits(S, side, kind, r).length) return kind === 'sea' ? 'нет готовой пехоты (полные ходы, готовность от 50 %)' : 'нет готовых дивизий ВДВ';
   if (!opTargets(S, side, kind, r).length) return 'нет целей в досягаемости';
   return null;
@@ -141,8 +141,8 @@ export function runOp(S, side, kind, r, t, us = opUnits(S, side, kind, r)) {
   }
   for (const u of us) if (alive(u)) { u.att = 1; u.mp = 0; u.rdy = kind === 'abn' ? Math.min(u.rdy, 10) : Math.max(0, u.rdy - 30); }
   // плацдарм: снабжение морем или по воздуху несколько недель
-  if (res.win) (S.bridge ??= {})[t] = S.turn + (kind === 'sea' ? 5 : 3);
-  ((S.opCd ??= {})[side] ??= {})[kind] = S.turn + O.cd;
+  if (res.win) (S.bridge ??= {})[t] = S.turn + wT(kind === 'sea' ? 5 : 3);
+  ((S.opCd ??= {})[side] ??= {})[kind] = S.turn + wT(O.cd);
   note(S, { ic: O.ic, side, txt: `${O.n}: ${nm} — ${res.win ? (res.free ? 'высадка без боя' : 'плацдарм захвачен') : 'отбит'}`, r: t });
   computeSupply(S, side); computeSupply(S, other(side));
   return res;

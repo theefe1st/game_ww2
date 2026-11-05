@@ -2,7 +2,7 @@
 // подробности выбранной технологии (эффект, исторический срок, недели), сравнение с историей, «авто».
 import * as Tc from './tech.js';
 import { yearF } from './rules.js';
-import { esc, ic, weeksW } from './kit.js';
+import { esc, ic, turnsW } from './kit.js';
 
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 export const ym = (y) => `${MON[Math.min(11, Math.floor((y - Math.floor(y)) * 12))]} ${Math.floor(y)}`;
@@ -16,7 +16,7 @@ export const SciUI = {
     const slots = [];
     for (let i = 0; i < n; i++) {
       const k = X.cur[i], t = k && Tc.TK[k];
-      slots.push(t ? `<div class="e-line e-sl"><span class="e-lic">${ic(Tc.TB[t.b].ic)}</span><div class="e-lm"><b>${esc(Tc.techName(t, P))}</b><small>${esc(Tc.TB[t.b].n)} · ≈ ${weeksW(Tc.weeksLeft(S, P, k))}${t.y > y + 0.05 ? ' · раньше истории' : ''}</small><i class="e-eff"><em style="width:${pc(X.p[k] || 0)}"></em></i></div><button class="e-ib sm" data-a="tstop" data-i="${i}" aria-label="Остановить">${ic('close')}</button></div>`
+      slots.push(t ? `<div class="e-line e-sl"><span class="e-lic">${ic(Tc.TB[t.b].ic)}</span><div class="e-lm"><b>${esc(Tc.techName(t, P))}</b><small>${esc(Tc.TB[t.b].n)} · ≈ ${turnsW(Tc.weeksLeft(S, P, k))}${t.y > y + 0.05 ? ' · раньше истории' : ''}</small><i class="e-eff"><em style="width:${pc(X.p[k] || 0)}"></em></i></div><button class="e-ib sm" data-a="tstop" data-i="${i}" aria-label="Остановить">${ic('close')}</button></div>`
         : `<div class="e-line e-sl free"><span class="e-lic">${ic('sci')}</span><div class="e-lm"><b>Свободный слот</b><small>${X.auto ? 'Генштаб выберет сам в конце хода' : 'выберите технологию ниже'}</small></div></div>`);
     }
     // против истории
@@ -44,20 +44,20 @@ export const SciUI = {
         else if (cur >= 0) act = `<button class="e-btn sm" data-a="tstop" data-i="${cur}">${ic('close')}<span>Остановить<small>прогресс сохранится</small></span></button>`;
         else if (!can && prev && !X.done.includes(prev.k)) act = `<span class="e-tag">${ic('cancel')}Сначала: ${esc(Tc.techName(prev, P))}</span>`;
         else if (!can) act = `<span class="e-tag">${ic('hourglass')}Не раньше: ${ym(t.y - Tc.EARLY)}</span>`;
-        else if (free) act = `<button class="e-btn sm gold" data-a="tgo" data-k="${sel}">${ic('sci')}<span>Изучать<small>≈ ${weeksW(wk)}</small></span></button>`;
+        else if (free) act = `<button class="e-btn sm gold" data-a="tgo" data-k="${sel}">${ic('sci')}<span>Изучать<small>≈ ${turnsW(wk)}</small></span></button>`;
         else act = `<div class="e-trep"><small>Все слоты заняты. Заменить:</small>${X.cur.slice(0, n).map((c, i) => `<button class="e-btn sm" data-a="tgo" data-k="${sel}" data-i="${i}">${ic('swap')}<span>${esc(Tc.techName(Tc.TK[c], P))}</span></button>`).join('')}</div>`;
-        det = `<div class="e-td"><b>${esc(Tc.techName(t, P))}</b><small>${esc(Tc.techHint(t, P) || '')}</small>
-<div class="e-tags"><span class="e-tag gold">${ic('upgrade')}${esc(Tc.fxText(Tc.techFx(t, P)))}</span><span class="e-tag">${ic('calendar')}по истории: ${ym(t.y)}</span>${done ? '' : `<span class="e-tag ${pen > 1.05 ? 'warn' : pen < 0.95 ? 'good' : ''}">${ic('hourglass')}${weeksW(wk)}${pen > 1.05 ? ` (раньше истории: ×${String(Math.round(pen * 10) / 10).replace('.', ',')})` : pen < 0.95 ? ' (догоняем историю)' : ''}</span>`}</div>
+        det = `<div class="e-td"><b>${esc(Tc.techName(t, P))}</b><small class="e-pc">${esc(Tc.techHint(t, P) || '')}</small>
+<div class="e-tags"><span class="e-tag gold">${ic('upgrade')}${esc(Tc.fxText(Tc.techFx(t, P)))}</span><span class="e-tag">${ic('calendar')}по истории: ${ym(t.y)}</span>${done ? '' : `<span class="e-tag ${pen > 1.05 ? 'warn' : pen < 0.95 ? 'good' : ''}">${ic('hourglass')}${turnsW(wk)}${pen > 1.05 ? ` (раньше истории: ×${String(Math.round(pen * 10) / 10).replace('.', ',')})` : pen < 0.95 ? ' (догоняем историю)' : ''}</span>`}</div>
 <div class="e-acts">${act}</div></div>`;
       }
-      return `<div class="e-tbr"><h5>${ic(Tc.TB[b].ic)}${esc(Tc.TB[b].n)}<small>${nd}/${ts.length}</small></h5><div class="e-trow">${tiles}</div>${det}</div>`;
+      return `<div class="e-sec e-tbr${sel && Tc.TK[sel].b === b ? ' sel' : ''}"><h5>${ic(Tc.TB[b].ic)}${esc(Tc.TB[b].n)}<small>${nd}/${ts.length}</small></h5><div class="e-trow">${tiles}</div>${det}</div>`;
     }).join('');
-    return `${this.head(ic('sci'), 'Наука', `исследования: ${busy} из ${n} · изучено ${X.done.length} из ${Tc.TECH.length}`)}<div class="e-pbody">
-<div class="e-lines">${slots.join('')}</div>
-<div class="e-tags e-vs"><span class="e-vsl">Против истории:</span>${vs}</div>
+    return `${this.head(ic('sci'), 'Наука', `${ic('sci')} ${busy}/${n} · ${ic('check')} ${X.done.length}/${Tc.TECH.length}`)}<div class="e-pbody grid">
+<div class="e-sec"><h4>${ic('hourglass')}Исследования <small>${busy} из ${n}</small></h4><div class="e-lines">${slots.join('')}</div>
+<div class="e-tags e-vs"><span class="e-vsl">Против истории:</span>${vs}</div></div>
 ${rows}
-<button class="e-row e-toggle ${X.auto ? 'on' : ''}" data-a="tauto">${ic('auto')}<span>Генштаб сам выбирает исследования<small>в свободные слоты — по порядку истории</small></span><i></i></button>
-<div class="e-note">${ic('info')}Сила войск по годам уже учитывает, что изобрели в истории. Изучили раньше — прибавка, отстали — штраф. Раньше исторического срока исследование идёт дольше, позже — быстрее.${n < 3 ? ' Третий слот — с лета 1942 г.' : ''}</div>
+<div class="e-sec bare wide"><button class="e-row e-toggle ${X.auto ? 'on' : ''}" data-a="tauto">${ic('auto')}<span>Генштаб сам выбирает исследования<small class="e-pc">в свободные слоты — по порядку истории</small></span><i></i></button>
+<div class="e-note e-pc">${ic('info')}Сила войск по годам уже учитывает, что изобрели в истории. Изучили раньше — прибавка, отстали — штраф. Раньше исторического срока исследование идёт дольше, позже — быстрее.${n < 3 ? ' Третий слот — с лета 1942 г.' : ''}</div></div>
 </div>`;
   },
 };
@@ -72,7 +72,7 @@ export const SCI_ACT = {
     if (i >= 0) Tc.stop(S, P, i);
     if (!Tc.start(S, P, k, i)) { this.snd.play('error'); return this.toast(`${ic('cancel')}Нет свободного слота`); }
     this.snd.play('build');
-    this.toast(`${ic('sci')}${esc(Tc.techName(Tc.TK[k], P))}: ≈ ${weeksW(Tc.weeksLeft(S, P, k))}`);
+    this.toast(`${ic('sci')}${esc(Tc.techName(Tc.TK[k], P))}: ≈ ${turnsW(Tc.weeksLeft(S, P, k))}`);
     this.refresh();
   },
   tstop(b) { this.snd.play('click'); Tc.stop(this.S, this.P, +b.dataset.i); this.refresh(); },

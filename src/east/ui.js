@@ -27,46 +27,47 @@ import { EastMap } from './map.js';
 import { counterURL, divLabel, wmOf } from './counters.js';
 import { Sound } from './audio.js';
 import { icon } from './icons.js';
-import { fmtTurn, turnOf, SIDE_N, SIDE0, NAT_N, TYPES, TYPE_ORDER, TER, WX, DIFF, MODES, other, divW, plural } from './rules.js';
+import { fmtTurn, turnOf, SIDE_N, SIDE0, NAT_N, TYPES, TYPE_ORDER, TER, WX, DIFF, MODES, other, divW, plural, wT, TD, dayOfT, weatherOf } from './rules.js';
 import { ZONES } from './sites.js';
 import { ALLG, POR_NAT, TRAITS } from '../war/gens41.js';
 import { portraitURLP } from '../staff/portraits.js';
-import { esc, ic, num, weeksW, untilW, flagHTML, genURL, strCol, POST } from './kit.js';
+import { esc, ic, num, turnsW, untilT, flagHTML, genCanvas, strCol, POST } from './kit.js';
 
-const APP_VER = '0.11.0';
+const APP_VER = '0.11.1';
 export { flagHTML };
 const META = 'wf_east_meta', OPTS = 'wf_east_opts', TIPS = 'wf_east_tips';
 const ZN_ = ZONES.map((z) => z.n);
 const TIP_TEXT = {
-  map: ['compass', 'Карта фронта', 'Красная линия — фронт. Двигайте карту пальцем, увеличивайте двумя пальцами. Нажмите на область — увидите войска.'],
+  map: ['compass', 'Карта фронта', 'Цветные линии — фронты, штриховка — область занята частично. Двигайте карту пальцем, увеличивайте двумя пальцами. Нажмите на область — увидите войска.'],
   dirs: ['compass', 'Фронты', 'Пять фронтов, у каждого — генерал. Дайте приказ: «Авто», «Оборона», «Наступление» или «Отход». Фронт можно вести и вручную.'],
-  next: ['next', 'Ход = неделя', 'Нажмите «Ход» — генералы выполнят приказы, противник ответит. Война идёт с июня 1941 до мая 1945.'],
+  next: ['next', 'Ход = 5 дней', 'Нажмите «Ход» — генералы выполнят приказы, противник ответит. Война идёт с июня 1941 до мая 1945.'],
   attack: ['atk', 'Удар', 'Нажмите на область противника рядом с вашими войсками — увидите шансы и кнопку «Атаковать».'],
   pocket: ['encircle', 'Котёл!', 'Войска без снабжения слабеют и сдаются. Вырывайтесь к своим или деблокируйте их ударом извне.'],
   build: ['spade', 'Стройка', 'Стройбригады строят заводы, укрепления, ПВО, аэродромы, лагеря и склады: одна бригада — один проект. Нажмите на свою область.'],
-  dec: ['pol', 'Решения', 'Кнопка ★ сверху — решения: приказы, мобилизация, ленд-лиз и другие. ★ копится каждую неделю. Красная точка — есть новое решение.'],
+  dec: ['pol', 'Решения', 'Кнопка ★ сверху — решения: приказы, мобилизация, ленд-лиз и другие. ★ копится каждый ход. Красная точка — есть новое решение.'],
   peace: ['dove', 'Мирное время', 'До 22 июня 1941 г. боёв нет. Стройте заводы и укрепления, копите снаряжение, формируйте дивизии и изучайте науку. Кнопки «Месяц» и «До события» листают время быстрее.'],
 };
 // флаги наций (без запрещённой символики: Германия — крест вермахта)
 
 export class EastUI {
-  static menuLabel() { return `v${APP_VER} · СССР или Германия · 1 ход — неделя`; }
+  static menuLabel() { return `v${APP_VER} · СССР или Германия · 1 ход — 5 дней`; }
   constructor(root, host = {}) {
     this.root = root; this.host = host;
     this.snd = new Sound();
-    this.opt = { trees: false, wxfx: true, tips: true };
+    this.opt = { trees: false, wxfx: true, tips: true, ui: 'phone' }; // ui: 'phone' — экраны на весь экран, крупно и коротко; 'pc' — подробные боковые панели
     try { Object.assign(this.opt, JSON.parse(localStorage.getItem(OPTS) || '{}')); } catch {}
     if (!this.opt.v11) { this.opt.trees = false; this.opt.v11 = 1; this.saveOpts(); } // v0.11: деревья по умолчанию выключены (и у старых настроек)
     try { this.tipsSeen = JSON.parse(localStorage.getItem(TIPS) || '{}'); } catch { this.tipsSeen = {}; }
     this.S = null; this.P = 'SOV'; this.mode = 'menu'; this.sel = null; this.pick = null;
     root.classList.add('east');
+    root.classList.toggle('ui-pc', this.opt.ui === 'pc');
     if (typeof window !== 'undefined') window.__east = this; // для автотестов (tools/e2e-east.cjs)
     root.innerHTML = `<div class="e-map"></div>
 <div class="e-hud hidden">
   <div class="e-top">
     <button class="e-ib" data-a="gmenu" aria-label="Меню">${ic('menu')}</button>
     <button class="e-date" data-a="log"><b></b><small></small></button>
-    <div class="e-wx"></div>
+    <button class="e-wx" data-a="wx" aria-label="Погода на фронтах"></button>
     <div class="e-res"></div>
   </div>
   <div class="e-zoom"><button class="e-ib sm" data-a="zin" aria-label="Крупнее">${ic('plus')}</button><button class="e-ib sm" data-a="zout" aria-label="Мельче">${ic('minus')}</button><button class="e-ib sm" data-a="home" aria-label="К фронту">${ic('locate')}</button></div>
@@ -133,7 +134,7 @@ export class EastUI {
       return o;
     };
     const GI = new Map();
-    this.map.genImg = (k) => { if (!k) return null; let im = GI.get(k); if (!im) { im = new Image(); im.onload = () => this.map.redraw(); im.src = genURL(k); GI.set(k, im); } return im; };
+    this.map.genImg = (k) => { if (!k) return null; let im = GI.get(k); if (im === undefined) { im = genCanvas(k); GI.set(k, im); } return im; };
   }
   open() {
     this.closed = false;
@@ -180,6 +181,13 @@ export class EastUI {
       case 'zfly': { this.snd.play('click'); return this.flyZone(+b.dataset.z); }
       case 'cancel': this.snd.play('click'); return this.cancelMode();
       case 'move': this.snd.play('select'); return this.startMove(+b.dataset.r);
+      case 'usel': { // выбор дивизий в карточке области (переместить — только выбранные)
+        const id = +b.dataset.u, q = this.uSel || (this.uSel = new Set());
+        q.has(id) ? q.delete(id) : q.add(id);
+        this.snd.play('click');
+        return this.renderPanel();
+      }
+      case 'pull': return this.doPull(+b.dataset.r);
       case 'attack': return this.doAttack(+b.dataset.r);
       case 'settgt': { this.snd.play('select'); const r = +b.dataset.r; this.setTarget(this.frontOfR(r), r); return this.closePanel(); }
       case 'bld': return this.doBuild(+b.dataset.r, b.dataset.k);
@@ -197,6 +205,9 @@ export class EastUI {
       }
       case 'opt': { this.snd.play('click'); const k = b.dataset.k; this.opt[k] = !this.opt[k]; this.saveOpts(); if (this.map) { this.map.opt.trees = this.opt.trees; this.map.opt.wx = this.opt.wxfx; this.map.redraw(); } this.updAmb(); if (k === 'tips' && this.opt.tips) { this.tipsSeen = {}; try { localStorage.removeItem(TIPS); } catch {} } return this.showSettings(); }
       case 'tipok': this.snd.play('click'); return this.hideTip();
+      case 'noop': return;
+      case 'wx': this.snd.play('click'); return this.showWeather();
+      case 'uiset': { this.snd.play('select'); this.opt.ui = b.dataset.v === 'pc' ? 'pc' : 'phone'; this.saveOpts(); this.root.classList.toggle('ui-pc', this.opt.ui === 'pc'); return this.showSettings(); }
       case 'region': { const r = +b.dataset.r; this.snd.play('click'); this.map.flyTo(this.M.reg[r].x, this.M.reg[r].y, Math.max(this.map.view.sc, 0.8)); return this.openRegion(r); }
       case 'save': this.save(); this.toast(ic('save') + 'Игра сохранена'); return this.closeModal();
       case 'exitgame': this.snd.play('click'); this.save(); this.closeModal(); return this.showMenu();
@@ -268,6 +279,7 @@ ${START_ORDER.map((k) => opt('start', k, `${ic(STARTS[k].ic)}<b>${esc(STARTS[k].
 <div class="e-set">
 <label class="e-row">${ic('music')}<span>Музыка</span><input type="range" min="0" max="100" value="${Math.round(s.music * 100)}" id="e-mus"></label>
 <label class="e-row">${ic('sound')}<span>Звуки</span><input type="range" min="0" max="100" value="${Math.round(s.sfx * 100)}" id="e-sfx"></label>
+<div class="e-row e-uiset">${ic('list')}<span>Интерфейс<small>${o.ui === 'pc' ? 'подробные панели сбоку — для большого экрана' : 'экраны на весь экран, крупно и коротко'}</small></span><span class="e-seg"><button class="${o.ui !== 'pc' ? 'on' : ''}" data-a="uiset" data-v="phone">Телефон</button><button class="${o.ui === 'pc' ? 'on' : ''}" data-a="uiset" data-v="pc">ПК</button></span></div>
 ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Погода: анимация и звуки', 'rain')}${tg('tips', 'Подсказки новичку', 'info')}
 </div>
 <div class="e-btns"><button class="e-btn gold" data-a="close">${ic('check')}<span>Готово</span></button></div>`, { cls: 'set' });
@@ -278,7 +290,7 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
   // ——— как играть ———
   showHelp() {
     const P = [
-      ['calendar', 'Ход — неделя', 'Война начинается 22 июня 1941 года. При раннем старте (1936, 1939, июнь 1941) до неё — мирное время: стройка и подготовка. Каждый ход — неделя: сначала действует Германия, потом СССР. Летом сухо, осенью и весной распутица, зимой морозы.'],
+      ['calendar', 'Ход — 5 дней', 'Война начинается 22 июня 1941 года. При раннем старте (1936, 1939, июнь 1941) до неё — мирное время: стройка и подготовка. Каждый ход — 5 дней: сначала действует Германия, потом СССР. Летом сухо, осенью и весной распутица, зимой морозы.'],
       ['compass', 'Фронты и генералы', 'Пять фронтов: Финский, Северный, Центральный, Южный и Кавказский. Генералы сами ведут войска — вы даёте приказ: «Оборона», «Наступление» с целью, «Отход» или «Авто». Дивизии и авиацию можно перебрасывать между фронтами, а фронт — вести вручную.'],
       ['atk', 'Удары и котлы', 'Бой идёт за область. Перевес сил, местность, реки, укрепления и погода решают исход. Войска без снабжения слабеют и сдаются — окружайте врага и не давайте окружить себя.'],
       ['hand', 'Свои приказы', 'Нажмите на свою область — можно переместить войска. Нажмите на область врага рядом — увидите шансы и кнопку «Атаковать». Остальное сделают генералы.'],
@@ -306,8 +318,9 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
   }
   continueGame() {
     let S = null;
-    try { S = E.deserialize(this.M, localStorage.getItem(E.SAVE_KEY)); } catch (e) { S = null; }
-    if (!S) { this.toast(ic('cancel') + 'Сохранение не читается'); try { localStorage.removeItem(META); } catch {} return this.showMenu(); }
+    let old = false;
+    try { S = E.deserialize(this.M, localStorage.getItem(E.SAVE_KEY)); } catch (e) { S = null; old = /несовместим/.test(e?.message || ''); }
+    if (!S) { this.toast(ic('cancel') + (old ? 'Сохранение прежней версии (ход — неделя) не подходит: ход теперь 5 дней. Начните новую партию' : 'Сохранение не читается')); try { localStorage.removeItem(META); } catch {} return this.showMenu(); }
     ensureState(S);
     this.S = S; this.P = S.side;
     this.cards = [];
@@ -384,14 +397,14 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
     const P = this.P, steps = [() => { this.applyAuto(); runSide(S, P, { isAI: false, begun: true }); }];
     if (P === 'GER') steps.push(() => runSide(S, 'SOV', { isAI: true }), () => E.endWeek(S));
     else steps.push(() => E.endWeek(S), () => runSide(S, 'GER', { isAI: true }));
-    this.runPhases(steps, this.skip ? `Мирное время: ${fmtTurn(S.turn, true)}…` : S.peace ? 'Неделя мирного времени…' : 'Генералы выполняют приказы…');
+    this.runPhases(steps, this.skip ? `Мирное время: ${fmtTurn(S.turn, true)}…` : S.peace ? 'Мирное время…' : 'Генералы выполняют приказы…');
   }
-  // мирное время: «Месяц» — 4 недели подряд, «До события» — до первого события (не больше полугода) или до войны
+  // мирное время: «Месяц» — 6 ходов (30 дней) подряд, «До события» — до первого события (не больше полугода) или до войны
   skipTurns(kind) {
     const S = this.S;
     if (!S || !S.peace || this.isBusy || this.modalLock || S.over) return;
     this.tipSeen('peace');
-    this.skip = { left: kind === 'm' ? 4 : 26, ev: kind !== 'm', b: null, news: [] };
+    this.skip = { left: kind === 'm' ? 6 : wT(26), ev: kind !== 'm', b: null, news: [] };
     this.endTurn();
   }
   snapshot() {
@@ -436,13 +449,14 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
     else if (!(S.evq || []).length) this.toast(`${ic('calendar')}${esc(fmtTurn(S.turn, true))}`);
     if (pocket) this.tipLater('pocket');
     if (S.turn - (S.t0 ?? 0) === 2) this.tipLater('build');
-    // пауза «Итоги недели…»: видно стрелки и вспышки боёв, слышно канонаду
+    // пауза «Итоги хода…»: видно стрелки и вспышки боёв, слышно канонаду
     if (!marks.length || S.over) return this.beginPlayer();
+    this.map.refresh(); // фишки плавно переходят на новые места, пока видны вспышки боёв
     this.snd.play('arty');
-    this.busy(true, 'Итоги недели…');
+    this.busy(true, 'Итоги хода…');
     setTimeout(() => { if (this.S === S && this.mode === 'game') this.beginPlayer(); }, 1400);
   }
-  // после сводки — бои недели ещё раз (сводка закрывала карту)
+  // после сводки — бои хода ещё раз (сводка закрывала карту)
   replayBattles() {
     const mk = this.lastMarks;
     this.lastMarks = null;
@@ -495,7 +509,7 @@ ${tg('trees', 'Деревья на карте', 'wheat')}${tg('wxfx', 'Пого�
 ${won.length ? `<div class="e-rrow"><span class="e-rl good">${ic('flag')}${pz ? 'Присоединены' : 'Наши'}</span><div class="e-chips">${won.slice(0, 8).map((r) => chip(r, 'good')).join('')}${won.length > 8 ? `<span class="e-more">+${won.length - 8}</span>` : ''}</div></div>` : ''}
 ${lost.length ? `<div class="e-rrow"><span class="e-rl bad">${ic('flag')}${pz ? 'Отошли' : 'Потеряны'}</span><div class="e-chips">${lost.slice(0, 8).map((r) => chip(r, 'bad')).join('')}${lost.length > 8 ? `<span class="e-more">+${lost.length - 8}</span>` : ''}</div></div>` : ''}
 <div class="e-stats">
-${pz ? `<div class="e-stat">${ic('dove')}<b>${esc(untilW(-S.turn))}</b><small>до войны</small></div>` : `<div class="e-stat">${ic('atk')}<b>${R.myWin}/${R.my}</b><small>наших ударов успешны</small></div>
+${pz ? `<div class="e-stat">${ic('dove')}<b>${esc(untilT(-S.turn))}</b><small>до войны</small></div>` : `<div class="e-stat">${ic('atk')}<b>${R.myWin}/${R.my}</b><small>наших ударов успешны</small></div>
 <div class="e-stat">${ic('def')}<b>${R.en - R.enWin}/${R.en}</b><small>атак врага отбито</small></div>
 <div class="e-stat good">${ic('skull')}<b>${R.dl[Q]}</b><small>${divW(R.dl[Q])} врага разбито${R.pow ? `, ${R.pow} в плену` : ''}</small></div>
 <div class="e-stat bad">${ic('skull')}<b>${R.dl[P]}</b><small>${divW(R.dl[P])} потеряно</small></div>`}
@@ -536,7 +550,7 @@ ${ask ? `<div class="e-evopts">${c.opts.map((o, i) => `<button class="e-btn ${i 
     const st = S.stats;
     this.modal(`<div class="e-end ${win ? 'good' : 'bad'}"><div class="e-evic">${ic(win ? 'trophy' : 'skull')}</div>
 <h2>${win ? 'Победа!' : 'Поражение'}</h2><p>${esc(o.why)}</p>
-<div class="e-rdate">${ic('calendar')}${esc(fmtTurn(o.turn, true))} · ${o.turn} ${plural(o.turn, 'неделя', 'недели', 'недель')} войны</div>
+<div class="e-rdate">${ic('calendar')}${esc(fmtTurn(o.turn, true))} · ${dayOfT(o.turn)} ${plural(dayOfT(o.turn), 'день', 'дня', 'дней')} войны</div>
 ${this.histCmp(o)}
 <div class="e-stats">
 <div class="e-stat">${ic('skull')}<b>${st[other(this.P)].lost}</b><small>дивизий врага разбито</small></div>
@@ -547,10 +561,30 @@ ${this.histCmp(o)}
 <div class="e-btns"><button class="e-btn" data-a="exitgame">${ic('exit')}<span>В меню</span></button><button class="e-btn gold" data-a="newgame">${ic('play')}<span>Новая игра</span></button></div></div>`, { lock: true, cls: 'end' });
     this.mode = 'over';
   }
+  // погода по направлениям: что сейчас, как влияет и прогноз на 3 хода (погода детерминирована: rules.js weatherOf)
+  showWeather() {
+    const S = this.S;
+    if (!S) return;
+    const pct = (k) => `${k >= 1 ? '+' : '−'}${Math.round(Math.abs(k - 1) * 100)} %`;
+    const rows = S.wx.map((w, z) => {
+      const W = WX[w], fx = [];
+      if (W.mv !== 1) fx.push(`<span class="bad">${ic('boot')}марш ${pct(1 / W.mv)}</span>`);
+      if (W.atk !== 1) fx.push(`<span class="bad">${ic('atk')}атака ${pct(W.atk)}</span>`);
+      if (W.air !== 1) fx.push(`<span class="bad">${ic('air')}авиация ${pct(W.air)}</span>`);
+      if (W.sup !== 1) fx.push(`<span class="bad">${ic('truck')}снабжение ${pct(W.sup)}</span>`);
+      if (W.frozen) fx.push(`<span>${ic('snow')}реки и болота замёрзли</span>`);
+      if (!fx.length) fx.push(`<span>${ic('check')}без помех</span>`);
+      const fc = [1, 2, 3].map((k) => { const t = S.turn + k, x = weatherOf(t, z, E.wxShiftOf(S, t), S.seed); return `<span class="w-${x}" title="${esc(fmtTurn(t, true))}: ${esc(WX[x].n)}">${ic(WX[x].ic)}<small>${k * TD} дн</small></span>`; }).join('');
+      return `<div class="e-wxr"><b><span class="w-${w}">${ic(W.ic)}</span><div>${esc(ZN_[z])}<small>${esc(W.n)}</small></div></b><div class="e-wxfx">${fx.join('')}</div><div class="e-wxfc">${fc}</div></div>`;
+    }).join('');
+    this.modal(`<h2>${ic('sun')} Погода на фронтах</h2><div class="e-wxm">${rows}</div>
+<p class="e-note e-pc">${ic('info')}Распутица и снег замедляют марш и удары, морозы сковывают реки и болота — по льду можно наступать. Прогноз — на 3 хода вперёд.</p>
+<div class="e-btns"><button class="e-btn gold" data-a="close">${ic('check')}<span>Понятно</span></button></div>`, { cls: 'wx' });
+  }
   // сравнение с историей: Берлин взят 2 мая 1945 г.
   histCmp(o) {
     if (o.win !== 'SOV') return '';
-    const d = o.turn - turnOf('1945-05-02'), n = Math.abs(d), w = `${n} ${plural(n, 'неделю', 'недели', 'недель')}`;
+    const d = Math.round(((o.turn - turnOf('1945-05-02')) * TD) / 7), n = Math.abs(d), w = `${n} ${plural(n, 'неделю', 'недели', 'недель')}`;
     const sov = this.P === 'SOV', good = sov ? d < -1 : d > 1;
     const txt = n <= 1 ? 'Почти точно как в истории (2 мая 1945)'
       : sov ? (d < 0 ? `На ${w} раньше, чем в истории` : `На ${w} позже, чем в истории`)
@@ -564,13 +598,13 @@ ${this.histCmp(o)}
     if (!S || this.mode !== 'game') return;
     const P = this.P, inc = S.inc[P]?.pp !== undefined ? S.inc[P] : E.income(S, P);
     this.$('.e-date b').textContent = fmtTurn(S.turn, true);
-    this.$('.e-date small').textContent = S.peace ? `мирное время · до войны ${untilW(-S.turn)}` : `неделя ${S.turn + 1} · ${S.mode === 'hist' ? 'история' : 'свободно'}`;
+    this.$('.e-date small').textContent = S.peace ? `до войны ${untilT(-S.turn)}` : `ход ${S.turn + 1} · ${S.mode === 'hist' ? 'история' : 'свободно'}`;
     const sk = this.$('.e-skips');
     sk.classList.toggle('hidden', !S.peace);
     for (const x of sk.querySelectorAll('button')) x.disabled = !!this.isBusy;
-    this.$('.e-wx').innerHTML = S.wx.map((w, z) => `<span title="${esc(ZN_[z])}: ${esc(WX[w].n)}">${ic(WX[w].ic)}<small>${esc(ZONES[z].s)}</small></span>`).join('');
+    this.$('.e-wx').innerHTML = S.wx.map((w, z) => `<span class="w-${w}" title="${esc(ZN_[z])}: ${esc(WX[w].n)}">${ic(WX[w].ic)}<small>${esc(ZONES[z].s)}</small></span>`).join('');
     const L = S.line[P], gq = inc.out ? inc.out.inf + inc.out.art + inc.out.arm : inc.pp * (L.sh.inf * L.e.inf + L.sh.art * L.e.art + L.sh.arm * L.e.arm);
-    this.$('.e-res').innerHTML = `<button class="e-chip" data-a="eco" title="Снаряжение: запас и выпуск в неделю">${ic('equip')}<b>${num(E.eqTot(S, P))}</b>${gq ? `<small>+${num(gq)}</small>` : ''}</button>
+    this.$('.e-res').innerHTML = `<button class="e-chip" data-a="eco" title="Снаряжение: запас и выпуск за ход">${ic('equip')}<b>${num(E.eqTot(S, P))}</b>${gq ? `<small>+${num(gq)}</small>` : ''}</button>
 <button class="e-chip" data-a="army" title="Люди">${ic('men')}<b>${num(S.men[P])}</b>${inc.men ? `<small>+${num(inc.men)}</small>` : ''}</button>
 <button class="e-chip" data-a="eco" title="Авиация">${ic('air')}<b>${num(S.air[P])}</b></button>
 <button class="e-chip${decNew(S, P).length ? ' dot' : ''}" data-a="dec" title="Политическая власть — решения">${ic('pol')}<b>${num(S.pol?.[P] || 0)}</b></button>
@@ -600,7 +634,9 @@ ${this.histCmp(o)}
     if (this.tipK) this.hideTip(true, true);
     this.panelKind = kind; this.panelArg = arg;
     const p = this.$('.e-panel');
-    p.className = `e-panel k-${kind}`;
+    // «Телефон»: Фронты, Армия, Экономика, Наука, Решения, Флот, Журнал — на весь экран (вкладки сверху); карточка области — сбоку
+    this.pFull = this.opt.ui !== 'pc' && FULL_P.has(kind);
+    p.className = `e-panel k-${kind}${this.pFull ? ' full' : ''}`;
     this.renderPanel();
     for (const b of this.root.querySelectorAll('.e-tab')) b.classList.toggle('on', b.dataset.a === kind);
     if (kind === 'dirs') this.tipSeen('dirs');
@@ -622,7 +658,10 @@ ${this.histCmp(o)}
     p.innerHTML = html;
     const b = p.querySelector('.e-pbody'); if (b) b.scrollTop = st;
   }
-  head(icn, title, sub = '') { return `<div class="e-ph">${icn}<div><h3>${title}</h3>${sub ? `<small>${sub}</small>` : ''}</div><button class="e-ib" data-a="pclose" aria-label="Закрыть">${ic('close')}</button></div>`; }
+  head(icn, title, sub = '') {
+    const tabs = this.pFull ? `<nav class="e-ftabs">${FULL_TABS.map(([k, i, n]) => `<button class="e-ftab ${this.panelKind === k ? 'on' : ''}" data-a="${this.panelKind === k ? 'noop' : k}" aria-label="${n}">${ic(i)}<span>${n}</span>${k === 'dec' && this.S && decNew(this.S, this.P) ? '<i class="e-dot"></i>' : ''}</button>`).join('')}</nav>` : '';
+    return `<div class="e-ph">${icn}<div><h3>${title}</h3>${sub ? `<small>${sub}</small>` : ''}</div>${tabs}<button class="e-ib" data-a="pclose" aria-label="Закрыть">${ic('close')}</button></div>`;
+  }
   modeBar(html) {
     if (this.tipK) this.hideTip(true, true);
     const b = this.$('.e-modebar');
@@ -653,6 +692,7 @@ ${this.histCmp(o)}
   // ——— область: сведения, войска, удар, стройка ———
   openRegion(r) {
     if (r < 0) return;
+    if (this.uSelR !== r) { this.uSel = new Set(); this.uSelR = r; }
     this.map.setHL({ sel: r });
     this.openPanel('reg', r);
   }
@@ -674,12 +714,16 @@ ${this.histCmp(o)}
     const finT = fg === Infinity ? `<span class="e-tag" title="Маннергейм: дальше рубежа 1941 г. финская армия не наступает (немецкие дивизии — могут)">${ic('flag')}финны сюда не идут</span>` : fg > S.turn ? `<span class="e-tag" title="Маннергейм: финская армия наступает по своему плану 1941 г.">${ic('calendar')}финны — с ${esc(fmtTurn(fg))}</span>` : '';
     const info = `<div class="e-tags"><span class="e-tag">${ic(g.t === 'for' ? 'wheat' : g.t === 'mnt' || g.t === 'hil' ? 'mtn' : 'compass')}${esc(TER[g.t].n)}</span><span class="e-tag">${ic(WX[S.wx[g.z]].ic)}${esc(WX[S.wx[g.z]].n)}</span>${sd === this.P ? `<span class="e-tag" style="color:${FRONT_COL[S.fr[sd][S.fz[r]]?.col]}">${ic('flag')}${esc(frontShort(S.fr[sd][S.fz[r]]?.n))}</span>` : `<span class="e-tag">${esc(ZONES[g.z].n)}</span>`}${supT}${navT}${g.arc ? `<span class="e-tag" title="тундра, сопки и болота без дорог: атака ×0,5">${ic('snow')}Заполярье</span>` : ''}${finT}${g.vp ? `<span class="e-tag gold">${ic('star')}${g.vp}</span>` : ''}</div>`;
     const blds = this.bGrid(r) + (E.garOf(S, r) > 0 && sd ? `<div class="e-bl"><span title="Гарнизон">${ic('rifle')}<small>гарнизон</small></span></div>` : '');
-    const ulist = us.length ? `<div class="e-units">${us.map((u) => `<div class="e-u ${u.s === P ? '' : 'en'}"><img src="${counterURL(u.nat, u.t, divLabel(u), wmOf(u))}" alt=""><div><b>${esc(u.n)}</b><small>${esc(TYPES[u.t].n)}${u.nat !== u.s ? ` · ${esc(NAT_N[u.nat])}` : ''}${u.man ? ' · приказ отдан' : ''}</small><i class="e-str"><em style="width:${Math.max(4, u.str)}%;background:${strCol(u.str)}"></em></i>${u.s === P && u.t !== 'sec' && u.rdy < 22 ? `<small class="e-nrdy">${ic('hourglass')}не готова к удару</small>` : ''}</div></div>`).join('')}</div>` : `<div class="e-note">${ic('info')}Войск нет</div>`;
+    const canMv = (u) => u.s === P && u.mp > 0.2 && !u.att && !S.peace;
+    const selN = us.filter((u) => canMv(u) && this.uSel?.has(u.id)).length;
+    const ulist = us.length ? `<div class="e-units">${us.map((u) => `<${canMv(u) ? `button data-a="usel" data-u="${u.id}"` : 'div'} class="e-u ${u.s === P ? '' : 'en'}${canMv(u) && this.uSel?.has(u.id) ? ' sel' : ''}"><img src="${counterURL(u.nat, u.t, divLabel(u), wmOf(u))}" alt=""><div><b>${esc(u.n)}</b><small>${esc(TYPES[u.t].n)}${u.nat !== u.s ? ` · ${esc(NAT_N[u.nat])}` : ''}${u.man ? ' · приказ отдан' : ''}</small><i class="e-str"><em style="width:${Math.max(4, u.str)}%;background:${strCol(u.str)}"></em></i>${u.s === P && u.t !== 'sec' && u.rdy < 22 ? `<small class="e-nrdy">${ic('hourglass')}не готова к удару</small>` : ''}</div>${canMv(u) ? `<i class="e-uck">${ic('check')}</i>` : ''}</${canMv(u) ? 'button' : 'div'}>`).join('')}</div>` : `<div class="e-note">${ic('info')}Войск нет</div>`;
     let act = '';
     if (sd === P) {
-      const mv = us.filter((u) => u.s === P && u.mp > 0.2 && !u.att);
-      const ops = this.opBtns(r);
-      act = mv.length || ops || (P === 'SOV' && E.canEvac(S, r)) ? `<div class="e-acts">${mv.length ? `<button class="e-btn gold" data-a="move" data-r="${r}">${ic('move')}<span>Переместить<small>${mv.length} ${divW(mv.length)}</small></span></button>` : ''}${P === 'SOV' && E.canEvac(S, r) ? `<button class="e-btn sm" data-a="evac" data-r="${r}">${ic('train')}<span>Эвакуация</span></button>` : ''}${ops}</div>` : '';
+      const mv = us.filter(canMv);
+      const ops = this.opBtns(r), pl = S.peace ? [] : this.pullCands(r);
+      const mvB = mv.length ? `<button class="e-btn gold" data-a="move" data-r="${r}">${ic('move')}<span>Переместить<small>${selN ? `выбрано ${selN}` : `${mv.length} ${divW(mv.length)}`}</small></span></button>` : '';
+      const plB = pl.length ? `<button class="e-btn" data-a="pull" data-r="${r}" title="Подтянуть дивизии из соседних областей (вторая линия)">${ic('plus')}<span>Подкрепить<small>${Math.min(pl.length, E.room(S, r, P), 4)} из ${pl.length} рядом</small></span></button>` : '';
+      act = mvB || plB || ops || (P === 'SOV' && E.canEvac(S, r)) ? `<div class="e-acts">${mvB}${plB}${P === 'SOV' && E.canEvac(S, r) ? `<button class="e-btn sm" data-a="evac" data-r="${r}">${ic('train')}<span>Эвакуация</span></button>` : ''}${ops}</div>${mv.length > 1 && !selN ? `<div class="e-hint">${ic('info')}нажмите на дивизии — переместить только выбранные</div>` : ''}` : '';
     } else if (sd === other(P) && S.peace) {
       act = `<div class="e-note">${ic('dove')}Мирное время: война начнётся 22 июня 1941 г.</div>`;
     } else if (sd === other(P)) {
@@ -713,7 +757,9 @@ ${this.histCmp(o)}
   // перемещение стопки: зелёные — куда дойдут, красные — удар
   startMove(r) {
     const S = this.S, P = this.P;
-    const us = S.at[r].filter((u) => u.s === P && u.mp > 0.2 && !u.att);
+    let us = S.at[r].filter((u) => u.s === P && u.mp > 0.2 && !u.att);
+    const pick = this.uSelR === r && this.uSel?.size ? us.filter((u) => this.uSel.has(u.id)) : [];
+    if (pick.length) us = pick;
     if (!us.length) return;
     const reach = new Set(), atk = new Set(), R = new Map();
     for (const u of us) { const x = E.reach(S, u); R.set(u, x); for (const b of x.best.keys()) if (b !== r) reach.add(b); }
@@ -751,6 +797,7 @@ ${this.histCmp(o)}
     }
     this.cancelMode(true);
     if (!n) { this.snd.play('error'); return this.toast(`${ic('cancel')}Нет места или не дойдут`); }
+    this.uSel = new Set();
     this.snd.play('move');
     E.computeSupply(S, P);
     this.toast(`${ic('move')}${n} ${divW(n)} → ${esc(this.M.reg[t].city?.n || this.M.reg[t].n)}`);
@@ -769,6 +816,43 @@ ${this.histCmp(o)}
     }
     this.confirmAtk = -1;
     this.attackWith(T, at);
+  }
+  // «Подкрепить» (v0.11.1): дивизии из соседних областей, которые дойдут сюда за этот ход — сначала вторая линия
+  // (области без соприкосновения с противником), затем участки фронта, где останется не меньше двух дивизий
+  pullCands(r) {
+    const S = this.S, P = this.P, M = this.M;
+    if (E.sideOf(S, r) !== P || E.room(S, r, P) <= 0) return [];
+    const near = new Map([[r, 0]]), q = [r];
+    while (q.length) { const a = q.shift(), d = near.get(a); if (d >= 3) continue; for (const e of M.reg[a].nb) if (!near.has(e.r) && E.sideOf(S, e.r) === P) { near.set(e.r, d + 1); q.push(e.r); } }
+    const out = [];
+    for (const [a, d] of near) {
+      if (a === r || !d) continue;
+      const own = S.at[a].filter((u) => u.s === P && E.alive(u)), front = E.isFront(S, a, P);
+      let spare = front ? own.length - 2 : own.length;
+      if (spare <= 0) continue;
+      const cand = own.filter((u) => u.mp > 0.2 && !u.att && u.t !== 'sec').sort((x, y) => y.str - x.str);
+      for (const u of cand) {
+        if (spare <= 0) break;
+        const x = E.reach(S, u), c = x.best.get(r);
+        if (c === undefined) continue;
+        out.push({ u, x, k: (front ? 100 : 0) + c * 10 + d - u.str / 50 });
+        spare--;
+      }
+    }
+    return out.sort((a, b) => a.k - b.k);
+  }
+  doPull(r) {
+    const S = this.S, P = this.P, list = this.pullCands(r);
+    let n = 0;
+    for (const o of list) {
+      if (n >= 4 || E.room(S, r, P) <= 0) break;
+      if (E.alive(o.u) && E.moveTo(S, o.u, r, o.x)) { o.u.man = 1; n++; }
+    }
+    if (!n) { this.snd.play('error'); return this.toast(`${ic('cancel')}Рядом некому подойти`); }
+    this.snd.play('move');
+    E.computeSupply(S, P);
+    this.toast(`${ic('plus')}+${n} ${divW(n)} → ${esc(this.M.reg[r].city?.n || this.M.reg[r].n)}`);
+    this.refresh();
   }
   attackWith(T, us) {
     const S = this.S, P = this.P, M = this.M;
@@ -867,3 +951,6 @@ ${this.histCmp(o)}
 }
 Object.assign(EastUI.prototype, FrontsUI, EcoUI, SciUI, OpsUI, DecUI, FleetUI);
 const ACTX = { ...FRONT_ACT, ...ECO_ACT, ...SCI_ACT, ...OPS_ACT, ...DEC_ACT, ...FLEET_ACT };
+// экраны «на весь экран» (интерфейс «Телефон») и их вкладки
+const FULL_P = new Set(['dirs', 'army', 'eco', 'sci', 'dec', 'fleet', 'log']);
+const FULL_TABS = [['dirs', 'compass', 'Фронты'], ['army', 'helmet', 'Армия'], ['eco', 'mil', 'Экономика'], ['sci', 'sci', 'Наука'], ['dec', 'pol', 'Решения']];

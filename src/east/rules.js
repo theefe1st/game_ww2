@@ -1,12 +1,25 @@
-// «Мировой фронт» v0.10, «Восточный фронт 1941–1945»: правила — время (1 ход = 1 неделя), стороны и нации,
-// рода войск, местность, погода, качество войск по годам, сложность. Чистые функции без состояния.
+// «Мировой фронт» v0.10–0.11.1, «Восточный фронт 1941–1945»: правила — время (1 ход = 5 дней с v0.11.1, было 7),
+// стороны и нации, рода войск, местность, погода, качество войск по годам, сложность. Чистые функции без состояния.
 export const D0 = Date.UTC(1941, 5, 22); // воскресенье 22 июня 1941 г.
 export const DAY = 86400000;
-export const LAST_TURN = 236; // конец 1945 г.
-export const dateOf = (turn) => new Date(D0 + turn * 7 * DAY);
-export const turnOf = (iso) => Math.round((Date.parse(iso + 'T00:00:00Z') - D0) / (7 * DAY));
+// v0.11.1 (отзыв 05.11): ход — 5 дней (фронт за ход сдвигается меньше). Недельные величины (производство, люди,
+// стройка, обучение, пополнение, отдых) идут долей недели WK за ход; сроки «в неделях» переводит wT.
+export const TD = 5; // дней в ходе
+export const WK = TD / 7; // доля недели в одном ходе
+export const wT = (w) => Math.max(1, Math.round((w * 7) / TD)); // недели → ходы (не меньше 1)
+export const tW = (t) => (t * TD) / 7; // ходы → недели
+export const dayOfT = (turn) => turn * TD; // день от 22.06.1941
+// раз в n недель: ход, в который начинается новая n-недельная пора
+export const everyW = (turn, n) => Math.floor((turn * TD) / (7 * n)) !== Math.floor(((turn - 1) * TD) / (7 * n));
+// за ход — та же доля «затухания», что за неделю (k — множитель за неделю): k^WK
+export const perTurn = (k) => Math.pow(k, WK);
+export const dateOf = (turn) => new Date(D0 + turn * TD * DAY);
+export const turnOf = (iso) => Math.round((Date.parse(iso + 'T00:00:00Z') - D0) / (TD * DAY));
 export const dayOfIso = (iso) => Math.round((Date.parse(iso + 'T00:00:00Z') - D0) / DAY);
-export const yearF = (turn) => 1941 + (172 + turn * 7) / 365.25;
+export const yearF = (turn) => 1941 + (172 + turn * TD) / 365.25;
+export const LAST_TURN = turnOf('1945-12-30'); // конец 1945 г.
+// целое число из дробного темпа (например, 3 ж/д участка в неделю → по ходам 2, 2, 3…): остаток копится в S.acc
+export function accInt(S, key, x) { S.acc ??= {}; const v = (S.acc[key] || 0) + x; const n = Math.floor(v + 1e-9); S.acc[key] = v - n; return n; }
 const MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 const MONF = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 export const fmtTurn = (t, full = false) => { const d = dateOf(t); return `${d.getUTCDate()} ${(full ? MONF : MON)[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
@@ -81,12 +94,15 @@ const CAL = [
   [[0, 'frost'], [46, 'snow'], [66, 'mud'], [104, 'dry'], [284, 'rain'], [298, 'mud'], [330, 'snow'], [352, 'frost']], // юг
 ];
 export const BAND = [0, 0, 1, 2, 2]; // направление → полоса погоды
+// детерминированное «случайное» число 0…1 по целому ключу (без состояния)
+export function hash01(n) { let x = (n | 0) ^ 0x9e3779b9; x = Math.imul(x ^ (x >>> 16), 0x85ebca6b); x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35); x ^= x >>> 16; return (x >>> 0) / 4294967296; }
 export function weatherOf(turn, zone, shift = 0, seed = 0) {
   const t = dateOf(turn), y = t.getUTCFullYear(), doy = Math.floor((t - Date.UTC(y, 0, 1)) / DAY) + 3;
   const cal = CAL[BAND[zone]];
   let w = cal[0][1];
   for (const [d0, k] of cal) if (doy >= d0 + (d0 > 0 ? shift : 0)) w = k;
-  if (w === 'dry' && (turn * 7 + zone * 13 + seed) % 17 === 0) w = 'rain';
+  // дожди и в сухую пору: у каждой полосы свои (детерминированно по ходу, полосе и зерну партии); осенью и весной — чаще
+  if (w === 'dry') { const m = t.getUTCMonth(), p = m === 5 || m === 6 ? 0.1 : m === 4 || m === 7 ? 0.13 : 0.17; if (hash01(turn * 7 + BAND[zone] * 1013 + seed * 7919) < p) w = 'rain'; }
   return w;
 }
 // первая военная зима: вермахт без зимнего обмундирования
@@ -128,3 +144,6 @@ export function rnd(S) {
 }
 export const plural = (n, a, b, c) => { const m = Math.abs(n) % 100, k = m % 10; return m > 10 && m < 20 ? c : k === 1 ? a : k >= 2 && k <= 4 ? b : c; };
 export const divW = (n) => plural(n, 'дивизия', 'дивизии', 'дивизий');
+// сроки в ходах (v0.11.1: ход — 5 дней): «3 хода»; для справки — дни
+export const turnsW = (n) => `${n} ${plural(n, 'ход', 'хода', 'ходов')}`;
+export const daysW = (n) => `${n} ${plural(n, 'день', 'дня', 'дней')}`;

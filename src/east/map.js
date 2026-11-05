@@ -1,5 +1,5 @@
-// «Мировой фронт» v0.11, «Восточный фронт»: карта. Подложка — WebGL (gl.js: рельеф с отмывкой, сезонный покров,
-// области, реки, железные дороги, красная линия фронта), поверх — 2D-слой: цветные линии фронтов игрока (как планы
+// «Мировой фронт» v0.11.1, «Восточный фронт»: карта. Подложка — WebGL (gl.js: рельеф с отмывкой, сезонный покров,
+// области, реки, железные дороги), поверх — 2D-слой: цветные линии фронтов игрока (как планы
 // сражений в Hearts of Iron), штабы с портретами генералов, стрелки наступлений, посёлки и города, подписи цветом
 // владельца, фишки дивизий (counters.js) вдоль линии фронта — плотным строем, в тылу — кучками; при мелком масштабе —
 // сводные фишки по областям. Слой вспышек: бои, погода (дождь, снег). Жесты: перетаскивание, щипок, колесо мыши,
@@ -21,6 +21,23 @@ const now = () => performance.now();
 export const FRONT_COL = ['#9b5de5', '#2f80ed', '#27ae60', '#f2994a', '#17b8c8', '#e0479e', '#d4b106', '#a0673a'];
 export const AGG_SC = 0.4; // мельче — сводные фишки по областям
 export const divSize = (sc) => Math.round(clamp(9 + 10 * sc, 14, 34));
+const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
+// площадь части кольца P (плоский массив x, y) в полуплоскости x·dx + y·dy ≥ c (отсечение Сазерленда — Ходжмана; знак — по обходу)
+function clipArea(P, dx, dy, c) {
+  const n = P.length / 2;
+  if (n < 3) return 0;
+  let a = 0, fx = 0, fy = 0, ox = 0, oy = 0, has = false;
+  const out = (x, y) => { if (has) a += ox * y - x * oy; else { fx = x; fy = y; has = true; } ox = x; oy = y; };
+  let sx = P[2 * n - 2], sy = P[2 * n - 1], sd = sx * dx + sy * dy - c;
+  for (let i = 0; i < n; i++) {
+    const ex = P[2 * i], ey = P[2 * i + 1], ed = ex * dx + ey * dy - c;
+    if ((ed >= 0) !== (sd >= 0)) { const t = sd / (sd - ed); out(sx + (ex - sx) * t, sy + (ey - sy) * t); }
+    if (ed >= 0) out(ex, ey);
+    sx = ex; sy = ey; sd = ed;
+  }
+  if (has) a += ox * fy - fx * oy;
+  return a / 2;
+}
 function rrect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
 // значок (icons.js) на холсте
 function drawIcon(c, k, x, y, size, fill, stroke = null) {
@@ -77,7 +94,7 @@ export class EastMap {
   }
   resetStat() { this.fst = { n: 0, upd: 0, gl: 0, ov: 0, max: 0 }; }
   destroy() { this.dead = true; cancelAnimationFrame(this.raf); clearTimeout(this.tmo); this.ro.disconnect(); }
-  setState(S, side) { this.S = S; this.side = side; this.refresh(); }
+  setState(S, side) { this.S = S; this.side = side; this.lay = null; this.tw = null; this.pgS = null; this.refresh(); }
   refresh() { this.ver = (this.ver || 0) + 1; this.colorsDirty = this.linesDirty = this.dirty = true; this.kick?.(); }
   redraw() { this.dirty = true; }
   resize() {
@@ -97,7 +114,7 @@ export class EastMap {
   }
   toMap(px, py) { const v = this.view; return [v.x0 + px / v.sc, v.y0 + py / v.sc]; }
   toScr(x, y) { const v = this.view; return [(x - v.x0) * v.sc, (y - v.y0) * v.sc]; }
-  centerOn(x, y, sc = this.view.sc) { const v = this.view; v.sc = sc; v.x0 = x - this.w / 2 / sc; v.y0 = y - this.h / 2 / sc; this.clampView(); this.dirty = true; this.kick?.(); }
+  centerOn(x, y, sc = this.view.sc) { const v = this.view; this.anim = null; v.sc = sc; v.x0 = x - this.w / 2 / sc; v.y0 = y - this.h / 2 / sc; this.clampView(); this.dirty = true; this.kick?.(); }
   flyTo(x, y, sc = this.view.sc, ms = 450) {
     const a = { ...this.view }, b = { sc: clamp(sc, this.minSc, 3.2) };
     b.x0 = x - this.w / 2 / b.sc; b.y0 = y - this.h / 2 / b.sc;
@@ -252,7 +269,7 @@ export class EastMap {
     this.natLab = S.peace ? natLabels(S) : null;
     if (!this.G) return;
     this.G.setLines('nat', nat, S.peace ? [{ w: 1.6, col: [70, 54, 42, 0.6] }] : [{ w: 1.1, col: [70, 60, 50, 0.45] }]);
-    this.G.setLines('front', front, [{ w: (sc) => 4.4 + Math.min(2.6, sc * 1.3), col: [255, 120, 80, 0.24] }, { w: (sc) => 2.2 + Math.min(1.7, sc * 0.85), col: [238, 40, 16, 1] }]);
+    // красной полосы фронта больше нет (v0.11.1): линию держат цветные линии фронтов игрока (drawFronts)
     this.G.setLines('pbord', pb, [{ w: (sc) => 3 + Math.min(2, sc), col: [250, 236, 210, 0.45] }, { w: (sc) => 1.5 + Math.min(1, sc * 0.5), col: [140, 34, 24, 0.9] }]);
     const sel = this.hl.sel >= 0 ? this.rp[this.hl.sel].map((p) => ({ p, closed: true })) : [];
     this.G.setLines('sel', sel, [{ w: 5.5, col: [255, 236, 150, 0.55] }, { w: 2.4, col: [196, 128, 10, 1] }]);
@@ -296,22 +313,142 @@ export class EastMap {
     return v;
   }
   contact0(r, sd) {
-    const S = this.S, M = this.M, segs = [];
+    const S = this.S, M = this.M, segs = [], pr = S.prog || {};
     let L = 0;
+    // часть нашей области занята противником (S.prog): граница там уже не фронт — фронт по хорде
+    const q = pr[r], cutR = q && q.s !== sd ? this.progCut(r, q.p, q.x, q.y) : null;
     for (const k of M.regArcs[r]) {
       const A = M.arcs[k], o = A.a === r ? A.b : A.a;
       if (o < 0 || o >= M.R) continue;
       const so = sideOf(S, o);
       if (!so || so === sd) continue;
+      const qo = pr[o], cutO = qo && qo.s === sd ? this.progCut(o, qo.p, qo.x, qo.y) : null;
       const sg = this.arcSign(k) * (A.a === r ? 1 : -1), p = A.p;
       for (let i = 0; i + 3 < p.length; i += 2) {
         const ax = p[i], ay = p[i + 1], bx = p[i + 2], by = p[i + 3], l = Math.hypot(bx - ax, by - ay);
         if (l < 1e-6) continue;
+        const mx = (ax + bx) / 2, my = (ay + by) / 2;
+        if (cutR && mx * cutR.dx + my * cutR.dy > cutR.c) continue; // участок в занятой противником части
+        if (cutO && mx * cutO.dx + my * cutO.dy > cutO.c) continue; // участок за нашей частью области противника
         segs.push({ ax, ay, bx, by, l, nx: (-(by - ay) / l) * sg, ny: ((bx - ax) / l) * sg, f: o, k });
         L += l;
       }
     }
+    // хорда — новая линия соприкосновения: у обороняющихся (своя часть, нормаль −d) и у главной области наступающих (+d)
+    const chord = (cut, s, kk) => { for (const [ax, ay, bx, by] of cut.segs) { const l = Math.hypot(bx - ax, by - ay); segs.push({ ax, ay, bx, by, l, nx: cut.dx * s, ny: cut.dy * s, f: -1, k: kk }); L += l; } };
+    if (cutR) chord(cutR, -1, -1 - r);
+    for (const e of M.reg[r].nb) {
+      const o = e.r, qo = pr[o];
+      if (!qo || qo.s !== sd || sideOf(S, o) === sd || this.progMain(o) !== r) continue;
+      const cut = this.progCut(o, qo.p, qo.x, qo.y);
+      if (cut) chord(cut, 1, -1 - o - M.R);
+    }
     return segs.length ? { segs, L } : null;
+  }
+  // ——— частичное продвижение (S.prog, v0.11.1) ———
+  // граница занятой части: прямая x·dx + y·dy = c поперёк направления наступления, доля площади за ней = p;
+  // segs — отрезки этой прямой внутри области (хорда)
+  progCut(r, p, dx, dy) {
+    const pq = Math.round(clamp(p, 0, 1) * 100), key = `${r}|${pq}|${dx}|${dy}`, C = (this.pcC ??= new Map());
+    let v = C.get(key);
+    if (v !== undefined) return v;
+    if (C.size > 3000) C.clear();
+    const rings = this.rp[r];
+    let lo = Infinity, hi = -Infinity, big = 0;
+    for (const P of rings) {
+      for (let i = 0; i < P.length; i += 2) { const d = P[i] * dx + P[i + 1] * dy; if (d < lo) lo = d; if (d > hi) hi = d; }
+      const a = clipArea(P, dx, dy, -Infinity);
+      if (Math.abs(a) > Math.abs(big)) big = a;
+    }
+    const sg = big < 0 ? -1 : 1, area = (c) => { let s = 0; for (const P of rings) s += clipArea(P, dx, dy, c); return s * sg; };
+    const A = area(lo - 1);
+    if (!(A > 0) || !(hi > lo)) { C.set(key, null); return null; }
+    let a = lo, b = hi;
+    for (let k = 0; k < 22; k++) { const m = (a + b) / 2; if (area(m) / A > pq / 100) a = m; else b = m; }
+    const c = (a + b) / 2, tx = -dy, ty = dx, ts = [];
+    for (const P of rings) {
+      const n = P.length / 2;
+      let sx = P[2 * n - 2], sy = P[2 * n - 1], sd = sx * dx + sy * dy - c;
+      for (let i = 0; i < n; i++) {
+        const ex = P[2 * i], ey = P[2 * i + 1], ed = ex * dx + ey * dy - c;
+        if ((ed >= 0) !== (sd >= 0)) { const t = sd / (sd - ed), x = sx + (ex - sx) * t, y = sy + (ey - sy) * t; ts.push(x * tx + y * ty); }
+        sx = ex; sy = ey; sd = ed;
+      }
+    }
+    ts.sort((u, w) => u - w);
+    const segs = [];
+    for (let i = 0; i + 1 < ts.length; i += 2) {
+      const t0 = ts[i], t1 = ts[i + 1];
+      if (t1 - t0 > 0.5) segs.push([dx * c + tx * t0, dy * c + ty * t0, dx * c + tx * t1, dy * c + ty * t1]);
+    }
+    v = { c, dx, dy, segs };
+    C.set(key, v);
+    return v;
+  }
+  // область наступающих, чьи дивизии стоят на занятой части (главная исходная или соседняя с наибольшим числом дивизий)
+  progMain(r) {
+    const S = this.S, M = this.M, q = S.prog?.[r];
+    if (!q) return -1;
+    if (this.pmC?.ver !== this.ver) this.pmC = { ver: this.ver, m: new Map() };
+    const hit = this.pmC.m.get(r);
+    if (hit !== undefined) return hit;
+    const nb = M.reg[r].nb, ok = (a) => a >= 0 && a < M.R && sideOf(S, a) === q.s;
+    let best = -1;
+    if (ok(q.o) && nb.some((e) => e.r === q.o) && S.at[q.o].some((u) => u.s === q.s)) best = q.o;
+    else {
+      let bn = 0;
+      for (const e of nb) if (ok(e.r)) { const n = S.at[e.r].filter((u) => u.s === q.s).length + 0.1; if (n > bn) { bn = n; best = e.r; } }
+    }
+    this.pmC.m.set(r, best);
+    return best;
+  }
+  rpath(r) { const P = (this.rpC ??= []); return P[r] || (P[r] = this.regP?.[r] || regionPath(this.M, this.M.reg[r].rg)); }
+  // занятая часть: заливка и штриховка цвета наступающих, пунктир — линия соприкосновения; после хода доля плавно растёт
+  drawProg(c) {
+    const S = this.S, pr = S.prog;
+    if (!pr) return;
+    const v = this.view, sc = v.sc, dpr = this.dpr, t = now();
+    if (this.pgV !== this.ver) {
+      const old = this.pgS || new Map(), e0 = this.pgT ? ease(Math.min(1, (t - this.pgT) / 900)) : 1, m = new Map();
+      for (const k in pr) {
+        const r = +k, q = pr[k], o = old.get(r), a = o && o.s === q.s ? o.a + (o.b - o.a) * e0 : 0;
+        m.set(r, { s: q.s, a: Math.abs(a - q.p) > 0.005 ? a : q.p, b: q.p });
+      }
+      this.pgS = m; this.pgV = this.ver; this.pgT = t;
+    }
+    const e = ease(Math.min(1, (t - this.pgT) / 900));
+    if (e < 1) this.dirty = true;
+    for (const [r, o] of this.pgS) {
+      const q = pr[r];
+      if (!q) continue;
+      const b = this.M.reg[r].bb, X0 = (b[0] - v.x0) * sc, Y0 = (b[1] - v.y0) * sc, X1 = (b[2] - v.x0) * sc, Y1 = (b[3] - v.y0) * sc;
+      if (X1 < 0 || Y1 < 0 || X0 > this.w || Y0 > this.h) continue;
+      const p = o.a + (o.b - o.a) * e;
+      if (p < 0.01) continue;
+      const cut = this.progCut(r, p, q.x, q.y);
+      if (!cut) continue;
+      const col = SIDE_COL[q.s] || [120, 120, 110], rgb = `${col[0]},${col[1]},${col[2]}`;
+      c.save();
+      c.setTransform(dpr * sc, 0, 0, dpr * sc, -v.x0 * sc * dpr, -v.y0 * sc * dpr);
+      c.clip(this.rpath(r), 'evenodd');
+      const R = 5000, ox = cut.dx * cut.c, oy = cut.dy * cut.c, tx = -cut.dy, ty = cut.dx;
+      c.beginPath();
+      c.moveTo(ox + tx * R, oy + ty * R); c.lineTo(ox - tx * R, oy - ty * R);
+      c.lineTo(ox - tx * R + cut.dx * R, oy - ty * R + cut.dy * R); c.lineTo(ox + tx * R + cut.dx * R, oy + ty * R + cut.dy * R);
+      c.closePath(); c.clip();
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.fillStyle = `rgba(${rgb},0.17)`; c.fillRect(X0, Y0, X1 - X0, Y1 - Y0);
+      // штриховка «/» через 7 px (привязана к карте при прокрутке)
+      const st = 7, ph = (((-(v.x0 + v.y0) * sc) % st) + st) % st;
+      c.beginPath();
+      for (let s0 = Math.floor((X0 + Y0 - ph) / st) * st + ph; s0 <= X1 + Y1; s0 += st) { c.moveTo(s0 - Y0, Y0); c.lineTo(s0 - Y1, Y1); }
+      c.strokeStyle = `rgba(${rgb},0.5)`; c.lineWidth = 1.5; c.stroke();
+      c.restore();
+      c.strokeStyle = `rgba(${rgb},0.9)`; c.lineWidth = 1.6; c.setLineDash([5, 3]);
+      c.beginPath();
+      for (const [ax, ay, bx, by] of cut.segs) { c.moveTo((ax - v.x0) * sc, (ay - v.y0) * sc); c.lineTo((bx - v.x0) * sc, (by - v.y0) * sc); }
+      c.stroke(); c.setLineDash([]);
+    }
   }
   // точка пути на расстоянии t и нормаль внутрь (сглаженная по хорде ±w)
   pathAt(P, t, w) {
@@ -333,6 +470,7 @@ export class EastMap {
     const S = this.S, M = this.M, sc = this.view.sc, sz = divSize(sc), agg = sc < AGG_SC;
     const key = `${this.ver}|${sz}|${agg ? 1 : 0}|${Math.round(sc * 40)}`;
     if (this.lay && this.lay.key === key) return this.lay;
+    const prev = this.lay;
     this.indexArcs();
     const items = [];
     this.contacts = new Map();
@@ -369,7 +507,27 @@ export class EastMap {
     }
     // сначала тыл, затем ряды от дальнего к ближнему к линии
     items.sort((a, b) => (a.row === 0 ? -1 : 0) - (b.row === 0 ? -1 : 0) || b.row - a.row);
-    return (this.lay = { key, items, sz, agg });
+    const lay = { key, ver: this.ver, items, sz, agg };
+    if (prev && !agg && !prev.agg) this.tweenFrom(prev, lay);
+    return (this.lay = lay);
+  }
+  // плавное движение фишек (v0.11.1): после хода или приказа — от показанных позиций к новым (~0,9 с)
+  tweenFrom(prev, lay) {
+    const t = now(), tw = this.tw, te = tw ? ease(Math.min(1, (t - tw.t0) / tw.ms)) : 1, pm = new Map();
+    for (const it of prev.items) pm.set(it.u.id, it.fx !== undefined && te < 1 ? [it.fx + (it.x - it.fx) * te, it.fy + (it.y - it.fy) * te, it.fx, it.fy] : [it.x, it.y]);
+    if (prev.ver === lay.ver) { // тот же ход, другой масштаб — продолжить начатое движение
+      if (te < 1) for (const it of lay.items) { const p = pm.get(it.u.id); if (p && p.length > 2) { it.fx = p[2]; it.fy = p[3]; } }
+      return;
+    }
+    let n = 0;
+    for (const it of lay.items) {
+      const p = pm.get(it.u.id);
+      if (!p) continue;
+      const d = Math.hypot(p[0] - it.x, p[1] - it.y);
+      if (d * this.view.sc < 1.5 || d > 700) continue;
+      it.fx = p[0]; it.fy = p[1]; n++;
+    }
+    this.tw = n ? { t0: t, ms: 900 } : null;
   }
   // ——— 2D-слой ———
   drawOverlay() {
@@ -379,6 +537,8 @@ export class EastMap {
     if (!this.G) this.draw2D(c);
     const vis = (x, y, m = 40) => { const X = (x - v.x0) * sc, Y = (y - v.y0) * sc; return X > -m && Y > -m && X < this.w + m && Y < this.h + m ? [X, Y] : null; };
     const L = this.layout();
+    // частично занятые области — под линиями фронтов
+    this.drawProg(c);
     // линии фронтов игрока (со своей стороны линии), штабы, стрелки наступлений
     this.drawFronts(c, vis);
     // посёлки
@@ -437,8 +597,10 @@ export class EastMap {
     // фишки
     this.stackHit = [];
     const sz = L.sz, half = sz / 2, sel = this.hl.sel, szB = Math.ceil(sz / 5) * 5; // спрайты — ступенями по 5 px
+    const tw = this.tw, te = tw ? ease(Math.min(1, (now() - tw.t0) / tw.ms)) : 1;
+    if (tw) { if (te >= 1) this.tw = null; else this.dirty = true; }
     for (const it of L.items) {
-      const p = vis(it.x, it.y, sz);
+      const tt = tw && it.fx !== undefined, p = vis(tt ? it.fx + (it.x - it.fx) * te : it.x, tt ? it.fy + (it.y - it.fy) * te : it.y, sz);
       if (!p) continue;
       const u = it.u, x = p[0] - half, y = p[1] - half, sd = u.s;
       if (it.agg) {
@@ -601,7 +763,7 @@ export class EastMap {
     c.fillStyle = 'rgba(252,248,236,0.96)'; rrect(c, x0, y0, W, h + 4, 5); c.fill();
     c.lineWidth = 2; c.strokeStyle = col; rrect(c, x0, y0, W, h + 4, 5); c.stroke();
     c.fillStyle = col; c.fillRect(x0 + 2, y0 + 2, w, h);
-    if (img && img.complete && img.naturalWidth) c.drawImage(img, x0 + 2, y0 + 2, w, h);
+    if (img && (img.naturalWidth || (img.complete === undefined && img.width))) c.drawImage(img, x0 + 2, y0 + 2, w, h); // холст портрета или картинка
     c.fillStyle = '#2a241c'; c.textAlign = 'left'; c.textBaseline = 'middle';
     c.fillText(name, x0 + w + 7, y0 + (h + 4) / 2 - 4);
     c.font = '600 8.5px Rubik, system-ui, sans-serif'; c.fillStyle = '#6a5a44';
@@ -772,8 +934,6 @@ export class EastMap {
     }
     c.lineWidth = 0.6 / v.sc; c.strokeStyle = 'rgba(60,48,36,0.25)';
     for (let r = 0; r < M.R; r++) c.stroke(this.regP[r]);
-    c.lineWidth = 2.6 / v.sc; c.strokeStyle = '#de2418';
-    for (const f of this.front || []) { const p = f.p; c.beginPath(); c.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]); c.stroke(); }
     c.lineWidth = 1.6 / v.sc; c.strokeStyle = '#8c2218';
     for (const f of this.pbord || []) { const p = f.p; c.beginPath(); c.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i], p[i + 1]); c.stroke(); }
     c.restore();

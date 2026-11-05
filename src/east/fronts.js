@@ -3,7 +3,7 @@
 // сводка фронта (дивизии, штат, снабжение, силы, небо, потери), доли авиации по фронтам, переброска дивизий
 // между фронтами (по железной дороге, 1–2 недели в пути) и просьбы командующих («нужны подкрепления» и т. п.).
 import * as E from './engine.js';
-import { other, quality, turnOf } from './rules.js';
+import { other, quality, turnOf, wT } from './rules.js';
 import { ALLG } from '../war/gens41.js';
 import { GEN_UNTIL } from './hist.js';
 import { eqTot } from './eco.js';
@@ -66,19 +66,20 @@ export function airShift(S, side, z, dir) {
 export function airAutoSet(S, side, on) { (S.airS ??= { GER: null, SOV: null })[side] = on ? null : airShares(S, side); airRe(S); }
 export const planes = (S, side, sh) => Math.round((S.air[side] * sh * 30) / 10) * 10; // ≈ боеспособных самолётов
 // ——— переброска дивизий между фронтами ———
-export const trWeeks = (S, u, f) => (Math.abs(S.M.reg[u.r].z - f) >= 2 ? 2 : 1);
+export const trWeeks = (S, u, f) => (Math.abs(S.M.reg[u.r].z - f) >= 2 ? 2 : 1); // недель в пути
+export const trTurns = (S, u, f) => wT(trWeeks(S, u, f)); // ходов в пути
 export function trWhy(S, u, f) {
   if (!E.alive(u)) return 'дивизии нет';
   if (S.M.reg[u.r].z === f) return 'уже на этом фронте';
   if (S.sup[u.s][u.r] <= 0) return 'в окружении';
   if (u.att || u.mv) return 'уже действовала в этот ход';
   if (u.nat === 'FIN' && f !== 0) return 'финны воюют только у себя';
-  if ((S.railCap[u.s] || 0) <= 0) return 'дороги заняты: на этой неделе — всё';
+  if ((S.railCap[u.s] || 0) <= 0) return 'дороги заняты: в этот ход — всё';
   return '';
 }
 export function transfer(S, u, f) {
   if (trWhy(S, u, f)) return false;
-  const w = trWeeks(S, u, f), l = S.at[u.r];
+  const w = trTurns(S, u, f), l = S.at[u.r];
   l.splice(l.indexOf(u), 1);
   u.r = -1; u.arr = S.turn + w; u.z = f; u.zf = f; u.at = -1; u.tr = 1; u.ent = 0;
   u.rdy = Math.max(0, u.rdy - 10);
@@ -121,18 +122,18 @@ export function frontReqs(S, side, fs = [...Array(E.ZN).keys()].map((z) => front
     const o = fs[z], own = !S.pauto?.[z] || side !== S.side, post = S.post[side][z];
     if (own && o.k > 3 && o.str < 50 && post !== 'ret') out[z] = { k: 'ret', txt: `${hi}, фронт не удержать: противник сильнее в ${x1(o.k)} раза, дивизии обескровлены. Прошу разрешить отход.` };
     else if (o.k >= 1.5 && (o.L?.h || 0) >= 4 && (o.k >= 1.2 * mean(z) || o.k > 3.5)) out[z] = { k: 'men', txt: `${hi}, натиск противника здесь сильнее, чем на других фронтах (${x1(o.k)} : 1). Нужны подкрепления — хотя бы три дивизии.` };
-    else if (S.fprio?.[side]?.z !== z && (o.sup < 0.6 || (eqTot(S, side) < 12 && o.str < 70))) out[z] = { k: 'ammo', txt: `${hi}, снабжение на пределе: снарядов и патронов — на неделю боёв. Прошу дать фронту приоритет.` };
+    else if (S.fprio?.[side]?.z !== z && (o.sup < 0.6 || (eqTot(S, side) < 12 && o.str < 70))) out[z] = { k: 'ammo', txt: `${hi}, снабжение на пределе: снарядов и патронов — на несколько дней боёв. Прошу дать фронту приоритет.` };
     else if (z === airW && o.ar < 0.33 && ash[z] < 0.5) out[z] = { k: 'air', txt: `${hi}, в небе господствует ${en} авиация (наша доля — ${Math.round(o.ar * 100)} %). Прошу прикрыть фронт.` };
     else if (own && o.adv > 1.7 && o.nE >= 3 && post !== 'atk' && o.str > 65) out[z] = { k: 'atk', txt: `${hi}, перевес на нашей стороне (${x1(o.adv)} : 1). Разрешите перейти в наступление.` };
   }
   return out;
 }
-export const reqNo = (S, side, z, w = 3) => { ((S.reqNo ??= { GER: [], SOV: [] })[side] ??= [])[z] = S.turn + w; };
-// приоритет снабжения: пополнение и подвоз фронта — первыми (4 недели, ★)
+export const reqNo = (S, side, z, w = 3) => { ((S.reqNo ??= { GER: [], SOV: [] })[side] ??= [])[z] = S.turn + wT(w); }; // w — недель
+// приоритет снабжения: пополнение и подвоз фронта — первыми (4 недели, ★; left — ходов)
 export function prioSet(S, side, z) {
   const c = REQ.ammo.pol;
   if ((S.pol[side] || 0) < c) return false;
   S.pol[side] -= c;
-  (S.fprio ??= { GER: null, SOV: null })[side] = { z, left: 4 };
+  (S.fprio ??= { GER: null, SOV: null })[side] = { z, left: wT(4) };
   return true;
 }

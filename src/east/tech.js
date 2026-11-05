@@ -4,7 +4,7 @@
 // исторический ход исследований, поэтому эффекты считаются ОТНОСИТЕЛЬНО истории: опережение — преимущество,
 // отставание — штраф (fx = изученное − «по истории»). ИИ изучает не раньше истории — баланс кампании прежний.
 // Открытия (морской и воздушный десант) — по факту изучения.
-import { yearF } from './rules.js';
+import { yearF, WK } from './rules.js';
 import { note } from './engine.js';
 
 export const TB = {
@@ -98,7 +98,7 @@ export const tooEarly = (S, k) => TK[k].y - yearF(S.turn) > EARLY;
 export const canStart = (S, side, k) => { const t = TK[k], p = prevOf(t); return !!t && !isDone(S, side, k) && !inCur(S, side, k) && (!p || isDone(S, side, p.k)) && !tooEarly(S, k); };
 // множитель срока: опережение истории — дольше (×(1+1,5·лет)), отставание — быстрее (до ×0,5)
 export function penOf(S, k) { const dy = TK[k].y - yearF(S.turn); return dy > 0 ? 1 + 1.5 * dy : Math.max(0.5, 1 + 0.5 * dy); }
-export const weeksLeft = (S, side, k) => Math.max(1, Math.ceil(TK[k].w * penOf(S, k) * (1 - (S.tech[side].p[k] || 0)) - 1e-6));
+export const weeksLeft = (S, side, k) => Math.max(1, Math.ceil((TK[k].w * penOf(S, k) * (1 - (S.tech[side].p[k] || 0))) / WK - 1e-6)); // v0.11.1: ходов (имя — по старой памяти)
 export function start(S, side, k, slot = -1) {
   const X = S.tech[side];
   if (!canStart(S, side, k)) return false;
@@ -140,7 +140,7 @@ export function recompute(S, side) {
 export const tx = (S, side, k) => S.tech?.[side]?.fx?.[k] || 0;
 export const hasU = (S, side, k) => !!S.tech?.[side]?.un?.[k];
 export const unV = (S, side, k) => S.tech?.[side]?.un?.[k] || 0;
-// неделя науки: прогресс в слотах, готовые — в изученные, свободные слоты — авто (ИИ — всегда)
+// ход науки (5 дней = WK недели): прогресс в слотах, готовые — в изученные, свободные слоты — авто (ИИ — всегда)
 export function techWeek(S) {
   for (const side of ['GER', 'SOV']) {
     const X = S.tech[side], n = slotsOf(S, side), ai = side !== S.side;
@@ -151,7 +151,7 @@ export function techWeek(S) {
       const k = X.cur[i];
       if (!k) continue;
       if (i >= n) { X.cur[i] = null; continue; }
-      X.p[k] = Math.min(1, (X.p[k] || 0) + 1 / (TK[k].w * penOf(S, k)));
+      X.p[k] = Math.min(1, (X.p[k] || 0) + WK / (TK[k].w * penOf(S, k)));
       if (X.p[k] >= 1 - 1e-9) {
         X.done.push(k); X.cur[i] = null; delete X.p[k];
         if (!ai) note(S, { ic: 'sci', side, txt: `Изучено: ${techName(TK[k], side)} — ${fxText(techFx(TK[k], side))}`, sci: k });
