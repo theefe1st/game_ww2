@@ -1,10 +1,10 @@
 // «Мировой фронт» v0.11 (отзыв 04.11): призыв игрока — выбор дивизий (род × число) → обучение (недели; в учебном лагере
 // быстрее и опытнее) → «Резерв Ставки» (у Оси — «Резерв ОКХ») → отправка на фронт (1–2 недели по железной дороге).
 // Можно сразу указать фронт или «авто» (туда, где натиск сильнее). Дивизии в обучении и в резерве — вне карты
-// (u.r = −1): u.trn — недель до конца обучения, u.res — в резерве; в пути на фронт — как переброска (u.arr, u.zf, u.tr).
+// (u.r = −1): u.trn — ходов до конца обучения (v0.11.1: ход — 5 дней), u.res — в резерве; в пути на фронт — как переброска (u.arr, u.zf, u.tr).
 // ИИ и «Генштаб сам формирует» набирают по-старому (recruit → сразу в тыл фронта).
 import * as E from './engine.js';
-import { TYPES, divW } from './rules.js';
+import { TYPES, divW, wT } from './rules.js';
 import { eqNeed } from './eco.js';
 import { frontSum } from './fronts.js';
 
@@ -12,8 +12,10 @@ export const TRW = { inf: 2, mtn: 3, cav: 2, sec: 1, mot: 3, arm: 4, abn: 4 }; /
 export const resName = (side) => (side === 'SOV' ? 'Резерв Ставки' : 'Резерв ОКХ');
 export const resIn = (side) => (side === 'SOV' ? 'в резерве Ставки' : 'в резерве ОКХ');
 export const resTo = (side) => (side === 'SOV' ? 'в резерв Ставки' : 'в резерв ОКХ');
-export const trainW = (t, camp) => Math.max(1, (TRW[t] ?? 2) - (camp ? 1 : 0));
-export const sendW = (f) => (f === 0 || f === 4 ? 2 : 1);
+export const trainW = (t, camp) => Math.max(1, (TRW[t] ?? 2) - (camp ? 1 : 0)); // недель
+export const trainT = (t, camp) => wT(trainW(t, camp)); // ходов
+export const sendW = (f) => (f === 0 || f === 4 ? 2 : 1); // недель в пути
+export const sendT = (f) => wT(sendW(f)); // ходов в пути
 export const inTrain = (S, side) => S.units.filter((u) => !u.dead && u.s === side && u.trn > 0);
 export const inRes = (S, side) => S.units.filter((u) => !u.dead && u.s === side && u.res);
 // сколько дивизий рода t можно заказать сейчас (снаряжение, люди, предел армии)
@@ -26,7 +28,7 @@ export function canOrder(S, side, t) {
 }
 // заказ: n дивизий рода t; camp — учебный лагерь (−1 — без лагеря); dst — после обучения: −1 резерв, −2 авто, 0…4 фронт
 export function order(S, side, t, n, camp = -1, dst = -1) {
-  const out = [], ord = (S.ordId = (S.ordId || 0) + 1), w = trainW(t, camp >= 0);
+  const out = [], ord = (S.ordId = (S.ordId || 0) + 1), w = trainT(t, camp >= 0);
   for (let i = 0; i < n; i++) {
     const u = E.recruit(S, side, t, 2, { at: camp });
     if (!u) break;
@@ -77,10 +79,10 @@ export function send(S, u, f) {
   if (u.dead || u.r >= 0 || u.trn > 0) return false;
   if (u.nat === 'FIN' && f !== 0) return false;
   delete u.res; delete u.camp;
-  u.arr = S.turn + sendW(f); u.z = f; u.zf = f; u.at = -1; u.tr = 1;
+  u.arr = S.turn + sendT(f); u.z = f; u.zf = f; u.at = -1; u.tr = 1;
   return true;
 }
-// неделя обучения (endWeek, после смены хода): готовые — в резерв или сразу на фронт
+// ход обучения (endWeek, после смены хода): готовые — в резерв или сразу на фронт
 export function trainWeek(S) {
   const done = new Map();
   for (const u of S.units) {

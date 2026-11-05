@@ -56,7 +56,23 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
     return 12;
   };
   const tapReg = async (r) => {
-    const p = await ev((r) => { const U = window.__east, g = U.M.reg[r]; const [x, y] = U.map.toScr(g.x, g.y); const rc = U.map.root?.getBoundingClientRect?.() || { left: 0, top: 0 }; return [x + rc.left, y + rc.top]; }, r);
+    // центр области может быть закрыт фишкой соседней стопки (v0.11.1: фишки стоят и на границе частичного захвата),
+    // штабом или флотом — тогда касаемся ближайшей свободной точки этой области
+    const p = await ev((r) => {
+      const U = window.__east, m = U.map, g = U.M.reg[r], rc = m.root?.getBoundingClientRect?.() || { left: 0, top: 0 };
+      const inH = (hs, x, y) => (hs || []).some((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
+      const free = (x, y) => x > 4 && y > 4 && x < m.w - 4 && y < m.h - 4 && m.regionAtPx(x, y) === r && !inH(m.hqHit, x, y) && !inH(m.fleetHit, x, y);
+      let [x, y] = m.toScr(g.x, g.y), moved = '';
+      if (!free(x, y)) {
+        const [ax, ay] = m.toScr(g.bb[0], g.bb[1]), [bx, by] = m.toScr(g.bb[2], g.bb[3]);
+        let best = null, bd = 1e9;
+        for (let i = 1; i < 16; i++) for (let j = 1; j < 16; j++) { const px = ax + ((bx - ax) * i) / 16, py = ay + ((by - ay) * j) / 16; if (!free(px, py)) continue; const d = Math.hypot(px - x, py - y); if (d < bd) (bd = d), (best = [px, py]); }
+        moved = `центр занят (${m.regionAtPx(x, y)}), ${best ? `сдвиг ${Math.round(bd)} px` : 'свободной точки нет'}`;
+        if (best) [x, y] = best;
+      }
+      return [x + rc.left, y + rc.top, moved];
+    }, r);
+    if (p[2]) console.log(`tap ${r}: ${p[2]}`);
     await page.mouse.click(p[0], p[1]); await page.waitForTimeout(350);
     return p;
   };

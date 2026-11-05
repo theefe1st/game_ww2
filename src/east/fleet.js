@@ -5,7 +5,7 @@
 // Балтийский флот заперт минами в Финском заливе, пока Таллин у противника (на море ×0,35; пушки бьют по-прежнему).
 // Господство на море — доля сил на море: сила морских десантов (ops.js: seaK), северные конвои ленд-лиза (engine.js: income).
 // Поддержка флота в приморских боях (engine.js: odds): до ±15 % в 400 км от базы.
-import { lerpT, yearF, other } from './rules.js';
+import { lerpT, yearF, other, WK } from './rules.js';
 import { sideOf, cityR, airRatio, note } from './engine.js';
 import { seas, seaName } from './ops.js';
 
@@ -43,7 +43,7 @@ export function seaDom(S, sea, side) {
   if (!any) return null;
   return a + b > 0 ? a / (a + b) : 0.5;
 }
-// неделя: предел по истории, смена базы, потери от авиации и ремонт
+// ход: предел по истории, смена базы, потери от авиации и ремонт
 export function fleetWeek(S) {
   if (!S.fl) initFleets(S);
   const y = yearF(S.turn);
@@ -61,8 +61,8 @@ export function fleetWeek(S) {
     st.b = st.p > 0 ? b : null;
     if (S.peace || !st.b) continue;
     const ar = airRatio(S, f.side, S.M.reg[cityR(S, st.b)].z);
-    if (ar < 0.4) st.p = Math.max(0, st.p - st.p * 0.012 * ((0.4 - ar) / 0.4)); // удары авиации по базе и конвоям
-    else if (ar >= 0.45 && st.p < c) st.p = Math.min(c, st.p + 0.5); // ремонт
+    if (ar < 0.4) st.p = Math.max(0, st.p - st.p * 0.012 * WK * ((0.4 - ar) / 0.4)); // удары авиации по базе и конвоям (за ход — доля недели)
+    else if (ar >= 0.45 && st.p < c) st.p = Math.min(c, st.p + 0.5 * WK); // ремонт
   }
   NAV.delete(S);
 }

@@ -96,9 +96,34 @@
 .e-date{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;padding:0 4px;min-width:0}
 .e-date b{font-size:16px;white-space:nowrap}
 .e-date small{font-size:11px;opacity:.7;white-space:nowrap}
-.e-wx{display:flex;gap:2px;margin-left:4px}
-.e-wx span{display:flex;flex-direction:column;align-items:center;font-size:9px;opacity:.9;width:26px}
-.e-wx .ic{width:18px;height:18px}
+/* погода по направлениям (v0.11.1): крупные цветные плашки, нажатие — сводка и прогноз */
+.e-wx{display:flex!important;gap:3px;margin-left:4px;padding:2px!important;border-radius:12px}
+.e-wx span{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:38px;height:40px;border-radius:9px;font-size:10px;font-weight:600;line-height:1;
+  background:var(--wb,rgba(255,240,210,.08));color:var(--wc,#fff);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.e-wx .ic{width:22px;height:22px}
+.e-wx .w-dry{--wb:linear-gradient(#e9b949,#b97e1e);--wc:#2a1a06}
+.e-wx .w-rain{--wb:linear-gradient(#6f8fa8,#3e5a72);--wc:#eef6ff}
+.e-wx .w-mud{--wb:linear-gradient(#8a6a44,#5a4026);--wc:#fff1dc}
+.e-wx .w-snow{--wb:linear-gradient(#e8f0f8,#a9bccd);--wc:#1c2a38}
+.e-wx .w-frost{--wb:linear-gradient(#9fd2f0,#4c8fc0);--wc:#06223a}
+.e-wxm{display:flex;flex-direction:column;gap:8px}
+.e-wxr{display:grid;grid-template-columns:auto 1fr auto;gap:4px 12px;align-items:center;padding:8px 10px;border-radius:14px;background:rgba(255,240,210,.06)}
+.e-wxr>b{display:flex;align-items:center;gap:8px;font-size:15px}
+.e-wxr>b span{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:10px;background:var(--wb);color:var(--wc)}
+.e-wxr>b span .ic{width:24px;height:24px}
+.e-wxr>b small{display:block;font-size:12px;font-weight:400;opacity:.75}
+.e-wxfx{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:13px;opacity:.9}
+.e-wxfx span{display:inline-flex;align-items:center;gap:3px}
+.e-wxfx .bad{color:#ffb09a}
+.e-wxfc{display:flex;gap:4px}
+.e-wxfc span{display:flex;flex-direction:column;align-items:center;gap:1px;width:40px;padding:3px 0;border-radius:9px;font-size:10px;background:var(--wb);color:var(--wc)}
+.e-wxfc .ic{width:18px;height:18px}
+.e-wxfc .w-dry,.e-wxr .w-dry{--wb:linear-gradient(#e9b949,#b97e1e);--wc:#2a1a06}
+.e-wxfc .w-rain,.e-wxr .w-rain{--wb:linear-gradient(#6f8fa8,#3e5a72);--wc:#eef6ff}
+.e-wxfc .w-mud,.e-wxr .w-mud{--wb:linear-gradient(#8a6a44,#5a4026);--wc:#fff1dc}
+.e-wxfc .w-snow,.e-wxr .w-snow{--wb:linear-gradient(#e8f0f8,#a9bccd);--wc:#1c2a38}
+.e-wxfc .w-frost,.e-wxr .w-frost{--wb:linear-gradient(#9fd2f0,#4c8fc0);--wc:#06223a}
+@media (max-width:560px){.e-wxr{grid-template-columns:1fr auto}.e-wxfx{grid-column:1/-1;order:3}}
 .e-res{margin-left:auto;display:flex;align-items:center;gap:6px}
 .e-chip{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 9px;border-radius:16px;background:rgba(255,240,210,.08);border:1px solid rgba(255,240,210,.12)!important;font-size:14px;white-space:nowrap}
 .e-chip small{font-size:11px;color:#a8d890}
@@ -108,7 +133,8 @@
 .e-mor em{display:block;height:100%;background:linear-gradient(90deg,#d24a32,#e2b64e 50%,#6fb44e)}
 @media (max-width:620px){
   .e-wx span small{display:none}
-  .e-wx span{width:19px}
+  .e-wx span{width:28px;height:30px}
+  .e-wx .ic{width:20px;height:20px}
   .e-chip{padding:0 6px;font-size:13px}
   .e-chip small{display:none}
   .e-mor i{width:28px}
@@ -358,7 +384,7 @@
 .e-tip .e-btn{color:#2a1a08}
 .e-tip.at-dirs,.e-tip.at-build{left:calc(10px + var(--sl));bottom:calc(var(--bot) + var(--sb) + 12px)}
 .e-tip.at-next{right:calc(10px + var(--sr));bottom:calc(var(--bot) + var(--sb) + 12px)}
-.e-tip.at-map,.e-tip.at-attack,.e-tip.at-pocket{left:50%;transform:translateX(-50%);top:calc(var(--bar) + 12px)}
+.e-tip.at-map,.e-tip.at-attack,.e-tip.at-pocket{left:0;right:0;margin:0 auto;top:calc(var(--bar) + 12px)}
 .e-tip.at-dirs::after,.e-tip.at-next::after,.e-tip.at-build::after{content:'';position:absolute;bottom:-9px;width:18px;height:18px;background:#f0dca8;transform:rotate(45deg);box-shadow:3px 3px 0 -1px #c8902a}
 .e-tip.at-dirs::after{left:34px}
 .e-tip.at-build::after{left:calc(34px + 2 * min(120px, 20vw))}
@@ -375,7 +401,7 @@
 .e-front{border-left:4px solid var(--fc)!important;position:relative}
 .e-front .e-dinfo b{color:color-mix(in srgb,var(--fc) 45%,#fff)}
 .e-porb{position:relative;padding:0!important;background:none!important;border:0!important;flex:none}
-.e-porb>i{position:absolute;right:-5px;bottom:-5px;width:20px;height:20px;border-radius:10px;background:var(--fc);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.e-porb>i{position:absolute;right:-2px;bottom:-4px;width:20px;height:20px;border-radius:10px;background:var(--fc);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
 .e-porb>i .ic{width:13px;height:13px;color:#fff}
 .e-porb .e-por{box-shadow:0 0 0 2px var(--fc)}
 .e-stars{font-style:normal;color:var(--gold);font-size:10px;letter-spacing:-1px;margin-left:3px}
@@ -571,7 +597,7 @@
 .e-pbody .e-chips .e-chip small{display:inline;color:#d8c8a0;margin-left:2px}
 .e-pbody .e-chips .e-chip.on{border-color:rgba(233,200,103,.5)!important;background:rgba(226,182,78,.14)}
 .e-pbody .e-chips .e-chip.gone{opacity:.55}
-.e-tip.at-dec{left:50%;transform:translateX(-50%);top:calc(var(--bar) + 12px)}
+.e-tip.at-dec{left:0;right:0;margin:0 auto;top:calc(var(--bar) + 12px)}
 .e-tip.at-peace{right:calc(10px + var(--sr));bottom:calc(var(--bot) + var(--sb) + 60px)}
 /* флот (шаг 6.8): панель «Флот», сводка в «Армии» */
 .e-zc b{margin-left:5px}
@@ -592,3 +618,89 @@
 .e-flb>i{display:block;height:100%}
 .e-fln{flex:none;display:flex;flex-direction:column;align-items:flex-end;font-size:17px;min-width:40px}
 .e-fln small{font-size:10.5px;font-weight:500;opacity:.65}
+
+/* ——— v0.11.1: интерфейс «Телефон» — экраны на весь экран, крупно и коротко; «ПК» — подробные панели сбоку ——— */
+.east:not(.ui-pc) .e-pc{display:none!important}
+.e-sec{display:flex;flex-direction:column;gap:8px;min-width:0}
+.e-panel.full{left:0;right:0;top:0;bottom:0;width:auto;max-height:none;z-index:14;border:0;border-radius:0;background:#1f1b15;box-shadow:none;animation:e-fullin .16s ease-out}
+@keyframes e-fullin{from{opacity:0;transform:scale(.99)}}
+.e-panel.full .e-ph{gap:10px;min-height:58px;padding:calc(5px + var(--st,0px)) calc(8px + var(--sr,0px)) 5px calc(14px + var(--sl,0px));background:rgba(0,0,0,.22)}
+.e-panel.full .e-ph>.ic{width:28px;height:28px}
+.e-panel.full .e-ph h3{font-size:19px}
+.e-panel.full .e-ph>div>small{font-size:13px}
+.e-panel.full .e-ph>.e-ib{width:48px;height:48px;flex:none}
+.e-ftabs{display:flex;gap:4px;flex:none}
+.e-ftab{position:relative;display:flex!important;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:70px;height:50px;padding:0 6px!important;border-radius:12px;font-size:12px;opacity:.72}
+.e-ftab .ic{width:24px;height:24px}
+.e-ftab.on{background:rgba(226,182,78,.2)!important;color:#ffe4a0;opacity:1}
+.e-ftab .e-dot{position:absolute;top:6px;right:14px;width:9px;height:9px;border-radius:50%;background:var(--red)}
+@media (max-width:760px){.e-ftab span{display:none}.e-ftab{min-width:46px}.e-panel.full .e-ph>div>small{display:none}}
+@media (max-width:460px){.e-panel.full .e-ph>.ic{display:none}.e-ftab{min-width:40px}.e-panel.full .e-ph h3{font-size:17px}}
+.e-panel.full .e-pbody{padding:12px calc(12px + var(--sr,0px)) calc(24px + var(--sb,0px)) calc(12px + var(--sl,0px));font-size:15px;gap:12px}
+.e-panel.full .e-pbody:not(.grid){width:100%;max-width:980px;margin:0 auto}
+.e-panel.full .e-pbody.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));align-items:start;align-content:start}
+.e-panel.full .e-sec{background:rgba(255,240,210,.045);border:1px solid rgba(255,240,210,.09);border-radius:16px;padding:12px}
+.e-panel.full .e-sec.bare{background:none;border:0;padding:0}
+.e-panel.full .e-sec.wide{grid-column:1/-1}
+.e-panel.full .e-pbody h4{font-size:14px;margin-top:0}
+.e-panel.full .e-note{font-size:14px}
+.e-panel.full .e-dir{padding:12px}
+.e-panel.full .e-dinfo b{font-size:17px}
+.e-panel.full .e-dinfo small{font-size:13.5px}
+.e-panel.full .e-por{width:48px;height:58px}
+.e-panel.full .e-fst{font-size:14.5px;gap:6px 14px}
+.e-panel.full .e-fst .ic{width:18px;height:18px}
+.e-panel.full .e-pb{font-size:13px;min-height:54px}
+.e-panel.full .e-pb .ic{width:24px;height:24px}
+.e-panel.full .e-fb{min-height:40px;font-size:14px}
+.e-panel.full .e-fmore{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px;align-items:start}
+.e-panel.full .e-fm{display:flex;flex-direction:column;gap:8px;min-width:0}
+.e-panel.full .e-types{gap:8px}
+.e-panel.full .e-type{min-width:62px;padding:8px}
+.e-panel.full .e-type img{width:44px;height:31px}
+.e-panel.full .e-type b{font-size:19px}
+.e-panel.full .e-type small{font-size:12px}
+.e-panel.full .e-eco b{font-size:19px}
+.e-panel.full .e-eco small{font-size:12px}
+.e-panel.full .e-eco span{padding:9px 6px;font-size:13px}
+.e-panel.full .e-eco .ic{width:22px;height:22px}
+.e-panel.full .e-line b,.e-panel.full .e-qi b,.e-panel.full .e-rc b{font-size:15px}
+.e-panel.full .e-line small,.e-panel.full .e-qi small,.e-panel.full .e-rc small{font-size:12.5px}
+.e-panel.full .e-ib.sm{width:40px;height:40px}
+.e-panel.full .e-rc img{width:44px;height:31px}
+.e-panel.full .e-zc{min-height:40px;font-size:14px}
+.e-panel.full .e-row{min-height:52px;font-size:15.5px}
+.e-panel.full .e-blds{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
+.e-panel.full .e-bld{font-size:14px;padding:10px 6px}
+.e-panel.full .e-bld .ic{width:26px;height:26px}
+.e-panel.full .e-dcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:10px}
+.e-panel.full .e-tbr{margin-top:0}
+.e-panel.full .e-tbr h5{font-size:15px}
+.e-panel.full .e-tt{min-height:70px}
+.e-panel.full .e-tt b{font-size:12.5px}
+.e-panel.full .e-tt small{font-size:11.5px}
+.e-panel.full .e-tbr.sel{grid-column:1/-1}
+.e-panel.full .e-dv{min-height:44px}
+.e-panel.full .e-dvl{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:4px 8px}
+.e-panel.full .e-dvl h5{grid-column:1/-1}
+.e-uiset .e-seg button{min-height:36px;padding:4px 14px!important;font-size:14px}
+/* v0.11.1: выбор дивизий в карточке области, «Подкрепить» */
+button.e-u{border:1.5px solid transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;width:100%;position:relative;-webkit-tap-highlight-color:transparent}
+button.e-u:active{background:rgba(255,240,210,.12)}
+button.e-u.sel{border-color:#e0b04a;background:rgba(224,176,74,.18)}
+.e-uck{display:none;position:absolute;top:3px;right:4px;width:16px;height:16px;border-radius:50%;background:#e0b04a;color:#2a1e10;align-items:center;justify-content:center}
+.e-uck svg{width:10px;height:10px}
+button.e-u.sel .e-uck{display:flex}
+.e-hint{font-size:11.5px;opacity:.65;display:flex;align-items:center;gap:5px;margin:6px 2px 0;line-height:1.25}
+.e-hint svg{width:12px;height:12px;flex:none}
+.e-panel.full .e-units{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+.e-panel.full .e-u img{width:40px;height:28px}
+.e-panel.full .e-u b{font-size:14px}
+.e-panel.full .e-u small{font-size:12px}
+/* сводка погоды — на светлой карточке */
+.e-card .e-wxr{background:rgba(80,60,30,.07)}
+.e-card .e-wxr>b small{color:#6b5a44;opacity:1;font-weight:500}
+.e-card .e-wxfx{opacity:1;color:#3d3122}
+.e-card .e-wxfx .bad{color:#b23a1c}
+.e-wxfc span{width:46px;white-space:nowrap}
+.e-wxfc small{font-size:10.5px;font-weight:600}

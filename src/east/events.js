@@ -2,7 +2,7 @@
 // у некоторых — выбор из двух вариантов. Событие случается один раз: S.ev[id] = ход (−1 — не случилось).
 // S.evq — очередь карточек для интерфейса, S.boost — временные усиления сторон на направлениях (см. boostK в engine.js).
 // Режим «Исторический» — все события по датам; «Свободный» — только не зависящие от планов сторон (и по условиям).
-import { turnOf } from './rules.js';
+import { turnOf, wT } from './rules.js';
 import { sideOf, cityR, addMor, note, alive, mkUnit, rearSpot, room, reindex } from './engine.js';
 import { runPrewar, PWM } from './prewar.js';
 
@@ -25,7 +25,7 @@ function near(S, r, side, d = 1) {
 }
 export function addBoost(S, side, zs, k, weeks, kind = 'att') {
   S.boost ||= [];
-  for (const z of [].concat(zs)) S.boost.push({ side, z, k, until: S.turn + weeks, kind });
+  for (const z of [].concat(zs)) S.boost.push({ side, z, k, until: S.turn + wT(weeks), kind }); // weeks — недель → ходы
 }
 // новые дивизии у города (ополчение, фольксштурм)
 function spawn(S, side, city, k, o) {

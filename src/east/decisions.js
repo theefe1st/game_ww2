@@ -5,7 +5,7 @@
 // События истории, ставшие решениями (поле ev: Приказ № 227, тотальная война, фольксштурм, зимнее обмундирование),
 // у игрока сами не случаются — он принимает их в панели; «Ставка решает сама» (S.auto.dec) — в даты истории (hist).
 // ИИ: эти события — как раньше, а решения с полем ai — в даты истории, если хватает ★.
-import { turnOf, yearF, NAT_N, divW } from './rules.js';
+import { turnOf, yearF, NAT_N, divW, wT } from './rules.js';
 import * as E from './engine.js';
 import { addBoost, evById, nearReich, fortLine } from './events.js';
 
@@ -20,14 +20,14 @@ export function decK(S, side, k) {
   return m;
 }
 export const decOn = (S, side, id) => (S.dfx || []).some((x) => x.side === side && x.id === id && x.until > S.turn);
-const tmp = (S, side, id, w, k = null, z) => { (S.dfx ||= []).push({ side, id, until: S.turn + w, k, ...(z !== undefined ? { z } : {}) }); };
+const tmp = (S, side, id, w, k = null, z) => { (S.dfx ||= []).push({ side, id, until: S.turn + wT(w), k, ...(z !== undefined ? { z } : {}) }); }; // w — недель
 // советская земля (1941 г.) под врагом
 const occN = (S) => { let n = 0; for (let r = 0; r < S.M.R; r++) if (S.M.nats[S.own0[r]] === 'SOV' && E.sideOf(S, r) === 'GER') n++; return n; };
 const llRoutes = (S) => ['Мурманск', 'Архангельск', 'Астрахань', 'Баку'].filter((n) => E.sideOf(S, E.regByName(S, n)) === 'SOV').length;
 // союзники Оси, ещё воюющие (их войска — в резерв ОКХ)
 const alliesIn = (S) => ['ROM', 'HUN', 'ITA'].filter((n) => !(n === 'ROM' && S.ev?.rom >= 0) && !(n === 'ITA' && S.ev?.italy >= 0));
 const SIB = 'Сибирские дивизии';
-const sibLeft = (S) => S.units.filter((u) => !u.dead && u.hist && u.grp === SIB && u.r < 0 && u.arr > S.turn + 2);
+const sibLeft = (S) => S.units.filter((u) => !u.dead && u.hist && u.grp === SIB && u.r < 0 && u.arr > S.turn + wT(2));
 // новые дивизии — сразу в резерв Ставки / ОКХ (оттуда игрок отправляет их на фронт)
 function toRes(S, side, nat, t, n, o = {}) {
   const us = [];
@@ -65,7 +65,7 @@ const molotR = (S) => {
 };
 
 // id, сторона, значок, название, текст (строка или функция), цена ★, с даты (from) / до (to), условие (true или причина),
-// cd — недель до повтора (нет — один раз), pick: 'front' — выбор фронта, fx — действие (может вернуть подпись),
+// cd — недель до повтора (v0.11.1: ходов — wT(cd)) (нет — один раз), pick: 'front' — выбор фронта, fx — действие (может вернуть подпись),
 // ev — заменённое событие истории (у ИИ остаётся событием; у игрока с «Ставка решает сама» — решение в дату hist),
 // ai — ИИ принимает в дату hist (rep — и потом повторяет, оставляя ★15). У ИИ — только гвардия, партизаны и «Стоять
 // насмерть»: стройбригады и «Восточный вал» у ИИ затягивали войну (сим: Берлин позже на 4–6 недель, иногда — не взят)
@@ -102,11 +102,11 @@ export const DEC = [
     cond: (S) => (sibLeft(S).length ? true : 'сибирские дивизии уже прибыли'),
     fx: (S) => {
       const us = sibLeft(S);
-      for (const u of us) u.arr = S.turn + 2;
+      for (const u of us) u.arr = S.turn + wT(2);
       const r = E.cityR(S, 'Москва');
       for (let i = 0; i < 2; i++) {
         const u = E.mkUnit(S, { s: 'SOV', nat: 'SOV', t: 'inf', n: E.nameFor(S, 'SOV', 'SOV', 'inf'), str: 100, rdy: 80, xp: 30 });
-        u.r = -1; u.arr = S.turn + 2; u.at = r; u.z = r >= 0 ? S.M.reg[r].z : 2; u.grp = SIB; u.hist = 1;
+        u.r = -1; u.arr = S.turn + wT(2); u.at = r; u.z = r >= 0 ? S.M.reg[r].z : 2; u.grp = SIB; u.hist = 1;
       }
       return `${us.length + 2} ${divW(us.length + 2)}`;
     } },
@@ -119,7 +119,7 @@ export const DEC = [
     fx: (S) => { tmp(S, 'SOV', 'allf', 12, { pp: 1.12 }); } },
   { id: 'evq', side: 'SOV', ic: 'train', n: 'Ускоренная эвакуация', cost: 20, from: '1941-06-29', to: '1942-12-31',
     d: 'Заводы в пути заработают через 3 недели, новые эвакуации — 5 недель вместо 8 (полгода).',
-    fx: (S) => { for (const e of S.evac || []) e.left = Math.min(e.left, 3); tmp(S, 'SOV', 'evq', 26, { evac: 5 / 8 }); } },
+    fx: (S) => { for (const e of S.evac || []) e.left = Math.min(e.left, wT(3)); tmp(S, 'SOV', 'evq', 26, { evac: 5 / 8 }); } },
   { id: 'offS', side: 'SOV', ic: 'arrows', n: 'Наступательная операция', cost: 30, cd: 8, pick: 'front',
     d: 'Ставка даёт фронту резервы и снаряды: атака выбранного фронта +15 % на 4 недели.', fx: offFx('SOV') },
   { id: 'sap', side: 'SOV', ic: 'spade', n: 'Сапёрные армии', cost: 40, from: '1941-10-01', hist: '1941-10-15',
@@ -189,7 +189,7 @@ export function decStat(S, side, D) {
   if (D.to && S.turn > T(D.to)) return { k: 'gone', why: 'время прошло' };
   if (D.from && S.turn < T(D.from)) return { k: 'lock', why: `с ${isoTxt(D.from)}` };
   if (S.peace && !D.peace) return { k: 'lock', why: 'с началом войны' };
-  if (D.cd && last !== undefined && S.turn < last + D.cd) return { k: 'cd', left: last + D.cd - S.turn };
+  if (D.cd && last !== undefined && S.turn < last + wT(D.cd)) return { k: 'cd', left: last + wT(D.cd) - S.turn }; // left — ходов
   const c = D.cond ? D.cond(S, side) : true;
   if (c !== true) return { k: 'lock', why: c || 'пока недоступно' };
   if ((S.pol?.[side] || 0) + 1e-6 < D.cost) return { k: 'pol', why: `нужно ★${D.cost}` };
@@ -216,7 +216,7 @@ export function decNew(S, side) {
   const st = decSt(S, side);
   return decOf(side, S).filter((D) => {
     if (decStat(S, side, D).k !== 'ok') return false;
-    const v = st.vw[D.id], since = st.t[D.id] !== undefined ? st.t[D.id] + (D.cd || 0) : -1;
+    const v = st.vw[D.id], since = st.t[D.id] !== undefined ? st.t[D.id] + (D.cd ? wT(D.cd) : 0) : -1;
     return v === undefined || v < since;
   });
 }
@@ -228,7 +228,7 @@ export function ensureDec(S) {
   S.auto ??= {};
   S.auto.dec ??= true;
 }
-// неделя (endWeek, после событий): эффекты, решения ИИ и «Ставки» игрока, объявления о новых решениях
+// ход (endWeek, после событий): эффекты, решения ИИ и «Ставки» игрока, объявления о новых решениях
 // (партизаны действуют в engine.js: снабжение, готовность, ремонт ж/д)
 export function decWeek(S) {
   if (S.dfx) S.dfx = S.dfx.filter((x) => x.until > S.turn);

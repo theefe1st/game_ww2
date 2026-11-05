@@ -6,7 +6,7 @@ import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontD
 import { ensureEco } from './eco.js';
 import { ensureTech } from './tech.js';
 import { ensureDec } from './decisions.js';
-import { weatherOf, SIDE0, turnOf, rnd, yearF, lerpT } from './rules.js';
+import { weatherOf, SIDE0, turnOf, rnd, yearF, lerpT, TD } from './rules.js';
 import { STARTS, setBorders, AIR0 } from './prewar.js';
 import { GEN_HIST, PLAN, REINF, parseMix, FRONT_N } from './hist.js';
 import { runEvents } from './events.js';
@@ -104,7 +104,7 @@ function deployQ(S) {
 export function deployTurn(u) {
   if (u.nat !== 'SOV' && u.nat !== 'GER') return 0;
   const y = yearAt(u.s === 'SOV' ? FS : FG, u.dq ?? qOf(u));
-  return Math.min(0, Math.ceil(((y - 1941) * 365.25 - 172) / 7 - 1e-9));
+  return Math.min(0, Math.ceil(((y - 1941) * 365.25 - 172) / TD - 1e-9));
 }
 const FAC_K = [[1936, 0.65], [1939.6, 0.85], [1941.4, 1]]; // доля заводов 1941 г. на дату старта
 // старт до войны: границы и события до даты старта, дивизии — по датам формирования

@@ -1,5 +1,5 @@
 // Прогон «Восточного фронта» без интерфейса: обе стороны — ИИ.
-// node tools/sim-east.mjs [--turns 236] [--seed 7] [--diff 1] [--side SOV] [--mode hist] [--v] [--q] [--player]
+// node tools/sim-east.mjs [--turns LAST_TURN] [--seed 7] [--diff 1] [--side SOV] [--mode hist] [--v] [--q] [--player]
 // --player: сторона --side играет как игрок «на авто» (как в интерфейсе: приказы «авто», runSide isAI=false)
 // --start 36|39|41: ранний старт (мирное время до 22.06.1941, prewar.js); ходы считаются от 22.06.1941
 import fs from 'node:fs';
@@ -7,11 +7,11 @@ import { decodeMap } from '../src/east/mapdata.js';
 import { newGame, placeR } from '../src/east/setup.js';
 import { runSide, setPostures } from '../src/east/ai.js';
 import { endWeek, sideOf, alive, baseCV, beginPhase, eqTot, brigBusy, brigN } from '../src/east/engine.js';
-import { fmtTurn, turnOf } from '../src/east/rules.js';
+import { fmtTurn, turnOf, LAST_TURN, TD, everyW, dateOf } from '../src/east/rules.js';
 import { HIST_KEYS } from '../src/east/hist.js';
 
 const A = process.argv.slice(2), arg = (k, d) => { const i = A.indexOf('--' + k); return i < 0 ? d : A[i + 1] === undefined || A[i + 1].startsWith('--') ? true : A[i + 1]; };
-const turns = +arg('turns', 236), seed = +arg('seed', 7), diff = +arg('diff', 1), side = arg('side', 'SOV'), mode = arg('mode', 'hist'), V = !!arg('v', false), Q = !!arg('q', false), Z = +arg('z', 0);
+const turns = +arg('turns', LAST_TURN), seed = +arg('seed', 7), diff = +arg('diff', 1), side = arg('side', 'SOV'), mode = arg('mode', 'hist'), V = !!arg('v', false), Q = !!arg('q', false), Z = +arg('z', 0);
 const M = decodeMap(JSON.parse(fs.readFileSync(new URL('../src/east/data/map.json', import.meta.url), 'utf8')));
 const NOEV = !!arg('noev', false), PL = !!arg('player', false);
 const run = (s) => { if (PL && s === side) { beginPhase(S, s); setPostures(S, s, true); runSide(S, s, { isAI: false, begun: true }); } else runSide(S, s, { isAI: true }); };
@@ -56,7 +56,7 @@ while (S.turn < turns && !S.over) {
     console.log('     ' + zs.join(' | '));
   }
   if (S.evq.length) { if (!Q) console.log('     события: ' + S.evq.map((e) => e.id).join(', ')); if (turn < 0) PW.push(...S.evq.map((e) => e.id)); S.evq = []; }
-  if (!Q && (V || ch.length || turn % 4 === 0)) {
+  if (!Q && (V || ch.length || everyW(turn, 4))) {
     const iG = S.inc.GER, iS = S.inc.SOV;
     console.log(`${String(turn).padStart(3)} ${fmtTurn(turn).padEnd(12)} ${S.wx.map((w) => w[0]).join('')} | G ${o.GER.n}(${o.GER.arm}) ${o.GER.str}% eq${eqTot(S, 'GER') | 0}/${iG.pp | 0} b${brigBusy(S, 'GER')}/${brigN(S, 'GER')} q${S.q.filter((b) => b.s === 'GER').length} m${S.men.GER | 0}/${iG.men | 0} mor${S.mor.GER | 0} | S ${o.SOV.n}(${o.SOV.arm}) ${o.SOV.str}% eq${eqTot(S, 'SOV') | 0}/${iS.pp | 0} b${brigBusy(S, 'SOV')}/${brigN(S, 'SOV')} q${S.q.filter((b) => b.s === 'SOV').length} m${S.men.SOV | 0}/${iS.men | 0} mor${S.mor.SOV | 0} | G${regs('GER')} | b${bG}/${bS} L G${S.stats.GER.lost} S${S.stats.SOV.lost}(${S.stats.SOV.pow}) | ${S.post.GER.map((p) => p[0]).join('')} ${S.post.SOV.map((p) => p[0]).join('')} ${ch.join(' ')}`);
   }
@@ -65,6 +65,7 @@ if (PW.length) console.log('prewar', PW.join(' '));
 console.log('over', S.over, 'turn', S.turn, fmtTurn(S.turn));
 console.log('AI ms/turn', (T.GER / (S.turn - (S.t0 ?? 0))).toFixed(1), (T.SOV / (S.turn - (S.t0 ?? 0))).toFixed(1), 'stats', JSON.stringify(S.stats));
 console.log('counts', counts.join(' | '), '| dir', (S.dir ?? 0).toFixed(1));
-const d = (x, h) => (x === null ? (h === null ? '·' : 'нет') : `${x}${h === null ? '' : (x - h >= 0 ? '+' : '') + (x - h)}`);
-console.log('timeline (ход взятия Δ к истории / ход освобождения Δ):');
+const ds = (t) => { const q = dateOf(t); return `${String(q.getUTCDate()).padStart(2, '0')}.${String(q.getUTCMonth() + 1).padStart(2, '0')}.${String(q.getUTCFullYear()).slice(2)}`; };
+const d = (x, h) => { if (x === null) return h === null ? '·' : 'нет'; if (h === null) return ds(x); const w = Math.round(((x - h) * TD) / 7); return `${ds(x)}(${w >= 0 ? '+' : ''}${w}н)`; };
+console.log('timeline (дата взятия, Δ к истории в неделях / дата освобождения, Δ):');
 console.log(kr.map((k) => `${k.n} ${d(k.lost, k.a)}/${d(k.back, k.b)}`).join('; '));
