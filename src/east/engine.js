@@ -6,14 +6,14 @@
 // новые дивизии, постройки стройбригадами (завод, укрепления, ПВО, аэродром…), эвакуация заводов СССР.
 import { TYPES, TER, WX, SIDE0, NAT_N, DIFF, LAST_TURN, TD, WK, wT, everyW, perTurn, accInt, quality, tankQ, weatherOf, winter41, rnd, other, hostile, SIDES_E, yearF, lerpT, turnOf, fmtTurn, divW, isMech } from './rules.js';
 import { ALLG } from '../war/gens41.js';
-import { HIST_KEYS } from './hist.js';
+import { HIST_KEYS, ZONES_W } from './hist.js';
 import { runEvents } from './events.js';
 import { produce, construct, evacWeek, hasEq, payEq, EQS, polOf, aaCover, qLost } from './eco.js';
 import { tx, techWeek } from './tech.js';
 import { trainWeek } from './army.js';
 import { decK, decOn, decWeek } from './decisions.js';
 import { warStart, peaceCaps, peaceK, PEACE_EXTRA } from './prewar.js';
-import { fleetWeek, navK, convoyK } from './fleet.js';
+import { fleetWeek, navK, convoyK, atlK, setFleets } from './fleet.js';
 export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, used, eqTot, hasEq, EQS, LINES, LINE, shiftLine, etaOf, unbuild, brigN, brigBusy, brigFree, bWeeks, bTime, bTime0, bRate, bRate0, myQ, isActive, aaCover, allocFac } from './eco.js';
 
 export const SAVE_KEY = 'wf_east_v1';
@@ -23,8 +23,14 @@ export let ZN = 5;
 // (M.reg[r].z, планы истории); у игрока после перекраски участков — S.fzo (новые области — по соседям)
 export let FN = 8;
 // v0.12: число направлений — по карте (Восток — 5, большая карта — 12); вызывать до работы с партией (newGame, ensureState)
-export function setZones(M) { ZN = M?.zones?.length || 5; FN = Math.max(8, ZN); }
+export function setZones(M) { ZN = M?.zones?.length || 5; FN = Math.max(8, ZN); setFleets(M); }
 export const fzOf = (S, r) => (S.fz ? S.fz[r] : S.M.reg[r].z);
+// большая карта: фронт стороны включён на направлениях, где она воюет (ZONES_W), и там, где стоят её войска
+export function frontsW(S) {
+  const has = bySide(S, () => new Set());
+  for (const u of S.units) if (alive(u) && u.r >= 0 && has[u.s]) has[u.s].add(S.M.reg[u.r].z);
+  for (const sd of sidesOf(S)) S.fr?.[sd]?.forEach((F, f) => { if (f < ZN) F.on = ZONES_W[sd]?.includes(f) || has[sd].has(f) ? 1 : 0; });
+}
 const fOn = (S, side, f) => f >= 0 && f < FN && !!S.fr?.[side]?.[f]?.on;
 export function assignFronts(S) {
   const M = S.M, R = M.R, P = S.side;
@@ -161,7 +167,9 @@ export function boostK(S, side, z, kind) {
   return k;
 }
 // артиллерия прорыва: атакующий «снимает» часть уровней укреплений (СССР — с 1943 г.)
-export const ART = { SOV: [[1942.8, 0], [1943.5, 0.5], [1944.5, 1.0], [1945.2, 1.3]], GER: [[1941.4, 0.4], [1942.9, 0.4], [1943.5, 0.2]] };
+export const ART = { SOV: [[1942.8, 0], [1943.5, 0.5], [1944.5, 1.0], [1945.2, 1.3]], GER: [[1941.4, 0.4], [1942.9, 0.4], [1943.5, 0.2]],
+  // v0.12: британская артиллерия — сосредоточенный огонь (Эль-Аламейн), американская — «огонь по времени»
+  UK: [[1941.4, 0.3], [1942.8, 0.7], [1944.0, 0.9]], USA: [[1942.0, 0.4], [1943.5, 0.8], [1944.5, 1.1]] };
 const fortEff = (S, r, aside) => Math.max(0, S.fort[r] - (aside ? Math.max(0, lerpT(ART[aside], yearF(S.turn)) + tx(S, aside, 'fortPen')) : 0));
 export function defCV(S, u, aside = null) {
   const g = S.M.reg[u.r], ter = g.t;
@@ -711,6 +719,7 @@ export function endWeek(S) {
   else fleetWeek(S);
   trainWeek(S);
   arrivals(S);
+  if (S.M.world) frontsW(S);
   director(S);
   runEvents(S);
   decWeek(S);
@@ -762,41 +771,52 @@ function director(S) {
   }
 }
 // предел численности для резервов «хода истории» (дивизий с союзниками)
-export const ARMY_CAP = { SOV: [[1941.4, 330], [1942.0, 390], [1942.5, 430], [1943.5, 470], [1945.5, 470]], GER: [[1941.4, 210], [1942.5, 260], [1943.5, 250], [1944.5, 220], [1945.5, 190]] };
+export const ARMY_CAP = { SOV: [[1941.4, 330], [1942.0, 390], [1942.5, 430], [1943.5, 470], [1945.5, 470]], GER: [[1941.4, 210], [1942.5, 260], [1943.5, 250], [1944.5, 220], [1945.5, 190]],
+  UK: [[1941.4, 50], [1942.5, 56], [1944.5, 56], [1945.5, 50]], USA: [[1941.9, 24], [1942.5, 34], [1943.5, 50], [1944.5, 76], [1945.5, 80]] };
 // ——— хозяйство ———
 // «настрой эпохи»: к нему понемногу возвращается боевой дух сторон
-export const MOR0 = { SOV: [[1941.4, 55], [1942.5, 60], [1943.5, 72], [1945, 82]], GER: [[1941.4, 80], [1942.9, 70], [1943.5, 56], [1944.5, 42], [1945.3, 28]] };
+export const MOR0 = { SOV: [[1941.4, 55], [1942.5, 60], [1943.5, 72], [1945, 82]], GER: [[1941.4, 80], [1942.9, 70], [1943.5, 56], [1944.5, 42], [1945.3, 28]],
+  UK: [[1941.4, 70], [1942.5, 64], [1943.0, 74], [1944.0, 80], [1945, 82]], USA: [[1941.9, 72], [1943.0, 76], [1944.0, 80], [1945, 82]] };
 // доля запасов на пополнение дивизий (остальное — на новые дивизии и постройки)
-export const REP = { SOV: [[1941.4, 0.5], [1942.4, 0.55], [1943.5, 0.65]], GER: [[1941.4, 0.8], [1945.5, 0.8]] };
+export const REP = { SOV: [[1941.4, 0.5], [1942.4, 0.55], [1943.5, 0.65]], GER: [[1941.4, 0.8], [1945.5, 0.8]], UK: [[1941.4, 0.75], [1945.5, 0.75]], USA: [[1941.9, 0.7], [1945.5, 0.7]] };
 // до какой численности (% штата) доводят дивизии пополнения: штат не достигался почти никогда
-export const STRMAX = { SOV: [[1941.4, 75], [1942.3, 80], [1943.3, 85], [1944.5, 85], [1945.3, 80]], GER: [[1941.4, 100], [1942.0, 95], [1943.0, 88], [1944.0, 80], [1945.0, 72]] };
+export const STRMAX = { SOV: [[1941.4, 75], [1942.3, 80], [1943.3, 85], [1944.5, 85], [1945.3, 80]], GER: [[1941.4, 100], [1942.0, 95], [1943.0, 88], [1944.0, 80], [1945.0, 72]],
+  // Британия: к осени 1944 г. не хватает пехоты (расформированные дивизии); США — полные штаты
+  UK: [[1941.4, 92], [1944.0, 90], [1944.7, 82], [1945.5, 84]], USA: [[1941.9, 96], [1944.8, 90], [1945.5, 95]] };
 export const ECO = {
-  ppK: { GER: 0.8, SOV: 1.6 },
-  base: { GER: [[1941.4, 10], [1942.0, 12], [1943.0, 18], [1944.0, 24], [1944.8, 18], [1945.3, 10]], SOV: [[1941.4, 30], [1941.9, 26], [1942.2, 22], [1943.0, 36], [1944.0, 44], [1945.5, 46]] },
-  mult: { GER: [[1941.4, 1], [1942.0, 1.08], [1943.0, 1.3], [1944.0, 1.45], [1945.0, 1.1]], SOV: [[1941.4, 1], [1942.0, 1.15], [1943.0, 1.3], [1944.0, 1.4], [1945.5, 1.45]] },
-  men: { GER: [[1941.4, 11], [1941.95, 16], [1942.2, 24], [1943.0, 26], [1944.0, 24], [1944.8, 18], [1945.2, 12]], SOV: [[1941.4, 165], [1941.9, 140], [1942.3, 105], [1943.0, 85], [1944.0, 70], [1945.0, 56]] },
+  ppK: { GER: 0.8, SOV: 1.6, UK: 1.0, USA: 1.0 },
+  base: { GER: [[1941.4, 10], [1942.0, 12], [1943.0, 18], [1944.0, 24], [1944.8, 18], [1945.3, 10]], SOV: [[1941.4, 30], [1941.9, 26], [1942.2, 22], [1943.0, 36], [1944.0, 44], [1945.5, 46]],
+    // Британия: доминионы, Индия и закупки в США (до ленд-лиза — за золото); США — заводы за океаном (доставка — конвоями, wIncome)
+    UK: [[1941.4, 14], [1942.0, 16], [1943.0, 20], [1944.0, 22], [1945.5, 18]], USA: [[1941.4, 20], [1941.95, 28], [1942.5, 44], [1943.0, 60], [1944.0, 72], [1945.0, 70], [1945.5, 60]] },
+  mult: { GER: [[1941.4, 1], [1942.0, 1.08], [1943.0, 1.3], [1944.0, 1.45], [1945.0, 1.1]], SOV: [[1941.4, 1], [1942.0, 1.15], [1943.0, 1.3], [1944.0, 1.4], [1945.5, 1.45]],
+    UK: [[1941.4, 1], [1942.0, 1.1], [1943.0, 1.2], [1944.0, 1.18], [1945.5, 1.0]], USA: [[1941.4, 1], [1942.5, 1.2], [1943.5, 1.5], [1944.5, 1.6], [1945.5, 1.4]] },
+  men: { GER: [[1941.4, 11], [1941.95, 16], [1942.2, 24], [1943.0, 26], [1944.0, 24], [1944.8, 18], [1945.2, 12]], SOV: [[1941.4, 165], [1941.9, 140], [1942.3, 105], [1943.0, 85], [1944.0, 70], [1945.0, 56]],
+    UK: [[1941.4, 5], [1942.5, 5.5], [1943.5, 5], [1944.5, 4], [1945.5, 3.5]], USA: [[1941.4, 2], [1941.95, 6], [1942.5, 10], [1943.5, 12], [1944.5, 12], [1945.5, 10]] },
   ll: [[1941.75, 0], [1941.85, 5], [1942.5, 9], [1943.5, 15], [1944.5, 18], [1945.5, 14]],
   W: 1,
-  air: { GER: [[1941.4, 100], [1942.0, 70], [1942.5, 85], [1943.0, 70], [1943.6, 60], [1944.4, 42], [1945.0, 32]], SOV: [[1941.4, 46], [1941.9, 40], [1942.5, 62], [1943.0, 90], [1943.6, 120], [1944.4, 150], [1945.0, 170]] },
+  air: { GER: [[1941.4, 100], [1942.0, 70], [1942.5, 85], [1943.0, 70], [1943.6, 60], [1944.4, 42], [1945.0, 32]], SOV: [[1941.4, 46], [1941.9, 40], [1942.5, 62], [1943.0, 90], [1943.6, 120], [1944.4, 150], [1945.0, 170]],
+    UK: [[1941.4, 60], [1942.0, 66], [1943.0, 84], [1944.0, 100], [1945.0, 100]], USA: [[1941.4, 12], [1941.95, 24], [1942.5, 46], [1943.0, 80], [1943.6, 120], [1944.4, 165], [1945.0, 175]] },
 };
-const airBase = (S, side) => lerpT(ECO.air[side], yearF(S.turn)) * (S.flags[side + 'air'] || 1) * (1 + tx(S, side, 'air')) * decK(S, side, 'air');
+const airBase = (S, side) => lerpT(ECO.air[side], yearF(S.turn)) * (S.M.world && side === 'GER' ? 1.35 : 1) * (S.flags[side + 'air'] || 1) * (1 + tx(S, side, 'air')) * decK(S, side, 'air');
 export function income(S, side) {
   const M = S.M, y = yearF(S.turn);
   let fac = 0;
   for (let r = 0; r < M.R; r++) {
     if (sideOf(S, r) !== side || !S.fac[r] || S.sup[side][r] <= 0) continue;
     const own0 = SIDE0[M.nats[S.own0[r]]], k = (own0 === side ? 1 : 0.25) * (S.capT[r] > S.turn - wT(3) ? 0.3 : 1);
-    fac += S.fac[r] * k;
+    fac += S.fac[r] * k * (M.world ? facW(S, r, side) : 1);
   }
   const ec = side === S.side ? DIFF[S.diff].eco : 1;
-  let pp = (fac * ECO.ppK[side] + lerpT(ECO.base[side], y)) * lerpT(ECO.mult[side], y) * ec * (S.flags[side + 'pp'] || 1) * (1 + tx(S, side, 'pp')) * decK(S, side, 'pp');
+  // большая карта: заводы Запада — на карте (у Германии «заводы вне карты» меньше); британские и американские поставки — через Атлантику
+  const base = lerpT(ECO.base[side], y) * (M.world ? (side === 'GER' ? 0.45 : side === 'USA' ? usaK(S) : 1) : 1) - (M.world && side === 'GER' ? 4 : 0);
+  let pp = (fac * ECO.ppK[side] + Math.max(0, base)) * lerpT(ECO.mult[side], y) * (M.world ? (side === 'UK' ? 0.75 + 0.25 * atlK(S, 'UK') : 1) : 1) * ec * (S.flags[side + 'pp'] || 1) * (1 + tx(S, side, 'pp')) * decK(S, side, 'pp');
   let ll = 0;
   if (side === 'SOV') {
     const routes = ['Мурманск', 'Архангельск', 'Астрахань', 'Баку'].filter((n) => sideOf(S, regByName(S, n)) === 'SOV').length;
     ll = lerpT(ECO.ll, y) * (0.4 + 0.15 * routes) * (S.flags.ll || 1) * decK(S, 'SOV', 'll') * convoyK(S); // северные конвои — по господству в Баренцевом море
     pp += ll;
   }
-  let men = lerpT(ECO.men[side], y) * ec * (S.flags[side + 'men'] || 1) * decK(S, side, 'men');
+  let men = lerpT(ECO.men[side], y) * ec * (S.flags[side + 'men'] || 1) * decK(S, side, 'men') * (M.world && side === 'GER' ? menW(S) : 1);
   if (side === 'SOV') { // люди — по удержанной территории 1941 г. (население)
     let have = 0, tot = 0;
     for (let r = 0; r < M.R; r++) if (S.M.nats[S.own0[r]] === 'SOV') { const w = 1 + M.reg[r].vp; tot += w; if (sideOf(S, r) === 'SOV') have += w; }
@@ -808,10 +828,25 @@ export function income(S, side) {
   // за ход (5 дней): недельные величины × WK
   return { pp: pp * ECO.W * WK, men: men * WK, fac, ll: ll * ECO.W * WK };
 }
+// большая карта: заводы оккупированных стран дают Германии вдвое меньше, итальянские — 60 % (нехватка сырья и угля)
+const FAC_HOME = new Set(['DEU', 'AUT', 'CZE', 'POL', 'LUX', 'RUS', 'UKR', 'BLR', 'LTU', 'LVA', 'EST', 'MDA', 'HUN', 'ROU', 'FIN', 'SVK', 'BGR', 'HRV', 'SRB']);
+function facW(S, r, side) {
+  const g = S.M.reg[r];
+  if (r < S.M.e || !g.k || FAC_HOME.has(g.k) || side !== 'GER') return 1;
+  return g.k === 'ITA' ? 0.6 : 0.5;
+}
+// люди Оси на большой карте: ещё Италия (пока воюет) — × 1,3
+const menW = (S) => (S.out?.ITA || S.ev?.italy >= 0 ? 1.1 : 1.3);
+// США: заводы за океаном работают на войну с декабря 1941 г.; доставка — по господству в Атлантике (битва за Атлантику)
+const usaK = (S) => (warOn(S, 'USA') ? 0.6 + 0.4 * atlK(S, 'USA') : 0.35);
 // предел численности армии (дивизий, с союзниками): растёт с мобилизацией; у игрока — с поправкой на сложность
-export const ARMY = { SOV: [[1941.4, 320], [1942.0, 380], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]] };
+export const ARMY = { SOV: [[1941.4, 320], [1942.0, 380], [1942.5, 420], [1943.5, 460], [1945.5, 460]], GER: [[1941.4, 200], [1942.5, 250], [1943.5, 240], [1944.5, 210], [1945.5, 180]],
+  // v0.12, большая карта: Британия (с доминионами) и США — дивизии на карте (Бирма и Тихий океан — вне игры)
+  UK: [[1941.4, 46], [1942.5, 52], [1944.5, 52], [1945.5, 46]], USA: [[1941.4, 20], [1942.5, 30], [1943.5, 46], [1944.5, 72], [1945.5, 76]] };
+// большая карта: у Германии ещё гарнизоны Запада, Норвегии и Балкан, у Италии — своя армия (дивизий сверх «Восточного фронта»)
+const ARMY_WX = [[1941.4, 110], [1942.5, 120], [1943.5, 120], [1943.75, 70], [1944.5, 80], [1945.5, 60]];
 export const armyCap = (S, side) => {
-  const c = Math.round(lerpT(ARMY[side], yearF(S.turn)) * (side === S.side ? DIFF[S.diff].cap ?? 1 : 1));
+  const y = yearF(S.turn), c = Math.round((lerpT(ARMY[side], y) + (S.M.world && side === 'GER' ? lerpT(ARMY_WX, y) : 0)) * (side === S.side ? DIFF[S.diff].cap ?? 1 : 1));
   if (!S.peace) return c;
   // мирное время: сверх плана формирования (состав 22.06.1941, уже сформированный) — не больше PEACE_EXTRA
   let h = 0;
@@ -856,13 +891,20 @@ function economy(S, side) {
 }
 // новая дивизия (через 2 недели в тыловой области направления z)
 let NUMS = null;
+const NUMW = { UK: { inf: 59, arm: 11, abn: 0, mot: 30, mtn: 52, sec: 200, cav: 4 }, USA: { inf: 28, arm: 5, abn: 81, mot: 0, mtn: 9, sec: 0, cav: 1 } };
 // номера новых дивизий союзников Оси — продолжают свои ряды
 const NUM0 = { ROM: { inf: 21, mtn: 4, cav: 8, arm: 1, mot: 0, sec: 0 }, HUN: { inf: 27, mtn: 2, cav: 1, arm: 1, mot: 0, sec: 101 }, ITA: { inf: 156, mtn: 4, cav: 3, arm: 133, mot: 9, sec: 0 }, FIN: { inf: 18, mtn: 0, cav: 0, arm: 1, mot: 0, sec: 0 }, SVK: { inf: 2, mtn: 0, cav: 0, arm: 0, mot: 1, sec: 0 } };
-const NAT_SF = { ROM: 'рум.', HUN: 'венг.', ITA: 'итал.', FIN: 'фин.', SVK: 'слов.' };
+const NAT_SF = { ROM: 'рум.', HUN: 'венг.', ITA: 'итал.', FIN: 'фин.', SVK: 'слов.', USA: 'США', FRA: 'фр.' };
 export function nameFor(S, side, nat, t) {
   NUMS ??= {};
   const k = `${nat}:${t}`;
   const B = side === 'SOV' ? { inf: 300, mtn: 70, cav: 60, mot: 200, arm: 100, sec: 0, abn: 0 } : NUM0[nat] || { inf: 330, mtn: 8, cav: 3, mot: 30, arm: 25, sec: 400, abn: 0 };
+  // Британия: пехотные (бт — бронетанковые), США: пехотные, бронетанковые, воздушно-десантные (номера продолжают ряды 1941 г.)
+  if (side === 'UK' || side === 'USA') {
+    S.num[k] = (S.num[k] || (NUMW[side][t] ?? 60)) + 1;
+    const n = S.num[k], sf = side === 'USA' ? ' (США)' : '';
+    return (t === 'arm' ? `${n}-я бтд` : t === 'abn' ? `${n}-я вдд` : t === 'mot' ? `${n}-я мотобр.` : t === 'mtn' ? `${n}-я горная д` : t === 'sec' ? `${n}-я бр. охраны` : t === 'cav' ? `${n}-я кав. бр.` : `${n}-я пд`) + sf;
+  }
   S.num[k] = (S.num[k] || B[t] || 0) + 1;
   const n = S.num[k], sf = NAT_SF[nat] ? ` (${NAT_SF[nat]})` : '';
   if (side === 'SOV') return t === 'inf' ? `${n}-я сд` : t === 'mtn' ? `${n}-я гсд` : t === 'cav' ? `${n}-я кд` : t === 'mot' ? `${n}-й мк` : t === 'arm' ? `${n % 100 + 1}-й тк` : t === 'abn' ? `${n}-я вдд` : `${n}-я сбр`;
@@ -949,14 +991,27 @@ function railRepair(S, side) {
   for (const [r] of cand) { if (k-- <= 0) break; S.rail[r] = 1; }
 }
 // ——— исход войны ———
+// большая карта: победа союзника игрока — победа игрока
+const winW = (S, sd) => (S.side !== 'GER' && sd !== 'GER' ? S.side : sd);
 export function checkEnd(S) {
   if (S.over || S.peace) return;
   const own = (n) => sideOf(S, regByName(S, n));
+  if (S.M.world) {
+    const b = own('Берлин');
+    if (b && b !== 'GER') return end(S, winW(S, b), `${b === 'SOV' ? 'Красная армия' : b === 'UK' ? 'Британская армия' : 'Армия США'} взяла Берлин`);
+    if (own('Лондон') === 'GER') return end(S, 'GER', 'Лондон пал, Великобритания запросила мира');
+    if (own('Каир') === 'GER' && own('Москва') === 'GER') return end(S, 'GER', 'Москва и Каир взяты — союзники запросили мира');
+  }
   if (own('Берлин') === 'SOV') return end(S, 'SOV', 'Красная армия взяла Берлин');
   const big = ['Ленинград', 'Сталинград', 'Горький', 'Куйбышев', 'Баку'].filter((n) => own(n) === 'GER').length;
   if (own('Москва') === 'GER' && big >= 2) return end(S, 'GER', 'Москва пала, СССР запросил мира');
   if (S.mor.SOV <= 3) return end(S, 'GER', 'Советский Союз сломлен');
-  if (S.mor.GER <= 3) return end(S, 'SOV', 'Германия капитулировала');
+  if (S.mor.GER <= 3) return end(S, S.M.world ? winW(S, 'SOV') : 'SOV', 'Германия капитулировала');
+  if (S.turn >= LAST_TURN && S.M.world) {
+    let vG = 0, vT = 0;
+    for (const g of S.M.reg) { vT += g.vp; if (sideOf(S, g.id) === 'GER') vG += g.vp; }
+    return end(S, vG < 0.3 * vT ? winW(S, 'SOV') : 'GER', 'Война окончена по времени');
+  }
   if (S.turn >= LAST_TURN) {
     const vpS = S.M.reg.reduce((s, g) => s + (sideOf(S, g.id) === 'SOV' ? g.vp : 0), 0);
     return end(S, vpS >= 100 ? 'SOV' : 'GER', 'Война окончена по времени');

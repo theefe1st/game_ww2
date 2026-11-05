@@ -135,7 +135,7 @@ const L = [
   ['catlos', 'Ф. Чатлош', 'SVK', 'def', 2, 'gerf', { a: 0.5 }],
 ];
 // портреты рисуются в мундирах четырёх армий (SOV, GER, ROM, ITA); Финляндия и Словакия — в сером, Венгрия — в хаки
-export const POR_NAT = { SOV: 'SOV', GER: 'GER', FIN: 'GER', SVK: 'GER', HUN: 'ROM', ROM: 'ROM', ITA: 'ITA' };
+export const POR_NAT = { SOV: 'SOV', GER: 'GER', FIN: 'GER', SVK: 'GER', HUN: 'ROM', ROM: 'ROM', ITA: 'ITA', UK: 'UK', USA: 'USA', FRA: 'FRA' };
 export const GENS = {};
 for (const [k, n, nat, tr, sk, cap, o, from] of L) {
   const p = por(k, cap, o);
@@ -197,5 +197,64 @@ for (const [k, n, nat, tr, sk, cap, o, from] of L2) {
   if (nat !== 'GER') p.kc = o.kc ?? 0;
   EXTRA[k] = { k, n, sh: n.split(' ').slice(-1)[0], nat, tr: tr.split(' '), sk, por: p, from: from || '1941-06-22', x: 1 };
 }
+// v0.12 «Запад и Африка»: командующие Великобритании (с доминионами), США, Франции и Оси на Западе, в Африке и Италии
+const L3 = [
+  ['gort', 'Дж. Горт', 'UK', 'def', 3, 'uk', { a: 0.6, m: 0.7 }, '1939-09-01'],
+  ['brooke', 'А. Брук', 'UK', 'def log', 5, 'uk', { a: 0.6, m: 0.6, h: 'bald' }, '1939-09-01'],
+  ['wavell', 'А. Уэйвелл', 'UK', 'def log', 4, 'uk', { a: 0.65, m: 0.6, h: 'gray' }, '1939-09-01'],
+  ['oconnor', "Р. О'Коннор", 'UK', 'tank enc', 5, 'uk', { a: 0.5, f: 0.5 }, '1940-06-10'],
+  ['auchinleck', 'К. Окинлек', 'UK', 'def hard', 4, 'uk', { a: 0.55, j: 0.65 }, '1940-06-10'],
+  ['cunningham_a', 'А. Каннингем', 'UK', 'atk', 2, 'uk', { a: 0.55 }, '1941-06-22'],
+  ['ritchie', 'Н. Ричи', 'UK', 'def', 2, 'uk', { a: 0.45, m: 0.6 }, '1941-06-22'],
+  ['montgomery', 'Б. Монтгомери', 'UK', 'atk def', 5, 'beret', { a: 0.55, f: 0.45, m: 0 }, '1942-08-13'],
+  ['alexander', 'Х. Александер', 'UK', 'def atk', 4, 'uk', { a: 0.5, m: 0.5 }, '1942-08-15'],
+  ['wilson', 'Г. Мейтленд Вильсон', 'UK', 'def', 3, 'uk', { a: 0.65, plump: 1, h: 'bald', m: 0.7 }, '1940-06-10'],
+  ['quinan', 'Э. Куинан', 'UK', 'def', 2, 'uk', { a: 0.6, m: 0.6 }, '1941-06-22'],
+  ['paget', 'Б. Пейджет', 'UK', 'def', 3, 'uk', { a: 0.55, m: 0.6 }, '1941-06-22'],
+  ['anderson_k', 'К. Андерсон', 'UK', 'def', 2, 'uk', { a: 0.5 }, '1942-08-01'],
+  ['leese', 'О. Лиз', 'UK', 'atk', 3, 'uk', { a: 0.5, m: 0.5 }, '1943-01-01'],
+  ['dempsey', 'М. Демпси', 'UK', 'atk', 3, 'uk', { a: 0.45 }, '1943-01-01'],
+  ['crerar', 'Г. Крерар', 'UK', 'def', 3, 'uk', { a: 0.5, m: 0.5 }, '1943-01-01'],
+  ['freyberg', 'Б. Фрейберг', 'UK', 'def hard', 4, 'uk', { a: 0.55, plump: 1 }, '1940-06-10'],
+  ['morshead', 'Л. Морсхед', 'UK', 'def hard', 4, 'uk', { a: 0.5, m: 0.5 }, '1941-03-01'],
+  ['eisenhower', 'Д. Эйзенхауэр', 'USA', 'def log', 5, 'us', { a: 0.5, h: 'bald', ex: 'smile' }, '1942-06-25'],
+  ['patton', 'Дж. Паттон', 'USA', 'tank atk enc', 5, 'us', { a: 0.6, h: 'gray', ex: 'stern' }, '1942-06-25'],
+  ['bradley', 'О. Брэдли', 'USA', 'def log', 4, 'us', { a: 0.5, h: 'gray' }, '1943-02-01'],
+  ['clark', 'М. Кларк', 'USA', 'atk', 3, 'us', { a: 0.45, long: 1 }, '1942-06-25'],
+  ['fredendall', 'Л. Фредендалл', 'USA', 'def', 1, 'us', { a: 0.6 }, '1941-12-11'],
+  ['truscott', 'Л. Траскотт', 'USA', 'atk hard', 4, 'us', { a: 0.5 }, '1943-01-01'],
+  ['hodges', 'К. Ходжес', 'USA', 'def', 3, 'us', { a: 0.6, m: 0.5 }, '1944-01-01'],
+  ['patch', 'А. Патч', 'USA', 'def', 3, 'us', { a: 0.5 }, '1944-01-01'],
+  ['devers', 'Дж. Деверс', 'USA', 'def', 3, 'us', { a: 0.55 }, '1944-01-01'],
+  ['simpson', 'У. Симпсон', 'USA', 'def', 3, 'us', { a: 0.55, h: 'bald' }, '1944-05-01'],
+  ['gamelin', 'М. Гамелен', 'FRA', 'def', 2, 'fra', { a: 0.75, m: 0.7, h: 'gray' }, '1939-09-01'],
+  ['weygand', 'М. Вейган', 'FRA', 'def', 3, 'fra', { a: 0.85, m: 0.6, h: 'gray' }, '1939-09-01'],
+  ['degaulle', 'Ш. де Голль', 'FRA', 'tank', 3, 'fra', { a: 0.45, long: 1, n: 0.7 }, '1940-06-18'],
+  ['juin', 'А. Жюэн', 'FRA', 'mtn atk', 4, 'fra', { a: 0.55 }, '1942-11-08'],
+  ['witzleben', 'Э. фон Вицлебен', 'GER', 'def', 3, 'ger', { a: 0.6 }, '1939-09-01'],
+  ['rommel', 'Э. Роммель', 'GER', 'tank atk enc', 5, 'ger', { a: 0.5, j: 0.6 }, '1939-09-01'],
+  ['kesselring', 'А. Кессельринг', 'GER', 'def hard', 5, 'ger', { a: 0.55, ex: 'smile' }, '1939-09-01'],
+  ['arnim', 'Х.-Ю. фон Арним', 'GER', 'def', 3, 'ger', { a: 0.55 }, '1939-09-01'],
+  ['list', 'В. Лист', 'GER', 'mtn atk', 4, 'ger', { a: 0.65 }, '1939-09-01'],
+  ['lohr', 'А. Лёр', 'GER', 'def', 3, 'ger', { a: 0.6 }, '1939-09-01'],
+  ['vietinghoff', 'Г. фон Фитингоф', 'GER', 'def ret', 4, 'ger', { a: 0.55 }, '1939-09-01'],
+  ['blaskowitz', 'Й. Бласковиц', 'GER', 'def', 3, 'ger', { a: 0.6 }, '1939-09-01'],
+  ['stumme', 'Г. Штумме', 'GER', 'tank', 3, 'ger', { a: 0.55, plump: 1 }, '1939-09-01'],
+  ['cruwell', 'Л. Крювель', 'GER', 'tank', 3, 'ger', { a: 0.5 }, '1939-09-01'],
+  ['student', 'К. Штудент', 'GER', 'atk', 4, 'ger', { a: 0.5 }, '1939-09-01'],
+  ['graziani', 'Р. Грациани', 'ITA', 'def', 2, 'ita', { a: 0.6, h: 'bald' }, '1939-09-01'],
+  ['bastico', 'Э. Бастико', 'ITA', 'def', 2, 'ita', { a: 0.6 }, '1939-09-01'],
+  ['cavallero', 'У. Кавальеро', 'ITA', 'def', 2, 'ita', { a: 0.6, plump: 1 }, '1939-09-01'],
+  ['ambrosio', 'В. Амброзио', 'ITA', 'def', 2, 'ita', { a: 0.6 }, '1939-09-01'],
+  ['roatta', 'М. Роатта', 'ITA', 'def mtn', 2, 'ita', { a: 0.55 }, '1939-09-01'],
+  ['guzzoni', 'А. Гуццони', 'ITA', 'def', 2, 'ita', { a: 0.7, plump: 1 }, '1939-09-01'],
+];
+for (const [k, n, nat, tr, sk, cap, o, from] of L3) {
+  const p = por(k, cap, o);
+  if (nat !== 'GER') p.kc = o.kc ?? 0;
+  GENS[k] = { k, n, sh: n.split(' ').slice(-1)[0], nat, tr: tr.split(' '), sk, por: p, from: from || '1941-06-22' };
+}
 export const ALLG = { ...GENS, ...EXTRA };
-export const genSide = (k) => (ALLG[k]?.nat === 'SOV' ? 'SOV' : 'GER');
+// сторона генерала: СССР, Великобритания (и «Свободная Франция»), США; остальные — Ось
+const GSIDE = { SOV: 'SOV', UK: 'UK', USA: 'USA', FRA: 'UK' };
+export const genSide = (k) => GSIDE[ALLG[k]?.nat] || 'GER';

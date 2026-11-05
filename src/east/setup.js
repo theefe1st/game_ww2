@@ -2,13 +2,13 @@
 // (src/war/oob41.js: участки армий двумя точками), командующие направлениями, постройки и хозяйство.
 import { HQ0, ECH2, parseUnit } from '../war/oob41.js';
 import { makeProj, regionAt, nearestRegion } from './mapdata.js';
-import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, FN, setZones, SAVE_KEY, nameFor, assignFronts, sidesOf, bySide } from './engine.js';
+import { reindex, mkUnit, sideOf, room, isFront, computeSupply, airAlloc, frontDist, regByName, ZN, FN, setZones, SAVE_KEY, nameFor, assignFronts, sidesOf, bySide, frontsW } from './engine.js';
 import { ensureEco } from './eco.js';
 import { ensureTech } from './tech.js';
 import { ensureDec } from './decisions.js';
 import { weatherOf, SIDE0, turnOf, rnd, yearF, lerpT, TD, SIDES, SIDES_E } from './rules.js';
-import { STARTS, setBorders, AIR0 } from './prewar.js';
-import { GEN_HIST, PLAN, REINF, parseMix, FRONT_N } from './hist.js';
+import { STARTS, setBorders, AIR0, AIR0W } from './prewar.js';
+import { genHist, PLAN, REINF, parseMix, frontN } from './hist.js';
 import { runEvents } from './events.js';
 import { initFleets } from './fleet.js';
 
@@ -159,10 +159,10 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
     fac: Int8Array.from(M.reg.map((g) => g.ind)), fort: new Int8Array(R), afd: new Int8Array(R), rail: new Uint8Array(R).fill(1),
     capT: new Int16Array(R).fill(-9999), bd0: new Int16Array(R),
     units: [], nextId: 1, num: {}, q: [], evac: [], log: [], news: [], battles: [], flags: {}, ev: {},
-    gen: by((sd) => (GEN_HIST[sd] || []).map((g) => g[0])),
+    gen: by((sd) => genHist({ M }, sd).map((g) => g[0])),
     post: by((sd) => [...(POST0[sd] || new Array(ZN).fill('def'))]),
     tgt: by(() => new Array(ZN).fill(-1)),
-    airF: by(() => -1), air: by((sd) => AIR0[sd] ?? 30),
+    airF: by(() => -1), air: by((sd) => (M.world ? AIR0W[sd] : 0) || AIR0[sd] || 30),
     pp: by(() => 60), men: by((sd) => MEN0[sd] ?? 60), inc: by(() => ({})), spent: by(() => ({})),
     mor: by((sd) => MOR00[sd] ?? 70), sup: {}, railCap: by(() => 0),
     stats: by(() => ({ lost: 0, pow: 0, battles: 0, made: 0 })),
@@ -170,6 +170,7 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
     over: null,
   };
   if (S.sides === SIDES_E) delete S.sides; // «Восточный фронт»: как в v0.11 (sidesOf → GER, SOV)
+  else S.warT = { USA: turnOf('1941-12-11') }; // большая карта: США вступают в войну после Пёрл-Харбора
   S.wxShift = [0, 1, 2, 3, 4].map(() => Math.round((rnd(S) - 0.5) * 12));
   for (let z = 0; z < ZN; z++) S.wx[z] = weatherOf(0, z, S.wxShift[0], seed);
   // расстояние от границы 1941 г. по своей территории (тыловые источники снабжения Оси)
@@ -219,7 +220,7 @@ export function ensureState(S) {
   S.fr ??= {};
   for (const sd of sidesOf(S)) {
     const L = (S.fr[sd] ??= []);
-    for (let f = 0; f < FN; f++) L[f] ??= { n: FRONT_N[sd]?.[f] || '', col: f, on: f < ZN ? 1 : 0, man: 0, pick: 0 };
+    for (let f = 0; f < FN; f++) L[f] ??= { n: frontN(S, sd, f), col: f, on: f < ZN ? 1 : 0, man: 0, pick: 0 };
     while (S.gen[sd].length < FN) S.gen[sd].push(null);
     while (S.post[sd].length < FN) S.post[sd].push('def');
     while (S.tgt[sd].length < FN) S.tgt[sd].push(-1);
@@ -227,7 +228,8 @@ export function ensureState(S) {
   S.pauto ??= new Array(FN).fill(1);
   while (S.pauto.length < FN) S.pauto.push(1);
   // v0.11 (отзыв 04.11): фронты — постоянные, по направлениям; свои участки и лишние фронты старых сохранений — убрать
-  for (const sd of sidesOf(S)) S.fr[sd].forEach((F, f) => { if (f < ZN) { F.n = FRONT_N[sd]?.[f] || ''; F.on = 1; } else F.on = 0; });
+  for (const sd of sidesOf(S)) S.fr[sd].forEach((F, f) => { if (f < ZN) { F.n = frontN(S, sd, f); F.on = 1; } else F.on = 0; });
+  if (S.M.world) frontsW(S);
   delete S.fcust; delete S.fzo;
   for (const u of S.units) if (u.zf >= ZN) u.zf = Math.min(ZN - 1, u.z ?? 2);
   S.airS ??= bySide(S, () => null);

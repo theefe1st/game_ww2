@@ -26,8 +26,11 @@ export const EQS = {
 export const MIX = {
   SOV: [[1941.4, { inf: 0.86, cav: 0.1, arm: 0.04 }], [1942.3, { inf: 0.78, cav: 0.06, arm: 0.12, mot: 0.04 }], [1943.2, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.0, { inf: 0.7, arm: 0.2, mot: 0.1 }]],
   GER: [[1941.4, { inf: 0.8, arm: 0.12, mot: 0.08 }], [1943.0, { inf: 0.72, arm: 0.18, mot: 0.1 }], [1944.5, { inf: 0.82, arm: 0.12, mot: 0.06 }]],
+  // v0.12: Британия — 11 бронетанковых дивизий на 35 пехотных; США — 16 бронетанковых, 5 воздушно-десантных, 66 пехотных
+  UK: [[1941.4, { inf: 0.72, arm: 0.2, mot: 0.08 }], [1943.0, { inf: 0.7, arm: 0.22, mot: 0.04, abn: 0.04 }]],
+  USA: [[1941.4, { inf: 0.68, arm: 0.26, mot: 0.06 }], [1943.0, { inf: 0.68, arm: 0.24, abn: 0.08 }]],
 };
-export function mixNow(side, turn) { let m = MIX[side][0][1]; for (const [y, x] of MIX[side]) if (yearF(turn) >= y) m = x; return m; }
+export function mixNow(side, turn) { const L = MIX[side] || MIX.GER; let m = L[0][1]; for (const [y, x] of L) if (yearF(turn) >= y) m = x; return m; }
 export const AIR_SH = 0.2; // «норма» доли самолётов: при ней ВВС как в истории
 const E_NEW = 0.35, E_REC = 0.08;
 export const effCap = () => 1; // предел эффективности линий (наука даёт +% к производству, см. tech.js)
@@ -105,8 +108,9 @@ export function produce(S, side, W) {
 // проекты идут по очереди: первые N — в работе, остальные ждут свободную бригаду. Срок — в неделях работы:
 // у фронта ×1,5, без железной дороги ×1,25; наука («стройка») и решения — быстрее.
 // (до 1941 г. — меньше: ранние старты, шаг 6.7)
-export const BRIG = { SOV: [[1936, 4], [1939.6, 5], [1941.4, 6], [1942.5, 8], [1944.0, 10]], GER: [[1936, 3], [1939.0, 4], [1941.4, 5], [1942.8, 6], [1943.8, 8]] };
-export const brigN = (S, side) => Math.round(lerpT(BRIG[side], yearF(S.turn))) + (S.flags[side + 'brig'] || 0);
+export const BRIG = { SOV: [[1936, 4], [1939.6, 5], [1941.4, 6], [1942.5, 8], [1944.0, 10]], GER: [[1936, 3], [1939.0, 4], [1941.4, 5], [1942.8, 6], [1943.8, 8]],
+  UK: [[1936, 2], [1941.4, 3], [1943.0, 4]], USA: [[1936, 1], [1941.9, 2], [1942.5, 4], [1944.0, 6]] };
+export const brigN = (S, side) => Math.round(lerpT(BRIG[side] || BRIG.GER, yearF(S.turn))) + (S.flags[side + 'brig'] || 0);
 // w — недель работы одной бригады (в тылу, у железной дороги)
 export const BUILD = {
   fac: { n: 'Военный завод', ic: 'factory', w: 12, d: '+⚙ военное производство' },
@@ -237,9 +241,9 @@ export function evacWeek(S) {
   S.evac = S.evac.filter((x) => x.left > 0);
 }
 // ★ политическая власть за неделю (решения — v0.11, шаг 6); за ход — × WK (engine.economy)
-export const polOf = (S, side) => (side === 'SOV' ? 2 : 1.8) * (S.flags[side + 'pol'] || 1);
+export const polOf = (S, side) => (side === 'SOV' ? 2 : side === 'USA' ? 1.6 : 1.8) * (S.flags[side + 'pol'] || 1);
 // поля хозяйства v0.11 (новая игра и старые сохранения)
-const CAMP0 = { SOV: ['Москва', 'Горький', 'Куйбышев', 'Свердловск'], GER: ['Берлин', 'Варшава', 'Кёнигсберг'] };
+const CAMP0 = { SOV: ['Москва', 'Горький', 'Куйбышев', 'Свердловск'], GER: ['Берлин', 'Варшава', 'Кёнигсберг'], UK: ['Лондон', 'Каир'] };
 export function ensureEco(S, byName) {
   const M = S.M, R = M.R;
   if (!S.camp) {

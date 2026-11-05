@@ -38,6 +38,13 @@ export function flagHTML(nat, cls = '') {
     NOR: 'background:linear-gradient(90deg,transparent 28%,#fff 28% 32%,#1c3f94 32% 40%,#fff 40% 44%,transparent 44%),linear-gradient(transparent 38%,#fff 38% 42%,#1c3f94 42% 58%,#fff 58% 62%,transparent 62%),#c8202a',
     GRE: 'background:repeating-linear-gradient(#2a5fb0 0 11.1%,#fff 11.1% 22.2%)', SWE: 'background:linear-gradient(90deg,transparent 30%,#f5c21b 30% 42%,transparent 42%),linear-gradient(transparent 42%,#f5c21b 42% 58%,transparent 58%),#1c5ba0',
     TUR: 'background:#d01f2a', IRN: 'background:linear-gradient(#2a8a3a 0 33%,#fff 33% 67%,#d01f2a 67%)',
+    // v0.12: западные союзники, Виши и нейтралы большой карты
+    UK: 'background:linear-gradient(90deg,transparent 42%,#c8202a 42% 58%,transparent 58%),linear-gradient(transparent 36%,#c8202a 36% 64%,transparent 64%),linear-gradient(90deg,transparent 36%,#fff 36% 64%,transparent 64%),linear-gradient(transparent 28%,#fff 28% 72%,transparent 72%),#1c2f6e',
+    USA: 'background:linear-gradient(90deg,#1c2f6e 0 42%,transparent 42%) 0 0/100% 54% no-repeat,repeating-linear-gradient(#c8202a 0 15.4%,#fff 15.4% 30.8%)',
+    FRA: 'background:linear-gradient(90deg,#1c3f94 0 33%,#fff 33% 67%,#c8202a 67%)', VIC: 'background:linear-gradient(90deg,#1c3f94 0 33%,#fff 33% 67%,#c8202a 67%)',
+    ESP: 'background:linear-gradient(#c8202a 0 25%,#f5c21b 25% 75%,#c8202a 75%)', POR: 'background:linear-gradient(90deg,#2a7a3a 0 40%,#c8202a 40%)',
+    SUI: 'background:linear-gradient(90deg,transparent 40%,#fff 40% 60%,transparent 60%) center/60% 60% no-repeat,linear-gradient(transparent 40%,#fff 40% 60%,transparent 60%) center/60% 60% no-repeat,#d01f2a',
+    IRL: 'background:linear-gradient(90deg,#2a8a3a 0 33%,#fff 33% 67%,#f08a24 67%)', SAU: 'background:#2a7a3a',
   }[nat] || 'background:#999';
   const inner = nat === 'SOV' ? `<i class="fs">${ic('star')}</i>` : nat === 'GER' ? '<svg class="fx" viewBox="0 0 30 20"><path d="M11.6 2.4h6.8v5h5v5.2h-5v5h-6.8v-5h-5V7.4h5z" fill="#fff"/><path d="M13 3.8h4v5h5v2.4h-5v5h-4v-5H8V8.8h5z" fill="#141414"/></svg>' : nat === 'FIN' ? '' : '';
   return `<span class="e-flag ${cls}" style="${st}">${inner}</span>`;

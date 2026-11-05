@@ -8,7 +8,7 @@ import { esc, ic, num } from './kit.js';
 
 const pc = (x) => `${Math.round(x * 100)} %`;
 const kx = (x) => `×${(Math.round(x * 100) / 100).toFixed(2).replace('.', ',')}`;
-export const SIDE_FC = { SOV: '#c4482e', GER: '#6f8090' };
+export const SIDE_FC = { SOV: '#c4482e', GER: '#6f8090', UK: '#a3865a', USA: '#69784a' };
 
 // состояние флота: { st, c — предел по истории, dead, tags[] }
 export function fleetState(S, f) {

@@ -5,9 +5,14 @@ import { TYPES, isMech, other, hostile, yearF, quality, wT, turnsW, WK } from '.
 import { sideOf, garOf, resolveAttack, moveUnit, capture, alive, room, airRatio, note, odds, computeSupply, aaCover, atWar, foesOf, sidesOf } from './engine.js';
 import { hasU, unV } from './tech.js';
 import { seaDom } from './fleet.js';
+import { makeProj } from './mapdata.js';
 
 const ST = 8; // км на клетку растра
 const SEA_N = [['Одесса', 'Чёрное море'], ['Таллин', 'Балтийское море'], ['Мурманск', 'Баренцево море'], ['Баку', 'Каспийское море'], ['Сплит', 'Адриатическое море'], ['Лабытнанги', 'Карское море']];
+const SEA_CUT = [[[-5.6, 35.7], [-5.6, 36.3]], [[8.6, 57.1], [7.0, 58.05]], [[-3.05, 58.6], [-1.3, 60.0], [-0.8, 60.8], [5.0, 61.95]], [[-5.75, 50.05], [-4.75, 48.45]],
+  [[25.0, 70.95], [25.0, 74]], [[18.45, 40.1], [19.45, 40.4]], [[28.9, 41.1], [29.2, 41.1]], [[36.3, 45.27], [36.85, 45.27]]];
+const SEA_PT = [[-12, 46, 'Атлантика'], [3, 56, 'Северное море'], [19, 56, 'Балтийское море'], [36, 71.2, 'Баренцево море'], [18, 34, 'Средиземное море'],
+  [16.5, 42.5, 'Адриатическое море'], [34, 43.3, 'Чёрное море'], [36.6, 46.2, 'Азовское море'], [51, 42, 'Каспийское море']];
 export function seas(M) {
   if (M.sea) return M.sea;
   const nx = Math.ceil(M.w / ST), ny = Math.ceil(M.h / ST), land = new Uint8Array(nx * ny), rows = Array.from({ length: ny }, () => []);
@@ -23,6 +28,16 @@ export function seas(M) {
   for (let j = 0; j < ny; j++) {
     const xs = rows[j].sort((a, b) => a - b);
     for (let q = 0; q + 1 < xs.length; q += 2) { const a = Math.max(0, Math.ceil(xs[q] / ST - 0.5)), b = Math.min(nx - 1, Math.floor(xs[q + 1] / ST - 0.5)); for (let i = a; i <= b; i++) land[j * nx + i] ^= 1; }
+  }
+  // большая карта: проливы-границы морей (Гибралтар, Скагеррак, север Северного моря, вход в Ла-Манш, Баренцево море,
+  // Отранто, Босфор, Керчь) — «суша» растра; моря называются по точке в открытом море
+  const P = M.world ? makeProj(M.proj) : null;
+  if (P) for (const L of SEA_CUT) for (let k = 0; k + 1 < L.length; k++) {
+    const [x0, y0] = P(L[k][0], L[k][1]), [x1, y1] = P(L[k + 1][0], L[k + 1][1]), n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (ST / 3));
+    for (let t = 0; t <= n; t++) {
+      const i = Math.floor((x0 + ((x1 - x0) * t) / n) / ST), j = Math.floor((y0 + ((y1 - y0) * t) / n) / ST);
+      for (const [a, b] of [[0, 0], [1, 0], [0, 1]]) if (i + a >= 0 && j + b >= 0 && i + a < nx && j + b < ny) land[(j + b) * nx + i + a] = 1;
+    }
   }
   // связные куски воды
   const id = new Int16Array(nx * ny).fill(-1), size = [];
@@ -56,6 +71,7 @@ export function seas(M) {
     }
   }
   const name = {};
+  if (P) for (const [lon, lat, n] of SEA_PT) { const [x, y] = P(lon, lat), c = Math.floor(y / ST) * nx + Math.floor(x / ST), s = id[c]; if (s >= 0) name[s] ??= n; }
   for (const [c, n] of SEA_N) { const g = M.reg.find((x) => x.city?.n === c || x.n === c); for (const s of (g && sr[g.id]) || []) name[s] ??= n; }
   return (M.sea = { sr, name, size, id, nx, ny, ST });
 }

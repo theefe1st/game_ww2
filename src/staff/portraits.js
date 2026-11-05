@@ -42,9 +42,13 @@ const UNI = {
   GER: ['#5f6656', '#7b8371', '#464c40', '#30352c'],
   ROM: ['#7a6c45', '#968860', '#5c5133', '#403822'],
   ITA: ['#6c715a', '#878c73', '#51564a', '#383c32'],
+  // v0.12: британский хаки, американский оливковый («пинк энд грин»), французский хаки
+  UK: ['#7a6a48', '#958560', '#5c4f34', '#3e3524'],
+  USA: ['#5f5a42', '#7a7457', '#47432f', '#302d20'],
+  FRA: ['#76704e', '#918a66', '#59543a', '#3c3926'],
 };
 // фон: верх, низ (свет из левого верхнего угла)
-const BG = { SOV: ['#6d4a3e', '#3d2620'], GER: ['#56626c', '#2e353c'], ROM: ['#4b5876', '#283048'], ITA: ['#56634f', '#2f382c'] };
+const BG = { SOV: ['#6d4a3e', '#3d2620'], GER: ['#56626c', '#2e353c'], ROM: ['#4b5876', '#283048'], ITA: ['#56634f', '#2f382c'], UK: ['#6e5a3c', '#3a2e1e'], USA: ['#4a5e78', '#24303e'], FRA: ['#3c4c7c', '#1e2644'] };
 const GOLD = ['#e3c060', '#c49a3a', '#8a6a26'], SILV = ['#dedcd4', '#a9a79f', '#6e6c66'];
 
 function draw(p, nat) {
@@ -291,7 +295,7 @@ function draw(p, nat) {
     }
   } else {
     // открытый ворот: рубашка, галстук; петлицы генерала, погоны
-    const shirt = nat === 'GER' ? hex('#b9b8a8') : hex('#c9c1a8'), tie = nat === 'GER' ? hex('#2a2c28') : hex('#3c3426');
+    const shirt = nat === 'GER' ? hex('#b9b8a8') : nat === 'USA' ? hex('#b4a682') : nat === 'UK' ? hex('#bba985') : hex('#c9c1a8'), tie = nat === 'GER' ? hex('#2a2c28') : nat === 'USA' || nat === 'UK' ? hex('#5a4c32') : hex('#3c3426');
     for (let y = cy; y <= cy + 5; y++) {
       const w = Math.max(0, 3.2 - (y - cy) * 0.6);
       row(y, w, (t) => (t > 0.3 ? mul(shirt, 0.82) : shirt));
@@ -317,6 +321,27 @@ function draw(p, nat) {
         for (let x = 4; x <= 8; x++) set(X(x), cy + 2 - Math.round((x - 4) * 0.25), (x & 1) ? G[0] : G[1]);
         set(X(12), cy + 2, hex('#b8302a')), set(X(11), cy + 3, hex('#b8302a')), set(X(12), cy + 3, G[0]);
       }
+    } else if (nat === 'UK' || nat === 'USA' || nat === 'FRA') {
+      for (const side of [0, 1]) {
+        const X = (x) => (side ? PW - 1 - x : x);
+        if (nat === 'UK') {
+          // красные петлицы генерала с золотым шнуром; на погонах — скрещённые сабля и жезл
+          const red = hex('#b8302a');
+          for (let y = cy + 1; y <= cy + 3; y++) for (let x = 12; x <= 13; x++) set(X(x - (y - cy - 1)), y, red);
+          set(X(12), cy + 2, hex('#d8382e')), set(X(11), cy + 3, mul(red, 0.8));
+          set(X(5), cy + 2, G[1]), set(X(6), cy + 1, G[0]), set(X(7), cy + 2, G[1]);
+        } else if (nat === 'USA') {
+          // «U.S.» на воротнике, серебряные звёзды на погонах
+          set(X(13), cy + 2, G[1]), set(X(12), cy + 3, G[2]);
+          for (let x = 4; x <= 8; x += 2) set(X(x), cy + 2 - Math.round((x - 4) * 0.25), Sv[0]);
+        } else {
+          for (let x = 4; x <= 8; x += 2) set(X(x), cy + 2 - Math.round((x - 4) * 0.25), Sv[0]);
+          set(X(12), cy + 2, G[1]);
+        }
+      }
+      const RB = nat === 'USA' ? ['#c8a040', '#2a5aa8', '#b8302a', '#e2e0d8', '#3a7a3a', '#7a2a6a'] : ['#7a2a6a', '#e2e0d8', '#c8a040', '#2a5aa8', '#b8302a', '#3a7a3a'];
+      const nR = 3 + Math.floor(R() * 4);
+      for (let i = 0; i < nR; i++) set(25 + (i % 3) * 2, cy + 6 + Math.floor(i / 3), RB[i]), set(26 + (i % 3) * 2, cy + 6 + Math.floor(i / 3), RB[(i + 3) % 6]);
     } else {
       // итальянские генеральские звёздочки на воротнике и наградные планки
       for (const side of [0, 1]) {
@@ -341,23 +366,26 @@ function draw(p, nat) {
   const capRow = (y, hw, col) => row(y, hw, col);
   const sh3 = (C, t) => (t > 0.55 ? C[2] : t < -0.45 ? C[1] : C[0]);
   const yV = 15; // нижний край козырька
-  if (cap === 'sov' || cap === 'ger' || cap === 'rom' || cap === 'ita' || cap === 'gerf') {
+  if (cap === 'sov' || cap === 'ger' || cap === 'rom' || cap === 'ita' || cap === 'gerf' || cap === 'uk' || cap === 'us' || cap === 'fra') {
     const CR = {
       sov: ['#706c47', '#8f8a5d', '#53502f'],
       ger: ['#687060', '#868f7c', '#4b5245'],
       gerf: ['#646b5c', '#7e8673', '#474d41'],
       rom: ['#7c6e47', '#9a8c62', '#5c5134'],
       ita: ['#6e7360', '#8b907a', '#51564a'],
+      uk: ['#7d6c48', '#9a8960', '#5e5034'],
+      us: ['#5c573c', '#787254', '#433f2a'],
+      fra: ['#2a3354', '#3a4670', '#1c2238'],
     }[cap].map(hex);
-    const BAND = { sov: '#ad2e28', ger: '#2f3b31', gerf: '#2f3b31', rom: '#5a4f30', ita: '#555a48' }[cap];
-    const saddle = cap === 'ger', soft = cap === 'gerf', cw = R() < 0.35 ? -0.8 : R() < 0.3 ? 0.6 : 0;
-    // тулья
-    const top = soft ? 6 : saddle ? 2 : 4;
+    const BAND = { sov: '#ad2e28', ger: '#2f3b31', gerf: '#2f3b31', rom: '#5a4f30', ita: '#555a48', uk: '#b02a26', us: '#3a3624', fra: '#1c2238' }[cap];
+    const saddle = cap === 'ger' || cap === 'us', soft = cap === 'gerf', kepi = cap === 'fra', cw = kepi ? 0 : R() < 0.35 ? -0.8 : R() < 0.3 ? 0.6 : 0;
+    // тулья (кепи — высокий цилиндр)
+    const top = soft ? 6 : saddle ? 2 : kepi ? 3 : 4;
     for (let y = top; y <= 10; y++) {
-      let hw = y === top ? 9.5 : y === top + 1 ? 12 : 13.2;
+      let hw = kepi ? (y === top ? 9.6 : 10.6) : y === top ? 9.5 : y === top + 1 ? 12 : 13.2;
       if (saddle && y < 5) hw = y === 2 ? 6.5 : y === 3 ? 10 : 12.2;
       if (soft) hw = y === top ? 10.5 : 12.6 - (y > 9 ? 0.8 : 0);
-      if (y === 10) hw = soft ? 11.4 : 12.2;
+      if (y === 10) hw = soft ? 11.4 : kepi ? 10.8 : 12.2;
       capRow(y, hw + (y > top ? cw : 0), (t) => (y === top ? CR[1] : sh3(CR, t)));
     }
     if (!soft) for (let x = 10; x <= 17; x++) set(x, top + 1, CR[1]);
@@ -365,7 +393,11 @@ function draw(p, nat) {
     const BC = hex(BAND);
     for (let y = 11; y <= 12; y++) capRow(y, 10.6, (t) => (t > 0.6 ? mul(BC, 0.75) : y === 12 ? mul(BC, 0.88) : BC));
     // канты и шнуры
-    if (cap !== 'gerf') {
+    if (kepi) {
+      // кепи генерала: золотые дубовые листья на околыше
+      for (let x = 10; x <= 29; x++) set(x, x % 2 ? 11 : 12, G[x % 3 ? 1 : 0]);
+      capRow(13, 10.4, (t) => (t > 0.55 ? G[2] : G[1]));
+    } else if (cap !== 'gerf') {
       capRow(10, 11.8, (t) => (cap === 'sov' ? (t > 0.6 ? hex('#7e211c') : hex('#b8352e')) : t > 0.6 ? G[2] : G[1]));
       capRow(13, 10.4, (t) => (t > 0.55 ? G[2] : t < -0.4 ? G[0] : G[1]));
     } else capRow(13, 10.2, () => hex('#3c3a30'));
@@ -393,6 +425,14 @@ function draw(p, nat) {
       for (let x = 13; x <= 26; x += 3) set(x, 14, G[1]);
       set(19, 7, G[0]), set(20, 7, G[1]), set(18, 8, G[1]), set(19, 8, G[0]), set(20, 8, G[0]), set(21, 8, G[1]);
       set(19, 11, hex('#2c4c9c')), set(20, 11, hex('#f2c230')), set(20, 12, hex('#c62828')), set(19, 12, hex('#f2c230'));
+    } else if (cap === 'uk') {
+      // кокарда генерала: лев на короне (золото) на красном околыше
+      set(19, 9, G[0]), set(20, 9, G[1]), set(18, 10, G[1]), set(19, 10, G[0]), set(20, 10, G[0]), set(21, 10, G[1]);
+      set(19, 11, G[0]), set(20, 11, G[1]), set(19, 12, G[2]), set(20, 12, G[2]);
+    } else if (cap === 'us') {
+      // орёл (золото) на тулье
+      for (let x = 16; x <= 23; x++) set(x, 6, x < 18 || x > 21 ? G[1] : G[0]);
+      set(19, 5, G[0]), set(20, 5, G[1]), set(19, 7, G[1]), set(20, 7, G[2]), set(18, 7, G[2]), set(21, 7, G[2]);
     } else if (cap === 'ita') {
       // «грека» на околыше и орёл
       for (let x = 10; x <= 29; x++) set(x, x % 3 === 0 ? 11 : 12, G[x % 3 === 0 ? 0 : 1]);
@@ -406,6 +446,18 @@ function draw(p, nat) {
       const c2 = get(x, yV + 2);
       if (c2 && fig[(yV + 2) * PW + x] && Math.abs(x - 19.5) < hwAt(yV + 2) - 1) set(x, yV + 2, mixC(c2, SK[2], 0.4));
     }
+  } else if (cap === 'beret') {
+    // чёрный берет танкиста с двумя кокардами (Монтгомери): свисает к правому от зрителя краю
+    const BR = [hex('#1f1f24'), hex('#36363e'), hex('#131316')];
+    const W = [[5, 7, 0.5], [6, 10.5, 0.8], [7, 12.6, 1.2], [8, 13.6, 1.6], [9, 13.8, 1.8], [10, 13.2, 1.6], [11, 12.2, 1.2]];
+    for (const [y, hw, sh] of W) for (let x = 0; x < PW; x++) {
+      const d = x - 19.5 - sh;
+      if (Math.abs(d) < hw) set(x, y, y === 5 || d < -hw + 2 ? BR[1] : d > hw - 3 ? BR[2] : BR[0]);
+    }
+    for (let x = 8; x <= 31; x++) if (Math.abs(x - 19.5) < 10.6) set(x, 12, hex('#2a2a30'));
+    // кокарды: танковый полк (серебро) и генеральская (золото)
+    set(13, 8, Sv[0]), set(14, 8, Sv[1]), set(13, 9, Sv[1]), set(14, 9, Sv[2]);
+    set(16, 8, G[0]), set(17, 8, G[1]), set(16, 9, G[1]), set(17, 9, G[2]);
   } else if (cap === 'pap') {
     // папаха из серого каракуля со звездой
     const K = [hex('#8b8984'), hex('#aaa8a2'), hex('#666460'), hex('#4c4a47')];

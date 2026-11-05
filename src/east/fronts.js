@@ -12,17 +12,25 @@ export const FRONT_DIR = ['Финский фронт', 'Северный фро�
 // подпись: как назывались фронты (группы армий) на этом направлении
 export const FRONT_HIST = {
   SOV: ['Северный, Карельский', 'Северо-Западный, Ленинградский', 'Западный, Белорусские', 'Юго-Западный, Украинские', 'Южный, Закавказский'],
-  GER: ['Финская армия, армия «Норвегия»', 'Группа армий «Север»', 'Группа армий «Центр»', 'Группа армий «Юг»', 'Группа армий «А»'],
+  GER: ['Финская армия, армия «Норвегия»', 'Группа армий «Север»', 'Группа армий «Центр»', 'Группа армий «Юг»', 'Группа армий «А»',
+    // v0.12, большая карта: направления Запада
+    'ОБ «Запад»', 'Армия «Норвегия»', 'Итальянская армия, группа армий «Ц»', 'ОБ «Юго-Восток»', 'Танковая армия «Африка»', '', ''],
+  UK: ['', '', '', '', '', '21-я группа армий', '', '8-я армия, 15-я группа армий', 'Войска в Греции', 'Войска Западной пустыни, 8-я армия', '9-я и 10-я армии', 'Войска метрополии'],
+  USA: ['', '', '', '', '', '12-я и 6-я группы армий', '', '5-я армия', '', '2-й корпус, 7-я армия', '', 'Войска США в Британии'],
 };
 // главные генералы: короткий список для назначения (по истории фронты получают своих командующих сами)
 export const KEYG = {
   SOV: ['zhukov', 'vasilevsky', 'rokossovsky', 'konev', 'vatutin', 'malinovsky', 'tolbukhin', 'govorov', 'meretskov', 'yeremenko', 'chernyakhovsky', 'bagramyan', 'petrov_i', 'timoshenko', 'voroshilov', 'budyonny'],
   GER: ['manstein', 'guderian', 'model', 'bock', 'rundstedt', 'leeb', 'kluge', 'kleist', 'kuchler', 'weichs', 'schorner', 'heinrici', 'mannerheim', 'dietl'],
+  UK: ['montgomery', 'oconnor', 'auchinleck', 'alexander', 'wavell', 'brooke', 'wilson', 'dempsey', 'leese', 'freyberg', 'morshead', 'crerar'],
+  USA: ['eisenhower', 'patton', 'bradley', 'clark', 'truscott', 'hodges', 'patch', 'devers', 'simpson'],
 };
+// большая карта: у Германии — ещё командующие Запада, Африки и Италии
+const KEYG_W = { GER: ['rommel', 'kesselring', 'witzleben', 'vietinghoff', 'arnim', 'list', 'student', 'blaskowitz'] };
 export const genAvail = (S, k) => { const g = ALLG[k]; return !!g && turnOf(g.from) <= Math.max(0, S.turn) && !(GEN_UNTIL[k] && turnOf(GEN_UNTIL[k]) <= S.turn); };
 // кого можно назначить на фронт z: главные и уже командующие (финны — только на Финский фронт)
 export function genPool(S, P, z = -1) {
-  const ks = new Set(KEYG[P]);
+  const ks = new Set([...(KEYG[P] || []), ...((S.M.world && KEYG_W[P]) || [])]);
   for (let f = 0; f < E.ZN; f++) if (S.gen[P][f]) ks.add(S.gen[P][f]);
   return [...ks].filter((k) => genAvail(S, k) && (z < 0 || z === 0 || ALLG[k].nat !== 'FIN')).map((k) => ALLG[k])
     .sort((a, b) => b.sk - a.sk || a.sh.localeCompare(b.sh, 'ru'));

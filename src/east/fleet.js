@@ -9,7 +9,7 @@ import { lerpT, yearF, hostile, WK } from './rules.js';
 import { sideOf, cityR, airRatio, note, foesOf, sidesOf } from './engine.js';
 import { seas, seaName } from './ops.js';
 
-export const FLEETS = [
+const FLEETS_E = [
   { id: 'balS', side: 'SOV', sea: ['Балтийское море'], n: 'Балтийский флот', base: ['Таллин', 'Ленинград'], pts: [[1941, 60]] },
   { id: 'balG', side: 'GER', sea: ['Балтийское море'], n: 'Флот Оси на Балтике', base: ['Данциг', 'Кёнигсберг', 'Штеттин', 'Хельсинки'], pts: [[1941, 30]] },
   { id: 'blkS', side: 'SOV', sea: ['Чёрное море', 'Азовское море'], n: 'Черноморский флот', base: ['Севастополь', 'Новороссийск', 'Туапсе', 'Батуми'], pts: [[1941, 50]] },
@@ -17,9 +17,30 @@ export const FLEETS = [
   { id: 'barS', side: 'SOV', sea: ['Баренцево море'], n: 'Северный флот', base: ['Мурманск', 'Архангельск'], pts: [[1941.4, 18], [1943, 24], [1944.5, 30]] },
   { id: 'barG', side: 'GER', sea: ['Баренцево море'], n: 'Кригсмарине в Норвегии', base: ['Петсамо', 'Вадсё', 'Нарвик'], pts: [[1941.4, 8], [1941.95, 10], [1942.08, 40], [1943.97, 40], [1943.98, 28], [1944.86, 28], [1944.87, 14]] },
 ];
-export const SEAS = ['Балтийское море', 'Чёрное море', 'Баренцево море'];
-const FB = Object.fromEntries(FLEETS.map((f) => [f.id, f]));
+// v0.12, большая карта: флоты Атлантики, Северного и Средиземного морей. ally — база может быть в порту союзника
+// (американские флоты — в британских портах); Королевский флот на Средиземном море — потери декабря 1941 г.
+// («Бархэм», «Куин Элизабет» и «Вэлиант» в Александрии), итальянский флот — до перемирия 8.09.1943 г.,
+// подлодки Дёница — до «чёрного мая» 1943 г.
+const FLEETS_W = [
+  { id: 'homeU', side: 'UK', sea: ['Северное море', 'Атлантика'], n: 'Флот метрополии', base: ['Эдинбург', 'Глазго', 'Портсмут', 'Плимут', 'Белфаст'], pts: [[1941.4, 110], [1943.0, 130], [1944.5, 150]] },
+  { id: 'medU', side: 'UK', sea: ['Средиземное море'], n: 'Средиземноморский флот', base: ['Александрия', 'Хайфа', 'Порт-Саид', 'Мальта'], pts: [[1941.4, 60], [1941.9, 60], [1941.97, 34], [1942.8, 50], [1943.4, 80], [1944.5, 90]] },
+  { id: 'atlU', side: 'USA', ally: 1, sea: ['Атлантика'], n: 'Атлантический флот США', base: ['Белфаст', 'Плимут', 'Глазго'], pts: [[1941.9, 0], [1941.95, 30], [1942.5, 50], [1943.5, 80], [1944.4, 100]] },
+  { id: 'medA', side: 'USA', ally: 1, sea: ['Средиземное море'], n: '8-й флот США', base: ['Алжир', 'Оран', 'Палермо', 'Неаполь'], pts: [[1942.85, 0], [1942.9, 20], [1943.5, 40], [1944.5, 40]] },
+  { id: 'itaM', side: 'GER', sea: ['Средиземное море', 'Адриатическое море'], n: 'Королевский флот Италии', base: ['Таранто', 'Неаполь', 'Специя', 'Мессина', 'Венеция'], pts: [[1941.4, 64], [1942.5, 56], [1943.5, 46], [1943.68, 46], [1943.69, 0]] },
+  { id: 'kmA', side: 'GER', sea: ['Атлантика'], n: 'Подводный флот', base: ['Брест (Бретань)', 'Лорьян', 'Сен-Назер', 'Бордо', 'Вильгельмсхафен', 'Гамбург'], pts: [[1941.4, 46], [1942.0, 60], [1942.9, 76], [1943.3, 70], [1943.4, 28], [1944.5, 18], [1945.3, 10]] },
+  { id: 'kmN', side: 'GER', sea: ['Северное море'], n: 'Кригсмарине', base: ['Вильгельмсхафен', 'Гамбург', 'Бремен'], pts: [[1941.4, 28], [1942.2, 18], [1944.0, 12], [1945.3, 6]] },
+];
+export let FLEETS = FLEETS_E;
+export let SEAS = ['Балтийское море', 'Чёрное море', 'Баренцево море'];
+const SEAS_E = SEAS;
+let FB = Object.fromEntries(FLEETS.map((f) => [f.id, f]));
 export const fleetOf = (id) => FB[id];
+// флоты и моря карты (engine.js setZones): Восток — как в v0.11, большая карта — ещё Атлантика, Северное и Средиземное моря
+export function setFleets(M) {
+  FLEETS = M?.world ? FLEETS_E.concat(FLEETS_W) : FLEETS_E;
+  SEAS = M?.world ? SEAS_E.concat(['Атлантика', 'Северное море', 'Средиземное море']) : SEAS_E;
+  FB = Object.fromEntries(FLEETS.map((f) => [f.id, f]));
+}
 const BASE_LOSS = 0.2, RANGE = 400, MINES = 0.35;
 // состояние: S.fl[id] = { p — сила, b — база (название) или null, c — предел по истории в прошлую неделю }
 export function initFleets(S) {
@@ -28,7 +49,14 @@ export function initFleets(S) {
   for (const f of FLEETS) { const c = lerpT(f.pts, y); S.fl[f.id] = { p: c, b: baseOf(S, f), c }; }
   return S.fl;
 }
-const baseOf = (S, f) => f.base.find((n) => { const r = cityR(S, n); return r >= 0 && sideOf(S, r) === f.side; }) || null;
+// флоты, которых нет в партии (сохранение «Восточного фронта» на большой карте и наоборот)
+export function ensureFleets(S) {
+  if (!S.fl) return initFleets(S);
+  const y = yearF(Math.max(0, S.turn));
+  for (const f of FLEETS) if (!S.fl[f.id]) { const c = lerpT(f.pts, y); S.fl[f.id] = { p: c, b: baseOf(S, f), c }; }
+  return S.fl;
+}
+const baseOf = (S, f) => f.base.find((n) => { const r = cityR(S, n), o = r >= 0 ? sideOf(S, r) : null; return o === f.side || (f.ally && !!o && !hostile(o, f.side)); }) || null;
 export const mined = (S, f) => f.id === 'balS' && !S.peace && sideOf(S, cityR(S, 'Таллин')) === 'GER';
 // сила на море (для господства): у запертого минами флота — ×0,35
 const effOf = (S, f) => { const st = S.fl?.[f.id]; return st && st.b ? st.p * (mined(S, f) ? MINES : 1) : 0; };
@@ -45,7 +73,7 @@ export function seaDom(S, sea, side) {
 }
 // ход: предел по истории, смена базы, потери от авиации и ремонт
 export function fleetWeek(S) {
-  if (!S.fl) initFleets(S);
+  ensureFleets(S);
   const y = yearF(S.turn);
   for (const f of FLEETS) {
     const st = S.fl[f.id], c = lerpT(f.pts, y);
@@ -102,6 +130,8 @@ export function navK(S, side, r) {
 }
 // северные конвои ленд-лиза: господство в Баренцевом море
 export const convoyK = (S) => { const d = seaDom(S, 'Баренцево море', 'SOV'); return d === null ? 1 : 0.85 + 0.3 * d; };
+// битва за Атлантику (большая карта): господство союзников в Атлантике 0…1 (нет флотов — 1)
+export const atlK = (S, side) => { const d = seaDom(S, 'Атлантика', side); return d === null ? 1 : d; };
 // место флота на карте: открытая вода ближе всего к базе — по возможности в 3 клетках растра (24 км) от берега,
 // чтобы плашка не ложилась на подпись города (в узких заливах — ближе к берегу); база без выхода к своему морю
 // на карте (Нарвик) — ближайшая вода этого моря

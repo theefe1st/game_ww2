@@ -14,11 +14,11 @@ import { iconPath, iconSize } from './icons.js';
 import { divSprite, divLabel, wmOf, drawDiv, styleOf } from './counters.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
-const SIDE_COL = { GER: [72, 84, 100], SOV: [178, 58, 44] };
+const SIDE_COL = { GER: [72, 84, 100], SOV: [178, 58, 44], UK: [150, 112, 60], USA: [96, 112, 60] };
 const TYPE_RANK = { arm: 0, mot: 1, mtn: 2, abn: 2, inf: 3, cav: 4, sec: 5 };
 const now = () => performance.now();
 // цвета фронтов (групп армий) — как линии планов в Hearts of Iron
-export const FRONT_COL = ['#9b5de5', '#2f80ed', '#27ae60', '#f2994a', '#17b8c8', '#e0479e', '#d4b106', '#a0673a'];
+export const FRONT_COL = ['#9b5de5', '#2f80ed', '#27ae60', '#f2994a', '#17b8c8', '#e0479e', '#d4b106', '#a0673a', '#5c6bc0', '#ef5350', '#26a69a', '#8d6e63'];
 export const AGG_SC = 0.4; // мельче — сводные фишки по областям
 export const divSize = (sc) => Math.round(clamp(9 + 10 * sc, 14, 34));
 const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);

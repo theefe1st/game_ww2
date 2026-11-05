@@ -8,7 +8,7 @@ import {
   armyCap, armySize, FN, fzOf, frontMap, frontZone, airRatio, wxOf, progOf, atWar, ownOrAlly,
 } from './engine.js';
 import { other, hostile, isMech, yearF, turnOf, TYPES, SIDE0, dateOf, lerpT, wT, everyW } from './rules.js';
-import { PLAN, GEN_HIST } from './hist.js';
+import { PLAN, genHist } from './hist.js';
 import { MIX, mixNow, eqTot, hasEq, brigFree } from './eco.js';
 export { MIX, mixNow };
 import { placeR } from './setup.js';
@@ -26,8 +26,9 @@ export function planTarget(S, side, list) {
   return -1;
 }
 function histGenerals(S, side) {
-  GEN_HIST[side].forEach((L, z) => {
+  genHist(S, side).forEach((L, z) => {
     const F = S.fr?.[side]?.[z];
+    if (!L) return;
     if (F && (!F.on || F.pick)) return; // генерала выбрал игрок
     let k = L[0];
     for (const x of L.slice(1)) if (turnOf(x[0]) <= S.turn) k = x[1];
