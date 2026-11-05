@@ -11,6 +11,7 @@ import { FRONT_COL } from './map.js';
 import { TYPES, SIDE0, divW, plural } from './rules.js';
 import { esc, ic, num, weeksW } from './kit.js';
 import { PEACE_EXTRA } from './prewar.js';
+import { SEAS, seaDom } from './fleet.js';
 
 const nm = (M, r) => M.reg[r].city?.n || M.reg[r].n;
 const pc = (x) => `${Math.round(x * 100)}%`;
@@ -103,6 +104,8 @@ ${pocket ? `<div class="e-warn">${ic('encircle')}В окружении: ${pocket
 ${coming.length - late ? `<div class="e-note">${ic('train')}В пути на фронт: ${coming.length - late} ${divW(coming.length - late)}</div>` : ''}
 ${late ? `<div class="e-note">${ic('train')}Второй эшелон: ${late} ${divW(late)} — подойдут к фронту после начала войны</div>` : ''}
 ${plan ? `<div class="e-note">${ic('calendar')}По плану формирования к 22 июня 1941 г. — ещё ${plan} ${divW(plan)}: появятся сами, по датам истории</div>` : ''}
+<h4>${ic('warship')}Флот <small><button class="e-lnk" data-a="fleet">${ic('ship')}моря и базы</button></small></h4>
+<div class="e-zsel">${SEAS.map((n) => { const d = seaDom(S, n, P) ?? 0.5; return `<button class="e-zc" data-a="fleet" data-sea="${esc(n)}">${ic('ship')}${esc(n.replace(/ море$/, ''))}<b class="${d >= 0.6 ? 'good' : d <= 0.4 ? 'bad' : ''}">${Math.round(d * 100)} %</b></button>`; }).join('')}</div>
 <h4>${ic('equip')}Снаряжение и люди <small><button class="e-lnk" data-a="eco">${ic('prod')}производство</button></small></h4>
 <div class="e-eco e4"><span>${ic('rifle')}<b>${num(q.inf)}</b><small>стрелковое</small></span><span>${ic('art')}<b>${num(q.art)}</b><small>артиллерия</small></span><span>${ic('tank')}<b>${num(q.arm)}</b><small>танки</small></span><span>${ic('men')}<b>${num(S.men[P])}</b><small>люди</small></span></div>
 ${resH}${trH}

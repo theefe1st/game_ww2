@@ -573,3 +573,22 @@
 .e-pbody .e-chips .e-chip.gone{opacity:.55}
 .e-tip.at-dec{left:50%;transform:translateX(-50%);top:calc(var(--bar) + 12px)}
 .e-tip.at-peace{right:calc(10px + var(--sr));bottom:calc(var(--bot) + var(--sb) + 60px)}
+/* флот (шаг 6.8): панель «Флот», сводка в «Армии» */
+.e-zc b{margin-left:5px}
+.e-zc b.good{color:#c8eaa8}
+.e-zc b.bad{color:#f4a890}
+.e-sea{display:flex;flex-direction:column;gap:6px;padding-bottom:4px;scroll-margin-top:8px}
+.e-sea.on h4{color:#ffe08a}
+.e-dom{display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,240,210,.12)}
+.e-dom>i{display:block;height:100%}
+.e-fls{display:flex;flex-direction:column;gap:5px}
+.e-fl{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:12px;background:rgba(255,240,210,.06);border:1px solid rgba(255,240,210,.1)}
+.e-fl>.ic{flex:none;width:28px;height:28px;color:#f0a890}
+.e-fl.en>.ic{color:#aab8c6}
+.e-fl.dead{opacity:.55}
+.e-fl .e-lm small{white-space:normal}
+.e-fl .e-tags{margin-top:3px}
+.e-flb{height:5px;border-radius:3px;background:rgba(255,240,210,.12);overflow:hidden;margin-top:2px}
+.e-flb>i{display:block;height:100%}
+.e-fln{flex:none;display:flex;flex-direction:column;align-items:flex-end;font-size:17px;min-width:40px}
+.e-fln small{font-size:10.5px;font-weight:500;opacity:.65}

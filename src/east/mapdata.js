@@ -41,6 +41,7 @@ export function decodeMap(J) {
     return [x0, y0, x1, y1];
   };
   M.reg = J.regs.map((g, id) => ({ id, n: g.n, o: g.o, nat: J.nats[g.o], x: g.x, y: g.y, a: g.a, t: g.t, z: g.z, ind: g.ind, vp: g.vp, f: g.f, e: g.e, c: g.c, rg: g.rg, bb: bboxOf(g.rg), nb: [] }));
+  for (const g of M.reg) { if (TER_FIX[g.n]) g.t = TER_FIX[g.n]; if (ARC.has(g.n)) g.arc = 1; }
   M.R = M.reg.length;
   M.neut = J.neut.map((g) => ({ ...g, bb: bboxOf(g.rg) }));
   M.adj = J.adj.map(([a, b, len, riv, rail, sp]) => ({ a, b, len, riv, rail, sp }));
@@ -85,6 +86,11 @@ export function polyPath(rings) {
   }
   return P;
 }
+// местность, уточнённая вручную: Кольский полуостров — сопки и тундра без дорог (в данных карты — «равнина»)
+const TER_FIX = { Мурманск: 'hil', Петсамо: 'hil' };
+// Заполярье и Северная Карелия: тундра, сопки, болота и озёра, одна дорога на направление — наступать трудно
+// (engine.js: attCV, ARC_K). Фронт 1941 г. встал на Лице, Вермане, у Кестеньги, Ухты, Ругозера и Масельгской и стоял до 1944 г.
+const ARC = new Set(['Мурманск', 'Териберка', 'Апатиты', 'Краснощелье', 'Варзуга', 'Лоухи', 'Кемь', 'Беломорск', 'Реболы', 'Сегежа', 'Петсамо', 'Салла', 'Куусамо', 'Вадсё']);
 // проекция (как в tools/build-east.mjs): долгота/широта → км карты
 export function makeProj(P) {
   const RE = 6371, DG = Math.PI / 180, f1 = P.lat1 * DG, f2 = P.lat2 * DG;

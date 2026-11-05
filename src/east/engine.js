@@ -13,6 +13,7 @@ import { tx, techWeek } from './tech.js';
 import { trainWeek } from './army.js';
 import { decK, decOn, decWeek } from './decisions.js';
 import { warStart, peaceCaps, peaceK, PEACE_EXTRA } from './prewar.js';
+import { fleetWeek, navK, convoyK } from './fleet.js';
 export { BUILD, BUILD_ORDER, canBuild, build, whyNot, canEvac, evacuate, slots, used, eqTot, hasEq, EQS, LINES, LINE, shiftLine, etaOf, unbuild, brigN, brigBusy, brigFree, bWeeks, bTime, bRate, bRate0, myQ, isActive, aaCover, allocFac } from './eco.js';
 
 export const SAVE_KEY = 'wf_east_v1';
@@ -122,6 +123,7 @@ export function baseCV(S, u, kind) {
 }
 export function wxOf(S, r) { return WX[S.wx[S.M.reg[r].z]]; }
 const frozen = (S, r) => !!wxOf(S, r).frozen;
+export const ARC_K = 0.5;
 export function attCV(S, u, T, from = u.r) {
   const g = S.M.reg[T], ter = g.t, w = wxOf(S, T);
   let v = baseCV(S, u, 'att');
@@ -130,6 +132,7 @@ export function attCV(S, u, T, from = u.r) {
   const e = S.M.edge.get(from * 4096 + T);
   if (e && !frozen(S, T)) v *= e.riv === 2 ? 0.68 : e.riv === 1 ? 0.86 : 1;
   if (e?.sp === 'sea') v *= 0.55;
+  if (g.arc) v *= ARC_K; // Заполярье: бездорожье (mapdata.js: ARC)
   if (u._opK) v *= u._opK; // десант (ops.js)
   v *= w.atk;
   if (u.s === 'GER' && u.nat === 'GER' && winter41(S.turn) && S.wx[g.z] !== 'dry') v *= S.flags.winterGear ? 0.85 : 0.62;
@@ -412,6 +415,7 @@ export function odds(S, T, us, extraD = 0) {
   if (dA > 0) dA *= 1 - aaCover(S, T, other(side));
   const e = 0.5 + dA;
   A *= (0.8 + 0.4 * e) / (0.8 + 0.4 * (1 - e));
+  A *= navK(S, side, T); // флот у берега (fleet.js)
   return { A, D, R: D > 0 ? A / D : 99 };
 }
 // ——— потери по фронтам (полосам): люди (тыс.), танки, орудия, дивизии — всего и с начала хода (S.fst) ———
@@ -602,7 +606,8 @@ export function endWeek(S) {
   S.turn++;
   for (let z = 0; z < ZN; z++) S.wx[z] = weatherOf(S.turn, z, S.wxShift[(S.turn / 52) | 0] || 0, S.seed);
   S.air.GER = airBase(S, 'GER') * (S.airK?.GER ?? 1); S.air.SOV = airBase(S, 'SOV') * (S.airK?.SOV ?? 1);
-  if (S.peace && S.turn >= 0) warStart(S); // 22 июня 1941 г.: конец мирного времени (prewar.js)
+  if (S.peace && S.turn >= 0) warStart(S); // 22 июня 1941 г.: конец мирного времени (prewar.js); флоты там — заново, как 22.06
+  else fleetWeek(S);
   trainWeek(S);
   arrivals(S);
   director(S);
@@ -684,7 +689,7 @@ export function income(S, side) {
   let ll = 0;
   if (side === 'SOV') {
     const routes = ['Мурманск', 'Архангельск', 'Астрахань', 'Баку'].filter((n) => sideOf(S, regByName(S, n)) === 'SOV').length;
-    ll = lerpT(ECO.ll, y) * (0.4 + 0.15 * routes) * (S.flags.ll || 1) * decK(S, 'SOV', 'll');
+    ll = lerpT(ECO.ll, y) * (0.4 + 0.15 * routes) * (S.flags.ll || 1) * decK(S, 'SOV', 'll') * convoyK(S); // северные конвои — по господству в Баренцевом море
     pp += ll;
   }
   let men = lerpT(ECO.men[side], y) * ec * (S.flags[side + 'men'] || 1) * decK(S, side, 'men');

@@ -9,6 +9,7 @@
 import { turnOf, lerpT, yearF } from './rules.js';
 import { sideOf, regByName, note, addMor, alive, room, reindex, frontDist, MOR0 } from './engine.js';
 import { ensureTech } from './tech.js';
+import { initFleets } from './fleet.js';
 
 const T = turnOf;
 // старты: ключ → дата первого хода (воскресенье)
@@ -186,9 +187,10 @@ export function warStart(S) {
   }
   for (const u of S.units) delete u.std;
   delete S.facStd;
-  // внезапность: у границы — не в боевой готовности, окопы не заняты
+  initFleets(S); // флоты — как 22.06.1941 (кораблей до войны не строим)
+  // внезапность: у границы — не в боевой готовности, окопы не заняты (кроме Финского направления — см. setup.js: placeArmy)
   if (!S.flags.SOVready) {
     const d = frontDist(S, 'SOV');
-    for (const u of S.units) if (alive(u) && u.s === 'SOV' && d[u.r] <= 1) { u.rdy = Math.min(u.rdy, 45); u.ent = Math.min(u.ent, 1); }
+    for (const u of S.units) if (alive(u) && u.s === 'SOV' && d[u.r] <= 1 && S.M.reg[u.r].z !== 0) { u.rdy = Math.min(u.rdy, 45); u.ent = Math.min(u.ent, 1); }
   }
 }

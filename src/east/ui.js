@@ -17,6 +17,8 @@ import { EcoUI, ECO_ACT } from './ui-eco.js';
 import { SciUI, SCI_ACT } from './ui-sci.js';
 import { OpsUI, OPS_ACT } from './ui-ops.js';
 import { DecUI, DEC_ACT } from './ui-dec.js';
+import { FleetUI, FLEET_ACT, fleetSea } from './ui-fleet.js';
+import { navSup } from './fleet.js';
 import { decNew, isoTxt } from './decisions.js';
 import { STARTS, START_ORDER } from './prewar.js';
 import { FRONT_COL } from './map.js';
@@ -54,6 +56,7 @@ export class EastUI {
     this.snd = new Sound();
     this.opt = { trees: false, wxfx: true, tips: true };
     try { Object.assign(this.opt, JSON.parse(localStorage.getItem(OPTS) || '{}')); } catch {}
+    if (!this.opt.v11) { this.opt.trees = false; this.opt.v11 = 1; this.saveOpts(); } // v0.11: деревья по умолчанию выключены (и у старых настроек)
     try { this.tipsSeen = JSON.parse(localStorage.getItem(TIPS) || '{}'); } catch { this.tipsSeen = {}; }
     this.S = null; this.P = 'SOV'; this.mode = 'menu'; this.sel = null; this.pick = null;
     root.classList.add('east');
@@ -114,6 +117,7 @@ export class EastUI {
     this.map.opt.trees = this.opt.trees; this.map.opt.wx = this.opt.wxfx;
     this.map.onTap = (r, x, y) => this.onTap(r, x, y);
     this.map.onLong = (r) => { if (r >= 0) { this.snd.play('select'); this.openRegion(r); } };
+    this.map.onFleet = (id) => FLEET_ACT.fleet.call(this, { dataset: { sea: fleetSea(id) } });
     this.map.onHQ = (f) => { this.snd.play('click'); this.openPanel('dirs'); setTimeout(() => this.$(`.e-front[data-f="${f}"]`)?.scrollIntoView({ block: 'center' }), 30); };
     // значки построек на карте (крупный масштаб): свои — все, у противника — укрепления и ПВО
     this.map.bldItems = (S, r) => {
@@ -613,7 +617,7 @@ ${this.histCmp(o)}
     const k = this.panelKind, p = this.$('.e-panel');
     const st = this.pkLast === `${k}:${this.panelArg}` ? p.querySelector('.e-pbody')?.scrollTop || 0 : 0;
     this.pkLast = `${k}:${this.panelArg}`;
-    const html = k === 'dirs' ? this.pDirs() : k === 'army' ? this.pArmy() : k === 'eco' ? this.pEco() : k === 'sci' ? this.pSci() : k === 'log' ? this.pLog() : k === 'dec' ? this.pDec() : k === 'reg' ? this.pRegion(this.panelArg) : '';
+    const html = k === 'dirs' ? this.pDirs() : k === 'army' ? this.pArmy() : k === 'eco' ? this.pEco() : k === 'sci' ? this.pSci() : k === 'log' ? this.pLog() : k === 'dec' ? this.pDec() : k === 'fleet' ? this.pFleet(this.panelArg) : k === 'reg' ? this.pRegion(this.panelArg) : '';
     p.innerHTML = html;
     const b = p.querySelector('.e-pbody'); if (b) b.scrollTop = st;
   }
@@ -662,7 +666,9 @@ ${this.histCmp(o)}
     const sup = sd ? S.sup[sd]?.[r] ?? 1 : 1;
     const supT = !sd ? '' : sup <= 0 ? `<span class="e-tag bad">${ic('encircle')}окружение</span>` : sup < 0.5 ? `<span class="e-tag warn">${ic('truck')}слабое снабжение</span>` : `<span class="e-tag">${ic('truck')}снабжение</span>`;
     const name = g.city && g.city.n !== g.n ? `${esc(g.city.n)} <small>${esc(g.n)}</small>` : esc(g.n);
-    const info = `<div class="e-tags"><span class="e-tag">${ic(g.t === 'for' ? 'wheat' : g.t === 'mnt' || g.t === 'hil' ? 'mtn' : 'compass')}${esc(TER[g.t].n)}</span><span class="e-tag">${ic(WX[S.wx[g.z]].ic)}${esc(WX[S.wx[g.z]].n)}</span>${sd === this.P ? `<span class="e-tag" style="color:${FRONT_COL[S.fr[sd][S.fz[r]]?.col]}">${ic('flag')}${esc(frontShort(S.fr[sd][S.fz[r]]?.n))}</span>` : `<span class="e-tag">${esc(ZONES[g.z].n)}</span>`}${supT}${g.vp ? `<span class="e-tag gold">${ic('star')}${g.vp}</span>` : ''}</div>`;
+    const nv = !S.peace && sd ? navSup(S, r) : null; // флоты у берега (fleet.js): до ±15 % в бою
+    const navT = nv ? `${nv[P] > 0 ? `<span class="e-tag good" title="поддержка флота в бою">${ic('warship')}флот</span>` : ''}${nv[other(P)] > 0 ? `<span class="e-tag warn" title="флот противника у берега">${ic('warship')}флот противника</span>` : ''}` : '';
+    const info = `<div class="e-tags"><span class="e-tag">${ic(g.t === 'for' ? 'wheat' : g.t === 'mnt' || g.t === 'hil' ? 'mtn' : 'compass')}${esc(TER[g.t].n)}</span><span class="e-tag">${ic(WX[S.wx[g.z]].ic)}${esc(WX[S.wx[g.z]].n)}</span>${sd === this.P ? `<span class="e-tag" style="color:${FRONT_COL[S.fr[sd][S.fz[r]]?.col]}">${ic('flag')}${esc(frontShort(S.fr[sd][S.fz[r]]?.n))}</span>` : `<span class="e-tag">${esc(ZONES[g.z].n)}</span>`}${supT}${navT}${g.arc ? `<span class="e-tag" title="тундра, сопки и болота без дорог: атака ×0,5">${ic('snow')}Заполярье</span>` : ''}${g.vp ? `<span class="e-tag gold">${ic('star')}${g.vp}</span>` : ''}</div>`;
     const blds = this.bGrid(r) + (E.garOf(S, r) > 0 && sd ? `<div class="e-bl"><span title="Гарнизон">${ic('rifle')}<small>гарнизон</small></span></div>` : '');
     const ulist = us.length ? `<div class="e-units">${us.map((u) => `<div class="e-u ${u.s === P ? '' : 'en'}"><img src="${counterURL(u.nat, u.t, divLabel(u), wmOf(u))}" alt=""><div><b>${esc(u.n)}</b><small>${esc(TYPES[u.t].n)}${u.nat !== u.s ? ` · ${esc(NAT_N[u.nat])}` : ''}${u.man ? ' · приказ отдан' : ''}</small><i class="e-str"><em style="width:${Math.max(4, u.str)}%;background:${strCol(u.str)}"></em></i>${u.s === P && u.t !== 'sec' && u.rdy < 22 ? `<small class="e-nrdy">${ic('hourglass')}не готова к удару</small>` : ''}</div></div>`).join('')}</div>` : `<div class="e-note">${ic('info')}Войск нет</div>`;
     let act = '';
@@ -855,5 +861,5 @@ ${this.histCmp(o)}
   }
   tipSoon() { clearTimeout(this.tipT); this.tipT = setTimeout(() => this.maybeTip(), 700); }
 }
-Object.assign(EastUI.prototype, FrontsUI, EcoUI, SciUI, OpsUI, DecUI);
-const ACTX = { ...FRONT_ACT, ...ECO_ACT, ...SCI_ACT, ...OPS_ACT, ...DEC_ACT };
+Object.assign(EastUI.prototype, FrontsUI, EcoUI, SciUI, OpsUI, DecUI, FleetUI);
+const ACTX = { ...FRONT_ACT, ...ECO_ACT, ...SCI_ACT, ...OPS_ACT, ...DEC_ACT, ...FLEET_ACT };

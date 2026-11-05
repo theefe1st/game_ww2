@@ -4,6 +4,7 @@
 import { TYPES, isMech, other, yearF, quality } from './rules.js';
 import { sideOf, garOf, resolveAttack, moveUnit, capture, alive, room, airRatio, note, odds, computeSupply, aaCover } from './engine.js';
 import { hasU, unV } from './tech.js';
+import { seaDom } from './fleet.js';
 
 const ST = 8; // км на клетку растра
 const SEA_N = [['Одесса', 'Чёрное море'], ['Таллин', 'Балтийское море'], ['Мурманск', 'Баренцево море'], ['Баку', 'Каспийское море'], ['Сплит', 'Адриатическое море'], ['Лабытнанги', 'Карское море']];
@@ -56,18 +57,17 @@ export function seas(M) {
   }
   const name = {};
   for (const [c, n] of SEA_N) { const g = M.reg.find((x) => x.city?.n === c || x.n === c); for (const s of (g && sr[g.id]) || []) name[s] ??= n; }
-  return (M.sea = { sr, name, size });
+  return (M.sea = { sr, name, size, id, nx, ny, ST });
 }
 export const seaName = (M, s) => seas(M).name[s] || 'море';
 export const isPort = (S, r) => S.M.reg[r].f.includes('p');
 const dist = (M, a, b) => Math.hypot(M.reg[a].x - M.reg[b].x, M.reg[a].y - M.reg[b].y);
-// господство на море: Черноморский флот у СССР, на Балтике до 1944 г. — у Германии
-function seaK(S, side, s) {
-  const n = seaName(S.M, s), y = yearF(S.turn);
-  if (n === 'Чёрное море' || n === 'Азовское море') return side === 'GER' ? 0.75 : 1;
-  if (n === 'Балтийское море') return side === 'SOV' && y < 1944.5 ? 0.75 : 1;
+// господство на море — по силе флотов (fleet.js): ×0,6 без флота … ×1,4 при полном господстве; на Каспии флота Оси нет
+export function seaK(S, side, s) {
+  const n = seaName(S.M, s);
   if (n === 'Каспийское море') return side === 'GER' ? 0 : 1;
-  return 1;
+  const d = seaDom(S, n, side);
+  return d === null ? 1 : 0.6 + 0.8 * d;
 }
 export const OPS = {
   sea: { n: 'Морской десант', ic: 'landing', max: 3, range: 650, cd: 4, k: 0.5, fail: 12, tech: 'Морская пехота' },

@@ -194,7 +194,8 @@ export class GLMap {
       const f = tf[t];
       if (!(f & 6) || f & 16 || !(f & 1)) continue;
       const h = tc[t], a = tri[t * 3], b = tri[t * 3 + 1], c = tri[t * 3 + 2];
-      const n = f & 4 ? 1 : (h & 7) < 2 ? 1 : 2;
+      // редко (отзыв 04.11: «деревьев слишком много»): дерево — в ~3/8 лесных треугольников, камыш — в 1/4 болотных
+      const n = f & 4 && !(f & 2) ? ((h & 3) === 0 ? 1 : 0) : (h & 7) < 3 ? 1 : 0;
       for (let q = 0; q < n; q++) {
         const hq = triHash(h & 0xffff, q * 31 + 7);
         let u = (hq & 1023) / 1023, v = ((hq >>> 10) & 1023) / 1023;

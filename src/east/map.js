@@ -7,7 +7,8 @@
 import { GLMap } from './gl.js';
 import { Terrain } from './terrain.js';
 import { regionAt, ringPts, regionPath } from './mapdata.js';
-import { sideOf, natOf, alive } from './engine.js';
+import { sideOf, natOf, alive, cityR } from './engine.js';
+import { FLEETS, fleetSpot, mined } from './fleet.js';
 import { NATC, NAT_N } from './rules.js';
 import { iconPath, iconSize } from './icons.js';
 import { divSprite, divLabel, wmOf, drawDiv, styleOf } from './counters.js';
@@ -161,8 +162,8 @@ export class EastMap {
       if (P.size === 1) { const [p] = [...P.values()]; pan = { x: p[0], y: p[1], x0: this.view.x0, y0: this.view.y0 }; pinch = null; return; }
       if (P.size === 0) {
         if (down && !down.moved && !down.long && e.type === 'pointerup') {
-          const [x, y] = pos(e), hq = this.hqHit?.find((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
-          if (hq && this.onHQ) this.onHQ(hq.f); else this.onTap?.(this.regionAtPx(x, y), x, y);
+          const [x, y] = pos(e), hit = (h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h, hq = this.hqHit?.find(hit), fl = !hq && this.fleetHit?.find(hit);
+          if (hq && this.onHQ) this.onHQ(hq.f); else if (fl && this.onFleet) this.onFleet(fl.id); else this.onTap?.(this.regionAtPx(x, y), x, y);
         }
         pan = null; pinch = null; down = null;
       }
@@ -462,6 +463,7 @@ export class EastMap {
       }
       this.stackHit.push({ r: it.r, u: it.agg ? null : u, x: p[0], y: p[1], w: sz, h: sz });
     }
+    this.drawFleets(c, vis);
     this.drawHQs(c, vis);
     // флажки целей
     for (const f of this.flags) {
@@ -538,6 +540,41 @@ export class EastMap {
       const g = best >= 0 ? M.reg[best] : { x: q.x, y: q.y };
       const tgt = S.post?.[P]?.[q.f] === 'atk' && !F.man ? S.tgt?.[P]?.[q.f] : -1;
       this.hqQ.push({ g, q, F, tgt });
+    }
+  }
+  // флоты (fleet.js): плашка цвета стороны с силуэтом корабля и силой — в море у главной базы; название при крупном масштабе
+  drawFleets(c, vis) {
+    const S = this.S, M = this.M, sc = this.view.sc;
+    this.fleetHit = [];
+    if (!S?.fl || sc < 0.2) return;
+    const k = clamp(0.75 + sc * 0.35, 0.85, 1.3), H = Math.round(19 * k), isz = H - 2;
+    for (const f of FLEETS) {
+      const st = S.fl[f.id];
+      if (!st?.b || st.p <= 0) continue;
+      const br = cityR(S, st.b), xy = br >= 0 ? fleetSpot(M, f, br) : null;
+      if (!xy) continue;
+      const p = vis(xy[0], xy[1], 80);
+      if (!p) continue;
+      const col = f.side === 'SOV' ? '#a83a28' : '#4a5866', x = p[0], y = p[1], t = String(Math.round(st.p)), mn = mined(S, f);
+      c.font = `700 ${Math.round(11.5 * k)}px Rubik, system-ui, sans-serif`;
+      const W = isz + c.measureText(t).width + 11 * k, x0 = x - W / 2, y0 = y - H / 2;
+      c.fillStyle = 'rgba(16,22,30,0.32)'; rrect(c, x0 + 1, y0 + 1.6, W, H, H / 2); c.fill();
+      c.fillStyle = col; rrect(c, x0, y0, W, H, H / 2); c.fill();
+      c.lineWidth = 1.6; c.strokeStyle = mn ? '#f0b418' : 'rgba(255,250,238,0.95)';
+      if (mn) c.setLineDash([3.5, 2.5]);
+      rrect(c, x0, y0, W, H, H / 2); c.stroke(); c.setLineDash([]);
+      drawIcon(c, 'warship', x0 + 3 * k + isz / 2, y - 0.5, isz, '#fff');
+      c.fillStyle = '#fff'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(t, x0 + isz + 4.5 * k, y + 0.5);
+      let h = H;
+      if (sc >= 0.55) {
+        // название — над плашкой (к открытому морю, не на подписи города-базы)
+        c.font = '700 10px Rubik, system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'bottom';
+        const n = mn ? `${f.n} (заперт)` : f.n;
+        c.lineWidth = 3; c.lineJoin = 'round'; c.strokeStyle = 'rgba(255,250,238,0.95)'; c.strokeText(n, x, y0 - 2);
+        c.fillStyle = col; c.fillText(n, x, y0 - 2);
+        h = H + 14;
+      }
+      this.fleetHit.push({ id: f.id, x: x0 - 4, y: y0 - 4 - (h - H), w: W + 8, h: h + 8 });
     }
   }
   // поверх фишек: стрелки наступлений и штабы фронтов

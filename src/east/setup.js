@@ -10,6 +10,7 @@ import { weatherOf, SIDE0, turnOf, rnd, yearF, lerpT } from './rules.js';
 import { STARTS, setBorders, AIR0 } from './prewar.js';
 import { GEN_HIST, PLAN, REINF, parseMix, FRONT_N } from './hist.js';
 import { runEvents } from './events.js';
+import { initFleets } from './fleet.js';
 
 // область по названию города или области
 export function placeR(S, name) {
@@ -18,10 +19,14 @@ export function placeR(S, name) {
   if (M.cityR.has(name)) return M.cityR.get(name);
   return regByName(S, name);
 }
+// поправки участков для карты провинций: 169-я пд и «Норд» — у Саллы (на Кандалакшу, «Полярфукс»), а не все четыре
+// дивизии у Петсамо; 14-я и 52-я сд — у Мурманска (Лица), 104-я и 122-я — на Кандалакшском направлении, 1-я тд — у Кестеньги;
+// 54-я сд — у Ухты (Кемь), 71-я — у Ребол
+const AX_E = { norw: [[28.7, 66.83], [29.0, 66.9]], s14: [[32.5, 69.1], [31.8, 66.3]], s7: [[31.2, 65.2], [31.6, 61.75]] };
 // расстановка дивизий армии вдоль участка
 function placeArmy(S, P, A, codes, arrTurn) {
-  const M = S.M, side = A.side;
-  const [x0, y0] = P(...A.ax[0]), [x1, y1] = P(...A.ax[A.ax.length - 1]);
+  const M = S.M, side = A.side, ax = AX_E[A.k] || A.ax;
+  const [x0, y0] = P(...ax[0]), [x1, y1] = P(...ax[ax.length - 1]);
   const us = [];
   for (const c of codes) {
     if (/^mk\d+/.test(c)) { // мехкорпус 1941 г. — две танковые и моторизованная дивизии
@@ -37,8 +42,9 @@ function placeArmy(S, P, A, codes, arrTurn) {
     let r = regionAt(M, x, y);
     if (r < 0 || sideOf(S, r) !== side) r = nearestRegion(M, x, y, (q) => sideOf(S, q) === side);
     const nat = o.nat || A.nat;
-    // внезапность: войска западных округов не приведены в готовность
-    const u = mkUnit(S, { s: side, nat, t: o.t, n: o.n, str: side === 'SOV' ? (o.t === 'arm' ? 78 : 82) : 100, rdy: side === 'SOV' ? (arrTurn > 0 ? 70 : 45) : 100, xp: side === 'SOV' ? 5 : nat === 'GER' ? 35 : 15 });
+    // внезапность: войска западных округов не приведены в готовность (Финское направление — успели: финны и горные
+    // егеря наступали с 29 июня – 10 июля; prewar.js: warStart — так же)
+    const u = mkUnit(S, { s: side, nat, t: o.t, n: o.n, str: side === 'SOV' ? (o.t === 'arm' ? 78 : 82) : 100, rdy: side === 'SOV' ? (arrTurn > 0 || M.reg[r].z === 0 ? 70 : 45) : 100, xp: side === 'SOV' ? 5 : nat === 'GER' ? 35 : 15 });
     u.h41 = 1; // состав 22.06.1941 г.
     if (arrTurn > 0) { u.arr = arrTurn; u.at = r; u.z = M.reg[r].z; }
     else u._want = r;
@@ -164,7 +170,7 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
   reindex(S);
   for (const sd of ['GER', 'SOV']) { const d = frontDist(S, sd); for (let r = 0; r < R; r++) if (sideOf(S, r) === sd) S.bd0[r] = d[r]; }
   // постройки на 1941 г.
-  const F = { Ленинград: 2, Москва: 1, Севастополь: 3, Одесса: 2, Киев: 2, Брест: 1, Кёнигсберг: 2, Берлин: 1, Выборг: 1, Полоцк: 1, Новоград: 1, Коростень: 1, Летичев: 1, 'Могилёв-Подольский': 1, Днепропетровск: 1, Запорожье: 1, Мозырь: 1 };
+  const F = { Ленинград: 2, Москва: 1, Мурманск: 2, Севастополь: 3, Одесса: 2, Киев: 2, Брест: 1, Кёнигсберг: 2, Берлин: 1, Выборг: 1, Полоцк: 1, Новоград: 1, Коростень: 1, Летичев: 1, 'Могилёв-Подольский': 1, Днепропетровск: 1, Запорожье: 1, Мозырь: 1 };
   for (const [n, l] of Object.entries(F)) { const r = placeR(S, n); if (r >= 0) S.fort[r] = l; }
   for (const g of M.reg) if (g.vp >= 3 || g.f.includes('c')) S.afd[g.id] = 1;
   for (const n of ['Варшава', 'Кёнигсберг', 'Краков', 'Люблин', 'Бухарест', 'Хельсинки', 'Львов', 'Минск', 'Рига', 'Каунас']) { const r = placeR(S, n); if (r >= 0) S.afd[r] = 1; }
@@ -193,6 +199,7 @@ export function newGame(M, { side = 'SOV', mode = 'hist', diff = 1, seed = (Math
   ensureState(S);
   if (S.peace) { S.eqStd = JSON.parse(JSON.stringify(S.eq)); S.lineStd = { GER: { ...S.line.GER.sh }, SOV: { ...S.line.SOV.sh } }; }
   reindex(S);
+  initFleets(S);
   computeSupply(S, 'GER'); computeSupply(S, 'SOV');
   S.airA = { GER: airAlloc(S, 'GER'), SOV: airAlloc(S, 'SOV') };
   if (noAsk) S.noAsk = 1;

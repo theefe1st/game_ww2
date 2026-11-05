@@ -1,6 +1,7 @@
 // Снимки «Восточного фронта» по шагам (Playwright + Chromium).
 // STEPS="имя|js;;имя|js" — js выполняется в странице (можно await; window.__east — интерфейс EastUI), после шага — снимок.
 // Перед шагами: меню → новая игра (SIDE SOV|GER, MODE hist|free, START — дата старта, если есть выбор) → ход ИИ → карточки закрыты.
+// Шаг с именем «tap…»: js возвращает [x, y] — после шага касание в этой точке (TAPJS — js проверки после касания).
 // NEW=0 — остаться в меню. W H DPR — экран, OUT — папка снимков, TAG — префикс, WAIT — пауза перед снимком, мс.
 // Пример: STEPS="fronts|__east.openPanel('dirs')" node tools/shot-east.cjs
 const { chromium } = require('/vercel/sandbox/node_modules/playwright');
@@ -44,6 +45,8 @@ const fs = require('fs');
     try {
       const r = await ev(`(async()=>{${js}})()`);
       if (r !== undefined && r !== null) console.log(name, '→', typeof r === 'string' ? r.slice(0, 1500) : JSON.stringify(r).slice(0, 1500));
+      // шаг «tap…»: js возвращает [x, y] (CSS px окна) — настоящее касание мышью (pointer-события с захватом)
+      if (name.startsWith('tap') && Array.isArray(r)) { await page.mouse.click(r[0], r[1]); await page.waitForTimeout(400); if (process.env.TAPJS) console.log(name, '⇒', await ev(`(async()=>{${process.env.TAPJS}})()`)); }
     } catch (e) { console.log('step', name, 'error:', e.message.slice(0, 300)); }
     await waitIdle(); await page.waitForTimeout(+(process.env.WAIT || 700));
     if (process.env.DRAIN === '1') await drain();
