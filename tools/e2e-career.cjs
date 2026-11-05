@@ -9,7 +9,7 @@ const { chromium } = require('/vercel/sandbox/node_modules/playwright');
   const errs = [];
   page.on('console', (m) => ['error', 'warning'].includes(m.type()) && errs.push(m.type() + ': ' + m.text()));
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
-  await page.goto('file:///data/game/dist-single/index.html');
+  await page.goto('file:///data/game/dist-single/index.html#arch');
   await page.waitForTimeout(1200);
   await page.click('#m-car'); await page.waitForTimeout(500);
   await page.evaluate(() => __app.showCampNew()); await page.waitForTimeout(300);
